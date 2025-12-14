@@ -12,8 +12,6 @@ from typing import Any
 from web_scraper.content import (
     content_stats,
     detect_language,
-    extract_main_content,
-    html_to_markdown,
     normalise_url,
     sanitize_markdown,
 )
@@ -168,7 +166,8 @@ def _extract_markdown(
     Extract markdown content from crawl result.
 
     Prefers fit_markdown when only_main_content is true,
-    falls back to raw_markdown or HTML extraction.
+    falls back to raw_markdown. Returns empty string if Crawl4AI
+    provides no markdown.
     """
     markdown_obj = getattr(crawl_result, "markdown", None)
     raw_md = getattr(markdown_obj, "raw_markdown", None) if markdown_obj else None
@@ -184,10 +183,7 @@ def _extract_markdown(
         # Use raw_markdown when only_main_content is false
         return str(raw_md) if raw_md else ""
     else:
-        # Fallback to HTML-based extraction
-        if raw_html:
-            content_html, _ = extract_main_content(raw_html)
-            return html_to_markdown(content_html)
+        # No markdown from Crawl4AI - return empty string
         return ""
 
 
