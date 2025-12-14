@@ -1,4 +1,22 @@
-"""HTML to markdown conversion and markdown sanitisation."""
+"""HTML to markdown conversion and markdown sanitisation.
+
+LEGACY MODULE WARNING:
+---------------------
+This module contains html_to_markdown(), a legacy custom HTML-to-Markdown converter
+that was removed from the production crawl path in PR2. This function must NOT be
+used in web_scraper/scrapers/ or any crawl-related code paths.
+
+The production crawl path now relies exclusively on Crawl4AI's built-in markdown
+generation. If Crawl4AI provides no markdown, the crawl path returns an empty string
+rather than falling back to this custom converter.
+
+This module is kept for:
+- Backwards compatibility (if needed)
+- Potential future use in non-crawl contexts (e.g., utilities, tests)
+
+Guard test: tests/test_no_custom_html_to_markdown_fallback.py ensures this module
+is not imported in the scrapers module.
+"""
 
 from __future__ import annotations
 
