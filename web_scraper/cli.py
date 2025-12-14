@@ -135,9 +135,6 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     if config.sitemap.urls:
         click.echo(f"Sitemap URLs: {', '.join(config.sitemap.urls)}")
     click.echo(f"Robots.txt: {config.robots.enforcement} ({config.robots.user_agent})")
-    click.echo(
-        f"Link discovery workaround: {'enabled' if config.link_discovery_workaround.enabled else 'disabled'}"
-    )
     fixes_status = "enabled" if config.markdown_fixes.enabled else "disabled"
     if config.markdown_fixes.fixes:
         disabled_fixes = [

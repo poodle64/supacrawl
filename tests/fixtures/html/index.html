@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Documentation Page</title>
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/docs">Docs</a>
+    </nav>
+    
+    <main>
+        <article>
+            <h1>API Overview</h1>
+            
+            <p>This is a test documentation page for baseline quality testing.</p>
+            
+            <h2>Getting Started</h2>
+            
+            <p>To use the API, you need to authenticate first.</p>
+            
+            <h3>Authentication</h3>
+            
+            <p>Use the following endpoint:</p>
+            
+            <pre><code>POST /api/v1/auth
+{
+  "username": "user",
+  "password": "pass"
+}
+</code></pre>
+            
+            <h2>Endpoints</h2>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Path</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>GET</td>
+                        <td>/api/v1/users</td>
+                        <td>List all users</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td>/api/v1/users</td>
+                        <td>Create a new user</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <h2>Examples</h2>
+            
+            <p>Here's a Python example:</p>
+            
+            <pre><code>import requests
+
+response = requests.get('https://api.example.com/v1/users')
+print(response.json())
+</code></pre>
+            
+            <p>For more information, see the <a href="/docs/advanced">advanced guide</a>.</p>
+        </article>
+    </main>
+    
+    <footer>
+        <p>© 2025 Test API Documentation</p>
+    </footer>
+</body>
+</html>

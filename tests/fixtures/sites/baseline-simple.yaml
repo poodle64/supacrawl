@@ -1,5 +1,5 @@
-id: sharesight-api
-name: Sharesight API Documentation
+id: baseline-simple
+name: Baseline Simple (Sharesight API)
 
 entrypoints:
   - https://portfolio.sharesight.com/api
@@ -9,19 +9,16 @@ include:
 
 exclude: []
 
-max_pages: 500
+max_pages: 10
+
 formats:
   - markdown
-  - html
-  - json
+
 only_main_content: true
 include_subdomains: false
 
-# Enable sitemap discovery to find all pages
 sitemap:
-  enabled: true
+  enabled: false
 
 markdown_fixes:
-  enabled: true
-  fixes:
-    missing-link-text-in-lists: true
+  enabled: false

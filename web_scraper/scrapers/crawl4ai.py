@@ -30,9 +30,6 @@ from web_scraper.scrapers.crawl4ai_config import (
 )
 from web_scraper.scrapers.crawl4ai_deep import build_deep_crawl_strategy
 from web_scraper.scrapers.crawl4ai_result import extract_pages_from_result
-from web_scraper.scrapers.crawl4ai_link_discovery_workaround import (
-    extract_and_filter_links,
-)
 from web_scraper.scrapers.crawl4ai_retry import (
     is_client_error,
     retry_attempts,
@@ -183,43 +180,13 @@ class Crawl4AIScraper(Scraper):
         # Use provided crawler or create a new one with best-practice browser config
         crawler = self._crawler or AsyncWebCrawler(config=build_browser_config())
 
-        # WORKAROUND: Link discovery workaround for Crawl4AI bug #1176
-        # This can be removed when Crawl4AI fixes the URLPatternFilter issue
-        use_workaround = config.link_discovery_workaround.enabled
-        if use_workaround:
-            urls_to_crawl: list[str] = list(config.entrypoints)
-            crawled_entrypoints: set[str] = set()
-            max_iterations = config.link_discovery_workaround.max_iterations
-        else:
-            # Normal mode: just crawl entrypoints once
-            urls_to_crawl = list(config.entrypoints)
-            crawled_entrypoints = set()
-            max_iterations = 1
-
         try:
             await writer.start()
             async with crawler:
-                # Iterative crawling: keep discovering and crawling new links
-                iteration = 0
+                # Crawl each entrypoint once
+                crawled_entrypoints: set[str] = set()
 
-                while urls_to_crawl and iteration < max_iterations:
-                    iteration += 1
-                    current_batch = urls_to_crawl.copy()
-                    urls_to_crawl.clear()
-
-                    if use_workaround:
-                        log_with_correlation(
-                            LOGGER,
-                            logging.INFO,
-                            "Crawl iteration (link discovery workaround enabled)",
-                            correlation_id=correlation_id,
-                            iteration=iteration,
-                            urls_in_batch=len(current_batch),
-                            total_pages=len(pages),
-                            provider=self.provider_name,
-                        )
-
-                    for entrypoint in current_batch:
+                for entrypoint in config.entrypoints:
                         # Skip if already crawled
                         if entrypoint in crawled_entrypoints:
                             continue
@@ -326,39 +293,9 @@ class Crawl4AIScraper(Scraper):
                         # Mark entrypoint as crawled
                         crawled_entrypoints.add(entrypoint)
 
-                        # WORKAROUND: Extract links and add to queue if workaround enabled
-                        if use_workaround and len(pages) < config.max_pages:
-                            discovered_urls = extract_and_filter_links(
-                                new_pages, config, seen_urls
-                            )
-                            if discovered_urls:
-                                urls_to_crawl.extend(discovered_urls)
-                                log_with_correlation(
-                                    LOGGER,
-                                    logging.INFO,
-                                    "Discovered new URLs from links (workaround)",
-                                    correlation_id=correlation_id,
-                                    new_urls=len(discovered_urls),
-                                    provider=self.provider_name,
-                                )
-
                         # Break if we've hit max_pages
                         if len(pages) >= config.max_pages:
                             break
-
-                    # Break outer while loop if max_pages reached
-                    if len(pages) >= config.max_pages:
-                        break
-
-                if use_workaround and iteration >= max_iterations:
-                    log_with_correlation(
-                        LOGGER,
-                        logging.WARNING,
-                        "Reached max iterations limit (workaround), stopping crawl",
-                        correlation_id=correlation_id,
-                        total_pages=len(pages),
-                        provider=self.provider_name,
-                    )
 
         except Exception as exc:
             error_str = str(exc)

@@ -105,17 +105,6 @@ proxy:
   # Whether to fall back to direct connection if all proxies fail
   fallback_direct: true
 
-# OPTIONAL: Link discovery workaround
-# WORKAROUND: This is a temporary workaround where Crawl4AI's deep crawl
-# strategies discover links but don't follow them, even with correct filter
-# configuration. Issue #1176 is closed but may not have fixed this behavior.
-# Default: enabled: false
-link_discovery_workaround:
-  # Whether to enable the link discovery workaround
-  enabled: false
-  # Maximum iterations to prevent infinite loops
-  max_iterations: 10
-
 # OPTIONAL: Markdown fixes configuration
 # Markdown fixes are workarounds for issues in upstream tools (like Crawl4AI)
 # that miss certain patterns. Each fix can be enabled/disabled individually.

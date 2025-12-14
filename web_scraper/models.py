@@ -220,28 +220,6 @@ class ProxyConfigModel(BaseModel):
     fallback_direct: bool = True
 
 
-class LinkDiscoveryWorkaroundConfigModel(BaseModel):
-    """
-    Configuration for link discovery workaround.
-
-    WORKAROUND: This is a temporary workaround where Crawl4AI's deep crawl
-    strategies discover links but don't follow them, even with correct filter
-    configuration. Issue #1176 is closed but may not have fixed this behavior.
-    See: https://github.com/unclecode/crawl4ai/issues/1176
-
-    Test with enabled: false to verify if Crawl4AI deep crawl works correctly.
-    This can be removed when Crawl4AI deep crawl correctly follows links.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Whether to enable the link discovery workaround
-    enabled: bool = False
-
-    # Maximum iterations to prevent infinite loops
-    max_iterations: int = 10
-
-
 class MarkdownFixesConfigModel(BaseModel):
     """
     Configuration for markdown fix plugins.
@@ -265,7 +243,7 @@ class MarkdownFixesConfigModel(BaseModel):
 class SiteConfig(BaseModel):
     """Model representing a site configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     id: str
     name: str
@@ -282,9 +260,6 @@ class SiteConfig(BaseModel):
     rate_limit: RateLimitConfigModel = Field(default_factory=RateLimitConfigModel)
     browser_pool: BrowserPoolConfigModel = Field(default_factory=BrowserPoolConfigModel)
     proxy: ProxyConfigModel = Field(default_factory=ProxyConfigModel)
-    link_discovery_workaround: LinkDiscoveryWorkaroundConfigModel = Field(
-        default_factory=LinkDiscoveryWorkaroundConfigModel
-    )
     markdown_fixes: MarkdownFixesConfigModel = Field(
         default_factory=MarkdownFixesConfigModel
     )
