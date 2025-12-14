@@ -1,0 +1,98 @@
+---
+Rule Type: Compatibility
+Scope: Project
+ISO/IEC 25010:
+  Primary: Compatibility
+description: Corpus snapshot layout patterns and manifest structure requirements
+globs: "**/*"
+alwaysApply: true
+---
+
+# Corpus Layout Patterns
+
+## Core Principles
+
+All corpus snapshots must follow consistent directory structure and manifest format for downstream consumer compatibility.
+
+## Mandatory Requirements
+
+### Directory Structure
+
+- ✅ **Must** use snapshot-based layout: `corpora/{site_id}/{snapshot_id}/`
+- ✅ **Must** use site ID from `SiteConfig.id` as directory name
+- ✅ **Must** use timestamp-based snapshot IDs (ISO 8601 format: `YYYYMMDDTHHMMSS`)
+- ✅ **Must** create `pages/` subdirectory for page content files
+- ✅ **Must** create `manifest.json` at snapshot root
+- ✅ **Must** create snapshot directory if it doesn't exist
+- ❌ **Must NOT** overwrite existing snapshots (each crawl creates new snapshot)
+
+### Snapshot ID Generation
+
+- ✅ **Must** use `new_snapshot_id()` function to generate snapshot IDs
+- ✅ **Must** use current time in Australia/Brisbane timezone
+- ✅ **Must** use ISO 8601 format without separators: `YYYYMMDDTHHMMSS`
+- ✅ **Must** ensure snapshot IDs are unique (timestamp-based prevents collisions)
+- ✅ **Must** use snapshot ID as directory name (exact match)
+
+**Example:** `20250115T143022` (15 January 2025, 14:30:22 AEST)
+
+### Manifest Structure
+
+- ✅ **Must** create `manifest.json` at snapshot root
+- ✅ **Must** include site metadata: `site_id`, `site_name`, `provider`, `snapshot_id`, `created_at`
+- ✅ **Must** include crawl metadata: `entrypoints`, `total_pages`, `formats`
+- ✅ **Must** include pages array with page metadata: `url`, `title`, `path`, `content_hash`
+- ✅ **Must** use JSON format for manifest
+- ✅ **Must** write manifest atomically (write to temp file, then rename)
+
+**Manifest structure:**
+```json
+{
+  "site_id": "example-site",
+  "site_name": "Example Site",
+  "provider": "crawl4ai",
+  "snapshot_id": "20250115T143022",
+  "created_at": "2025-01-15T14:30:22+10:00",
+  "entrypoints": ["https://example.com"],
+  "total_pages": 42,
+  "formats": ["html", "markdown"],
+  "pages": [
+    {
+      "url": "https://example.com/page",
+      "title": "Page Title",
+      "path": "pages/0001-page.html",
+      "content_hash": "abc123..."
+    }
+  ]
+}
+```
+
+### Page File Naming
+
+- ✅ **Must** use filesystem-safe slugs for page filenames
+- ✅ **Must** prefix filenames with zero-padded index (e.g., `0001-`, `0002-`)
+- ✅ **Must** sanitise URLs to create safe filenames (replace `/` with `_`, spaces with `-`)
+- ✅ **Must** preserve file extensions from formats (`.html`, `.md`)
+- ✅ **Must** store pages in `pages/` subdirectory
+
+**Example:** `pages/0001-example-page.html`
+
+### Chunking Output
+
+- ✅ **May** create chunked output in JSONL format
+- ✅ **Must** use `chunk_snapshot()` function for chunking
+- ✅ **Must** write chunks to `chunks.jsonl` in snapshot directory
+- ✅ **Must** include chunk metadata: `url`, `title`, `chunk_index`, `content`
+- ✅ **Must** use one JSON object per line (JSONL format)
+
+## Key Directives
+
+- **Snapshot-based**: Each crawl creates new timestamped snapshot
+- **Consistent structure**: Follow `corpora/{site_id}/{snapshot_id}/` pattern
+- **Manifest required**: Always create `manifest.json` with metadata
+- **Safe filenames**: Use filesystem-safe slugs for page files
+
+## References
+
+- `.cursor/rules/20-development-environment-web-scraper.mdc` - Directory structure requirements
+- `docs/30-architecture/corpus-layout-web-scraper.md` - Detailed corpus layout documentation

@@ -1,0 +1,31 @@
+name: web-scraper
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+    # Build Tools
+    - setuptools>=61.0
+    - wheel
+
+    # Core Runtime Dependencies
+    - aiofiles>=24.1.0
+    - click>=8.1.7
+    - crawl4ai>=0.7.8
+    - httpx>=0.28.1
+    - ollama>=0.1.0
+    - pydantic>=2.9.0
+    - pyyaml>=6.0.1
+
+    # Private Packages (requires GHCR_PAT environment variable)
+    # Install manually after setting GHCR_PAT:
+    # pip install "package @ git+https://${GHCR_PAT}@github.com/..."
+
+    # Development Dependencies
+    - mypy>=1.11.0
+    - pre-commit>=3.7.0
+    - pytest>=8.3.0
+    - ruff>=0.6.2

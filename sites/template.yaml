@@ -1,0 +1,131 @@
+# Site Configuration Template
+# 
+# This template shows all available configuration options for web-scraper.
+# Copy this file and customize it for your site. Remove sections you don't need.
+#
+# Required fields are marked with # REQUIRED
+# Optional fields have default values shown in comments
+
+# REQUIRED: Unique site identifier (must match filename without .yaml)
+id: example-site
+
+# REQUIRED: Human-readable site name
+name: Example Site
+
+# REQUIRED: Starting URLs for the crawl (at least one required)
+entrypoints:
+  - https://example.com
+  - https://example.com/docs
+
+# REQUIRED: URL patterns to include in crawl
+include:
+  - https://example.com/**
+  - https://example.com/docs/**
+
+# REQUIRED: URL patterns to exclude from crawl
+exclude:
+  - https://example.com/admin/**
+  - https://example.com/private/**
+
+# REQUIRED: Maximum pages to crawl (positive integer)
+max_pages: 100
+
+# REQUIRED: Content formats to extract
+formats:
+  - html
+  - markdown
+  - json
+
+# REQUIRED: Extract main content only (removes navigation, headers, footers)
+only_main_content: true
+
+# REQUIRED: Include subdomains in crawl
+include_subdomains: false
+
+# OPTIONAL: Sitemap configuration
+# Default: enabled: false
+sitemap:
+  enabled: true
+  # Explicit sitemap URLs (overrides auto-discovery)
+  urls: []
+  # Only crawl URLs from sitemaps (no link following)
+  only: false
+  # Only include URLs modified after this date (ISO format: YYYY-MM-DD)
+  filter_by_lastmod: null
+
+# OPTIONAL: Robots.txt configuration
+# Default: respect: true, enforcement: "warn", user_agent: "WebScraperBot/1.0"
+robots:
+  # Whether to respect robots.txt at all
+  respect: true
+  # Enforcement level: "strict" (block), "warn" (log only), "ignore"
+  enforcement: warn
+  # User agent for robots.txt matching
+  user_agent: WebScraperBot/1.0
+  # Minimum delay between requests (seconds), applied on top of Crawl-delay
+  min_delay: 0.0
+
+# OPTIONAL: Rate limiting configuration
+# Default: requests_per_second: 2.0, per_domain_delay: 1.0, max_concurrent: 5
+rate_limit:
+  # Maximum requests per second (global)
+  requests_per_second: 2.0
+  # Minimum seconds between requests to same domain
+  per_domain_delay: 1.0
+  # Maximum concurrent requests
+  max_concurrent: 5
+  # Whether to respect robots.txt Crawl-delay
+  respect_crawl_delay: true
+  # Whether to adaptively slow down on 429 responses
+  adaptive: true
+
+# OPTIONAL: Browser pool configuration
+# Default: enabled: true, pool_size: 3, max_pages_per_browser: 100
+browser_pool:
+  # Whether browser pooling is enabled
+  enabled: true
+  # Number of browsers to maintain in pool
+  pool_size: 3
+  # Maximum pages before recycling a browser
+  max_pages_per_browser: 100
+  # Whether to restart crashed browsers
+  restart_on_crash: true
+
+# OPTIONAL: Proxy configuration
+# Default: enabled: false
+proxy:
+  # Whether proxy rotation is enabled
+  enabled: false
+  # Rotation strategy: "round_robin", "random", "health_based"
+  rotation: round_robin
+  # List of proxy URLs (http://host:port or with auth)
+  proxies: []
+  # Minimum success rate before removing proxy
+  min_success_rate: 0.5
+  # Whether to fall back to direct connection if all proxies fail
+  fallback_direct: true
+
+# OPTIONAL: Link discovery workaround
+# WORKAROUND: This is a temporary workaround where Crawl4AI's deep crawl
+# strategies discover links but don't follow them, even with correct filter
+# configuration. Issue #1176 is closed but may not have fixed this behavior.
+# Default: enabled: false
+link_discovery_workaround:
+  # Whether to enable the link discovery workaround
+  enabled: false
+  # Maximum iterations to prevent infinite loops
+  max_iterations: 10
+
+# OPTIONAL: Markdown fixes configuration
+# Markdown fixes are workarounds for issues in upstream tools (like Crawl4AI)
+# that miss certain patterns. Each fix can be enabled/disabled individually.
+# Default: enabled: false (must be explicitly enabled)
+markdown_fixes:
+  # Whether to enable all markdown fixes
+  enabled: false
+  # Per-fix configuration (fix name -> enabled)
+  # Example: enable specific fixes while keeping others disabled
+  fixes:
+    missing-link-text-in-lists: false
+    # Add more fixes here as they are added to web-scraper
+    # Format: "fix-name": true|false

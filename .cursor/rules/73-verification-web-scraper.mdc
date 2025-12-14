@@ -1,0 +1,141 @@
+---
+Rule Type: Product Quality
+Scope: Project
+Extends: 73-verification-basics (master)
+ISO/IEC 25010:
+  Primary: Reliability
+description: Web-scraper-specific verification patterns - Crawl4AI scraper verification, site config verification, corpus verification
+globs: **/*
+alwaysApply: true
+---
+
+# Verification
+
+**Note**: Universal verification principles (checklist structure, runbook requirements, troubleshooting documentation) are covered in master 73-verification-basics.
+
+This rule documents project-specific verification practice and relies on master rules for requirements.
+
+## Pre-Delivery Verification Checklist
+
+Before considering web-scraper changes complete:
+
+- [ ] All tests pass (`pytest -q`)
+- [ ] Quality checks pass (`ruff check web_scraper`, `mypy web_scraper`)
+- [ ] Site configurations load and validate successfully
+- [ ] Crawl4AI scraper executes successfully (test crawl)
+- [ ] Corpus snapshots are created with correct layout
+- [ ] Manifest files contain required metadata
+- [ ] CLI commands work correctly (test all commands)
+- [ ] Error handling works (test error paths)
+
+**Note**: This checklist serves as a reminder only. See `.cursor/rules/master/73-verification-basics.mdc` for universal verification checklist structure. See `.cursor/rules/master/70-error-handling-basics.mdc` for error handling verification requirements. See `.cursor/rules/master/71-testing-patterns-basics.mdc` for test coverage verification requirements.
+
+## Crawl4AI Scraper Verification
+
+### Scraper Execution
+
+- Test Crawl4AI scraper with valid site configuration
+- Verify scraper returns `list[Page]` with correct structure
+- Verify scraper error handling works (test invalid configs)
+- Verify scraper retry logic works (test transient failures)
+
+### Scraper Configuration
+
+- Verify Crawl4AI installation (`crawl4ai-doctor`)
+- Verify Playwright browsers are installed (`crawl4ai-setup`)
+- Verify required environment variables are documented
+- Verify optional environment variables have defaults
+- Test scraper initialization with dependency injection (for testing)
+
+## Site Configuration Verification
+
+### Configuration Loading
+
+- Verify all site configurations in `sites/` load successfully
+- Verify site configurations validate against `SiteConfig` schema
+- Verify validation errors provide helpful messages
+- Verify missing configurations raise `ConfigurationError`
+
+### Configuration Validation
+
+- Test entrypoints validation (empty list rejected)
+- Test max_pages validation (zero/negative rejected)
+- Test URL validation (invalid URLs rejected)
+
+## Corpus Output Verification
+
+### Snapshot Layout
+
+- Verify snapshots use correct directory structure: `corpora/{site_id}/{snapshot_id}/`
+- Verify snapshot IDs use ISO 8601 format (timestamp-based)
+- Verify `pages/` subdirectory exists
+- Verify `manifest.json` exists at snapshot root
+
+### Manifest Structure
+
+- Verify manifest contains required fields: `site_id`, `site_name`, `provider`, `snapshot_id`, `created_at`, `entrypoints`, `total_pages`, `formats`, `pages`
+- Verify manifest pages array contains required fields: `url`, `title`, `path`, `content_hash`
+- Verify manifest JSON is valid and parseable
+
+### Page Files
+
+- Verify page files use safe filenames (no special characters)
+- Verify page files are stored in `pages/` subdirectory
+- Verify page file paths match manifest entries
+
+## CLI Verification
+
+### Command Execution
+
+- Test all CLI commands: `list-sites`, `show-site`, `crawl`, `chunk`
+- Verify commands produce expected output
+- Verify commands handle errors gracefully (show friendly messages)
+- Verify commands exit with correct codes (0 for success, 1 for errors)
+
+### Error Handling
+
+- Test invalid site configurations (show validation errors)
+- Test missing site configurations (show configuration errors)
+- Test scraper failures (show scraper errors)
+- Verify correlation IDs appear in error messages
+
+## Verification Practices
+
+Web-scraper verification typically includes:
+
+- **Runbook**: Provide copy-paste commands for conda activation, installing dependencies, running quality checks, testing providers, and verifying corpus output
+- **Scraper testing**: Verify Crawl4AI scraper executes correctly
+- **Configuration testing**: Verify all site configurations load and validate
+- **Corpus testing**: Verify snapshot layout and manifest structure
+- **CLI testing**: Verify all commands work correctly
+
+**Note**: See `.cursor/rules/master/73-verification-basics.mdc` for universal runbook requirements.
+
+## Troubleshooting
+
+### Scraper Issues
+
+- Verify Crawl4AI installation (`crawl4ai-doctor`)
+- Verify Playwright browsers are installed (`crawl4ai-setup`)
+- Verify scraper initializes correctly
+- Check scraper logs for correlation IDs
+
+### Configuration Issues
+
+- Verify YAML syntax is correct
+- Verify all required fields are present
+- Check validation error messages for specific field issues
+
+### Corpus Issues
+
+- Verify `corpora/` directory exists and is writable
+- Verify snapshot IDs are unique (timestamp-based prevents collisions)
+- Check manifest JSON structure matches schema
+
+## References
+
+- `.cursor/rules/master/73-verification-basics.mdc` - Universal verification principles
+- `.cursor/rules/20-development-environment-web-scraper.mdc` - Conda environment and setup
+- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Crawl4AI scraper patterns to verify
+- `.cursor/rules/50-site-config-patterns-web-scraper.mdc` - Configuration patterns to verify
+- `.cursor/rules/71-testing-patterns-web-scraper.mdc` - Testing tools and patterns
