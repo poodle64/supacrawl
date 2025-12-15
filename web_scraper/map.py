@@ -168,9 +168,12 @@ async def _extract_html_links(url: str, timeout: float = 10.0) -> list[str]:
             
             # Extract all href attributes
             for tag in soup.find_all("a", href=True):
-                href = tag.get("href")
-                if not href:
+                href_attr = tag.get("href")
+                if not href_attr:
                     continue
+                
+                # Convert to str (BeautifulSoup can return Sequence[str])
+                href = str(href_attr)
                 
                 # Resolve relative URLs
                 absolute_url = urljoin(url, href)

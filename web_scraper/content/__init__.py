@@ -103,7 +103,9 @@ def postprocess_markdown(
 
     # Step 3: Language detection
     lang_info = detect_language(markdown)
-    markdown = lang_info.get("content", markdown)
+    # Type-narrow: detect_language returns dict[str, Any], but "content" is always str
+    content_value = lang_info.get("content", markdown)
+    markdown = content_value if isinstance(content_value, str) else markdown
 
     return MarkdownPostprocessResult(markdown=markdown, language=lang_info)
 

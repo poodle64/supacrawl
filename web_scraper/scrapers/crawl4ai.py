@@ -228,7 +228,7 @@ class Crawl4AIScraper(Scraper):
                             )
                             
                             # Deduplicate pages by URL
-                            to_write: list[Page] = []
+                            target_pages: list[Page] = []
                             for page in new_pages:
                                 normalised_url = page.url
                                 if normalised_url in seen_urls:
@@ -265,10 +265,10 @@ class Crawl4AIScraper(Scraper):
                                 page = page.model_copy(update={"content_markdown": clean_content})
                                 seen_urls.add(normalised_url)
                                 pages.append(page)
-                                to_write.append(page)
+                                target_pages.append(page)
                             
-                            if to_write:
-                                await writer.add_pages(to_write)
+                            if target_pages:
+                                await writer.add_pages(target_pages)
                                 
                         except ProviderError:
                             raise
