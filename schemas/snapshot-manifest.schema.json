@@ -17,6 +17,7 @@
     "correlation_id",
     "metadata"
   ],
+  "additionalProperties": false,
   "properties": {
     "site_id": {
       "type": "string",
@@ -72,7 +73,8 @@
       "description": "Correlation ID for request tracking"
     },
     "metadata": {
-      "$ref": "#/definitions/metadata"
+      "$ref": "#/definitions/metadata",
+      "description": "Snapshot metadata with provenance information"
     },
     "status": {
       "type": "string",
@@ -118,6 +120,7 @@
         "path",
         "formats"
       ],
+      "additionalProperties": false,
       "properties": {
         "url": {
           "type": "string",
@@ -142,7 +145,22 @@
             "type": "string",
             "description": "File path relative to snapshot root for this format"
           },
-          "description": "Map of format name to file path"
+          "description": "Map of format name to file path",
+          "propertyNames": {
+            "enum": ["markdown", "html", "text", "json"]
+          }
+        },
+        "status_code": {
+          "type": "integer",
+          "description": "HTTP status code (optional)"
+        },
+        "language": {
+          "type": "string",
+          "description": "Detected page language (optional)"
+        },
+        "fetch_stats": {
+          "type": "object",
+          "description": "Fetch statistics (optional)"
         }
       }
     },
@@ -156,6 +174,7 @@
         "crawl_engine",
         "schema_version"
       ],
+      "additionalProperties": false,
       "properties": {
         "snapshot_id": {
           "type": "string",

@@ -6,7 +6,6 @@ be crawled for a given site configuration, without actually crawling.
 
 from __future__ import annotations
 
-import asyncio
 import fnmatch
 import logging
 from typing import Any

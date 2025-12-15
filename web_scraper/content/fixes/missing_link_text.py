@@ -13,7 +13,6 @@ This fix can be enabled/disabled via site configuration (markdown_fixes section)
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 

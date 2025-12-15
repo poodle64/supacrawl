@@ -78,9 +78,21 @@ class FakeScraper(Scraper):
                     "title": p.title,
                     "path": str(page_file.relative_to(snapshot_path)),
                     "content_hash": p.content_hash,
+                    "formats": {"markdown": str(page_file.relative_to(snapshot_path))},
                 }
                 for p in pages
             ],
+            "correlation_id": "test",
+            "metadata": {
+                "snapshot_id": snapshot_id,
+                "site_id": config.id,
+                "created_at": "2025-01-01T00:00:00Z",
+                "git_commit": None,
+                "site_config_hash": "a" * 64,
+                "crawl_engine": "crawl4ai",
+                "crawl_engine_version": None,
+                "schema_version": "1.0",
+            },
         }
         manifest_path = snapshot_path / "manifest.json"
         manifest_path.write_text(

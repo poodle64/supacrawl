@@ -243,7 +243,7 @@ class MarkdownFixesConfigModel(BaseModel):
 class SiteConfig(BaseModel):
     """Model representing a site configuration."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     id: str
     name: str

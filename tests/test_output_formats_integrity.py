@@ -15,9 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
-import pytest
 
-from web_scraper.models import OutputFormat
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 from web_scraper.sites.loader import load_site_config
 

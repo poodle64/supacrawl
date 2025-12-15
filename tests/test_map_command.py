@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import http.server
-import json
 import socketserver
 import threading
 import time
@@ -12,7 +11,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
-import pytest
 
 from web_scraper.map import map_site
 from web_scraper.sites.loader import load_site_config

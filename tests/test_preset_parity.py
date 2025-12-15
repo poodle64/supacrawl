@@ -9,9 +9,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import urljoin
-
-import pytest
 
 from tests.helpers.quality_metrics import calculate_all_metrics
 from web_scraper.models import SiteConfig

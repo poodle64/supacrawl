@@ -67,3 +67,54 @@ def test_manifest_validates_against_schema(tmp_path: Path) -> None:
             f"Manifest keys: {list(manifest.keys())}\n"
             f"Metadata keys: {list(manifest.get('metadata', {}).keys())}"
         )
+
+
+def test_manifest_schema_rejects_unknown_top_level_fields(tmp_path: Path) -> None:
+    """
+    Test that schema validation fails when manifest contains unknown top-level fields.
+    """
+    try:
+        from jsonschema import validate, ValidationError
+    except ImportError:
+        pytest.skip("jsonschema package not available (install with: pip install jsonschema)")
+    
+    from tests.test_baseline_quality import _setup_static_server
+    
+    # Set up local HTTP server
+    base_url, server = _setup_static_server(tmp_path)
+    
+    # Load baseline-static config
+    config = SiteConfig.model_validate({
+        "id": "test-schema-strict",
+        "name": "Test Schema Strict",
+        "entrypoints": [f"{base_url}/index.html"],
+        "include": [f"{base_url}/**"],
+        "exclude": [],
+        "max_pages": 1,
+        "formats": ["markdown"],
+        "only_main_content": True,
+        "include_subdomains": False,
+    })
+    
+    # Run a crawl
+    scraper = Crawl4AIScraper()
+    pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
+    
+    # Load manifest
+    manifest_path = snapshot_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    
+    # Load schema
+    schema_path = Path(__file__).parent.parent / "schemas" / "snapshot-manifest.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    
+    # Inject unknown top-level field
+    manifest_with_unknown = manifest.copy()
+    manifest_with_unknown["unknown_field"] = "should_fail"
+    
+    # Validate should fail
+    with pytest.raises(ValidationError) as exc_info:
+        validate(instance=manifest_with_unknown, schema=schema)
+    
+    # Assert error mentions additional properties
+    assert "additional" in exc_info.value.message.lower() or "unknown" in exc_info.value.message.lower()

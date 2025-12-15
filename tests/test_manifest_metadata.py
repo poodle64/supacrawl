@@ -9,8 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from web_scraper.corpus.writer import write_snapshot
-from web_scraper.models import Page, SiteConfig
+from web_scraper.models import SiteConfig
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 
 
@@ -26,7 +25,6 @@ def test_manifest_contains_metadata(tmp_path: Path) -> None:
     base_url, server = _setup_static_server(tmp_path)
     
     # Load baseline-static config
-    sites_dir = Path(__file__).parent.parent / "fixtures" / "sites"
     config = SiteConfig.model_validate({
         "id": "test-metadata",
         "name": "Test Metadata",
@@ -157,12 +155,15 @@ def test_created_at_is_iso8601(tmp_path: Path) -> None:
     assert iso_pattern.match(created_at), f"created_at should be ISO-8601 format, got: {created_at}"
 
 
-def test_backward_compat_manifest_load(tmp_path: Path) -> None:
+def test_manifest_load_fails_without_metadata(tmp_path: Path) -> None:
     """
-    Test that loading a manifest without metadata does not raise an exception.
+    Test that loading a manifest without metadata raises ValidationError.
     
-    Creates a minimal manifest fixture without metadata and verifies it loads.
+    Creates a minimal manifest without metadata and verifies it fails to load.
     """
+    from web_scraper.prep.chunker import _load_manifest
+    from web_scraper.exceptions import ValidationError
+    
     # Create a minimal manifest without metadata (simulating old format)
     manifest_path = tmp_path / "manifest.json"
     old_manifest = {
@@ -179,9 +180,52 @@ def test_backward_compat_manifest_load(tmp_path: Path) -> None:
     
     manifest_path.write_text(json.dumps(old_manifest, indent=2), encoding="utf-8")
     
-    # Load manifest (should not raise)
-    loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Attempt to load manifest (should raise ValidationError)
+    with pytest.raises(ValidationError) as exc_info:
+        asyncio.run(_load_manifest(tmp_path))
     
-    # Assert it loads correctly
-    assert loaded["site_id"] == "test-old"
-    assert "metadata" not in loaded, "Old manifest should not have metadata"
+    # Assert error message mentions missing metadata
+    assert "metadata" in exc_info.value.message.lower()
+    assert exc_info.value.context.get("field") == "metadata"
+
+
+def test_manifest_load_fails_without_schema_version(tmp_path: Path) -> None:
+    """
+    Test that loading a manifest without schema_version raises ValidationError.
+    
+    Creates a manifest with metadata but without schema_version.
+    """
+    from web_scraper.prep.chunker import _load_manifest
+    from web_scraper.exceptions import ValidationError
+    
+    # Create a manifest with metadata but without schema_version
+    manifest_path = tmp_path / "manifest.json"
+    old_manifest = {
+        "site_id": "test-old",
+        "site_name": "Test Old",
+        "snapshot_id": "20250101T000000",
+        "created_at": "2025-01-01T00:00:00+10:00",
+        "provider": "crawl4ai",
+        "entrypoints": ["https://example.com"],
+        "total_pages": 1,
+        "formats": ["markdown"],
+        "pages": [],
+        "metadata": {
+            "snapshot_id": "20250101T000000",
+            "site_id": "test-old",
+            "created_at": "2025-01-01T00:00:00Z",
+            "site_config_hash": "abc123",
+            "crawl_engine": "crawl4ai",
+            # Missing schema_version
+        },
+    }
+    
+    manifest_path.write_text(json.dumps(old_manifest, indent=2), encoding="utf-8")
+    
+    # Attempt to load manifest (should raise ValidationError)
+    with pytest.raises(ValidationError) as exc_info:
+        asyncio.run(_load_manifest(tmp_path))
+    
+    # Assert error message mentions missing schema_version
+    assert "schema_version" in exc_info.value.message.lower()
+    assert exc_info.value.context.get("field") == "metadata.schema_version"

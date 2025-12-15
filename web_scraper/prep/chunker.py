@@ -130,7 +130,7 @@ def _count_tokens_approx(text: str) -> int:
 
 async def _load_manifest(snapshot_path: Path) -> dict:
     """
-    Load snapshot manifest data.
+    Load snapshot manifest data with strict validation.
 
     Args:
         snapshot_path: Path to the snapshot directory.
@@ -140,7 +140,10 @@ async def _load_manifest(snapshot_path: Path) -> dict:
 
     Raises:
         FileNotFoundError: If the manifest file does not exist.
+        ValueError: If manifest is missing required metadata or schema_version.
     """
+    from web_scraper.exceptions import ValidationError
+    
     manifest_path = snapshot_path / "manifest.json"
     if not manifest_path.exists():
         correlation_id = generate_correlation_id()
@@ -153,7 +156,51 @@ async def _load_manifest(snapshot_path: Path) -> dict:
         )
     async with aiofiles.open(manifest_path, "r", encoding="utf-8") as handle:
         content = await handle.read()
-        return json.loads(content)
+        manifest = json.loads(content)
+    
+    # Strict validation: require metadata and schema_version
+    if "metadata" not in manifest:
+        correlation_id = generate_correlation_id()
+        raise ValidationError(
+            "Manifest is missing required 'metadata' field. "
+            "This snapshot was created with an older version and is no longer supported.",
+            field="metadata",
+            correlation_id=correlation_id,
+            context={"snapshot_path": str(snapshot_path)},
+        )
+    
+    metadata = manifest["metadata"]
+    if "schema_version" not in metadata:
+        correlation_id = generate_correlation_id()
+        raise ValidationError(
+            "Manifest metadata is missing required 'schema_version' field. "
+            "This snapshot was created with an older version and is no longer supported.",
+            field="metadata.schema_version",
+            correlation_id=correlation_id,
+            context={"snapshot_path": str(snapshot_path)},
+        )
+    
+    # Validate required metadata fields
+    required_metadata_fields = [
+        "snapshot_id",
+        "site_id",
+        "created_at",
+        "site_config_hash",
+        "crawl_engine",
+        "schema_version",
+    ]
+    missing_fields = [field for field in required_metadata_fields if field not in metadata]
+    if missing_fields:
+        correlation_id = generate_correlation_id()
+        raise ValidationError(
+            f"Manifest metadata is missing required fields: {', '.join(missing_fields)}. "
+            "This snapshot was created with an older version and is no longer supported.",
+            field="metadata",
+            correlation_id=correlation_id,
+            context={"snapshot_path": str(snapshot_path), "missing_fields": missing_fields},
+        )
+    
+    return manifest
 
 
 async def _load_page_text(snapshot_path: Path, relative_path: str) -> str:

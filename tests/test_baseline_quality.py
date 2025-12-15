@@ -12,14 +12,8 @@ import pytest
 
 from tests.helpers.quality_metrics import (
     calculate_all_metrics,
-    calculate_content_metrics,
-    calculate_determinism_metric,
-    calculate_format_metrics,
-    calculate_link_metrics,
-    calculate_page_metrics,
-    calculate_structure_metrics,
 )
-from web_scraper.models import Page, SiteConfig
+from web_scraper.models import SiteConfig
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 from web_scraper.sites.loader import load_site_config
 

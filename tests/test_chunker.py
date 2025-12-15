@@ -13,12 +13,29 @@ from web_scraper.prep.chunker import chunk_snapshot
 
 
 def _write_manifest(snapshot_path: Path, pages: list[dict]) -> None:
-    """Helper to create a manifest file."""
+    """Helper to create a manifest file with required metadata."""
     snapshot_path.mkdir(parents=True, exist_ok=True)
     manifest = {
         "site_id": "site",
+        "site_name": "Test Site",
         "snapshot_id": "snap",
+        "created_at": "2025-01-01T00:00:00Z",
+        "provider": "crawl4ai",
+        "entrypoints": ["https://example.com"],
+        "total_pages": len(pages),
+        "formats": ["markdown"],
         "pages": pages,
+        "correlation_id": "test123",
+        "metadata": {
+            "snapshot_id": "snap",
+            "site_id": "site",
+            "created_at": "2025-01-01T00:00:00Z",
+            "git_commit": None,
+            "site_config_hash": "a" * 64,  # Dummy hash
+            "crawl_engine": "crawl4ai",
+            "crawl_engine_version": None,
+            "schema_version": "1.0",
+        },
     }
     (snapshot_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
