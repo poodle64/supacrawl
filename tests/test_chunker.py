@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from web_scraper.exceptions import FileNotFoundError
+from web_scraper.corpus.writer import SCHEMA_VERSION
 from web_scraper.prep.chunker import chunk_snapshot
 
 
@@ -34,7 +35,7 @@ def _write_manifest(snapshot_path: Path, pages: list[dict]) -> None:
             "site_config_hash": "a" * 64,  # Dummy hash
             "crawl_engine": "crawl4ai",
             "crawl_engine_version": None,
-            "schema_version": "1.0",
+            "schema_version": SCHEMA_VERSION,
         },
     }
     (snapshot_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")

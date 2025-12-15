@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 from web_scraper.cli import app
 from web_scraper.corpus.layout import new_snapshot_id, snapshot_root
+from web_scraper.corpus.writer import SCHEMA_VERSION
 from web_scraper.models import Page, SiteConfig
 from web_scraper.scrapers.base import Scraper
 
@@ -91,7 +92,7 @@ class FakeScraper(Scraper):
                 "site_config_hash": "a" * 64,
                 "crawl_engine": "crawl4ai",
                 "crawl_engine_version": None,
-                "schema_version": "1.0",
+                "schema_version": SCHEMA_VERSION,
             },
         }
         manifest_path = snapshot_path / "manifest.json"

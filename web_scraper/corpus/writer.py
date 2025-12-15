@@ -21,6 +21,9 @@ from web_scraper.exceptions import generate_correlation_id
 from web_scraper.utils import content_hash
 from web_scraper.corpus.state import CrawlState, save_state, load_state
 
+# Schema version constant - single source of truth for manifest schema version
+SCHEMA_VERSION = "1.0"
+
 
 def _url_to_slug(url: str) -> str:
     """
@@ -554,7 +557,7 @@ def _build_metadata(
         "site_config_hash": _hash_site_config(site, config_path),
         "crawl_engine": "crawl4ai",
         "crawl_engine_version": _get_crawl4ai_version(),
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
     }
 
 
