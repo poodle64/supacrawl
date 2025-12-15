@@ -1,11 +1,12 @@
 """Guard test to ensure legacy HTML-to-Markdown converter is not used in crawl paths.
 
-This test ensures that web_scraper/content/markdown.html_to_markdown and
-web_scraper/content/extraction.extract_main_content are not imported or used
-in the production crawl path (web_scraper/scrapers/).
+This test ensures that html_to_markdown (removed in PR4) and
+extract_main_content are not imported or used in the production crawl path
+(web_scraper/scrapers/).
 
-The legacy HTML-to-Markdown converter was removed from the crawl path in PR2.
-This test prevents accidental reintroduction of the fallback.
+The legacy HTML-to-Markdown converter was removed from the crawl path in PR2
+and the function was deleted in PR4. This test prevents accidental
+reintroduction of the fallback.
 """
 
 from __future__ import annotations

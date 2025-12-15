@@ -1,29 +1,16 @@
-"""HTML to markdown conversion and markdown sanitisation.
+"""Markdown sanitisation utilities.
 
-LEGACY MODULE WARNING:
----------------------
-This module contains html_to_markdown(), a legacy custom HTML-to-Markdown converter
-that was removed from the production crawl path in PR2. This function must NOT be
-used in web_scraper/scrapers/ or any crawl-related code paths.
+This module provides sanitize_markdown() for cleaning markdown content by
+removing navigation blocks and link-heavy boilerplate.
 
-The production crawl path now relies exclusively on Crawl4AI's built-in markdown
-generation. If Crawl4AI provides no markdown, the crawl path returns an empty string
-rather than falling back to this custom converter.
-
-This module is kept for:
-- Backwards compatibility (if needed)
-- Potential future use in non-crawl contexts (e.g., utilities, tests)
-
-Guard test: tests/test_no_custom_html_to_markdown_fallback.py ensures this module
-is not imported in the scrapers module.
+Note: html_to_markdown() was removed in PR4 as it was no longer used in the
+production crawl path. The crawl path relies exclusively on Crawl4AI's built-in
+markdown generation.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any
-
-from bs4 import BeautifulSoup, Tag
 
 from web_scraper.content.config import ExtractionConfig, get_config
 
@@ -34,150 +21,6 @@ NAV_MARKERS = (
     "related articles",
     "share this",
 )
-
-
-def html_to_markdown(html: str) -> str:
-    """
-    Convert a subset of HTML to lightweight markdown.
-
-    Handles: headings, paragraphs, lists, code blocks, and tables.
-
-    Args:
-        html: HTML content to convert.
-
-    Returns:
-        Markdown string.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-    root: Tag | BeautifulSoup = soup.body if soup.body else soup
-
-    lines: list[str] = []
-
-    def render(node: Any) -> None:
-        if not isinstance(node, Tag):
-            return
-        name = node.name
-
-        # Handle structural tags
-        if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            level = int(name[1])
-            heading_text = _extract_text_with_links(node)
-            if heading_text:
-                lines.append(f"{'#' * level} {heading_text}")
-        elif name in {"p", "div", "section", "article"}:
-            para_text = _extract_text_with_links(node)
-            if para_text:
-                lines.append(para_text)
-        elif name in {"ul", "ol"}:
-            list_items = node.find_all("li", recursive=False)
-            for item in list_items:
-                item_text = _extract_text_with_links(item)
-                if item_text:
-                    prefix = "- " if name == "ul" else "1. "
-                    lines.append(f"{prefix}{item_text}")
-        elif name == "li":
-            # Handle nested lists
-            item_text = _extract_text_with_links(node)
-            if item_text:
-                lines.append(f"- {item_text}")
-        elif name == "table":
-            table_lines = _table_to_markdown(node)
-            lines.extend(table_lines)
-        elif name in {"pre", "code"}:
-            code_text = node.get_text()
-            if code_text.strip():
-                lines.append(f"```\n{code_text}\n```")
-        elif name == "blockquote":
-            quote_text = _extract_text_with_links(node)
-            if quote_text:
-                lines.append(f"> {quote_text}")
-
-    for child in root.children:
-        render(child)
-
-    return "\n\n".join(lines).strip()
-
-
-def _extract_text_with_links(node: Tag) -> str:
-    """
-    Extract text from a node, preserving links and formatting.
-
-    Args:
-        node: BeautifulSoup Tag node.
-
-    Returns:
-        Markdown-formatted text with links.
-    """
-    parts: list[str] = []
-    for child in node.children:
-        if isinstance(child, Tag):
-            if child.name == "a":
-                href = child.get("href", "")
-                link_text = child.get_text(" ", strip=True)
-                if href and link_text:
-                    # Check if parent is strong/bold - if so, wrap link in bold
-                    parent = child.parent
-                    if parent and parent.name in {"strong", "b"}:
-                        parts.append(f"**[{link_text}]({href})**")
-                    else:
-                        parts.append(f"[{link_text}]({href})")
-                elif link_text:
-                    parts.append(link_text)
-            elif child.name in {"strong", "b"}:
-                # Extract text from strong tag, preserving any links inside
-                strong_text = _extract_text_with_links(child)
-                if strong_text:
-                    # If it contains a link, the link already has bold formatting
-                    if "[[" in strong_text or strong_text.startswith("[") and "]**" in strong_text:
-                        parts.append(strong_text)
-                    else:
-                        parts.append(f"**{strong_text}**")
-            elif child.name in {"em", "i"}:
-                em_text = _extract_text_with_links(child)
-                if em_text:
-                    parts.append(f"*{em_text}*")
-            else:
-                # Recursively extract from other tags
-                child_text = _extract_text_with_links(child)
-                if child_text:
-                    parts.append(child_text)
-        else:
-            # Text node - preserve whitespace
-            text = str(child)
-            # Only add non-empty text
-            if text.strip():
-                parts.append(text.strip())
-    # Join parts with single space, but preserve structure
-    return " ".join(parts).strip()
-
-
-def _table_to_markdown(table: Tag) -> list[str]:
-    """
-    Convert a simple HTML table to markdown rows.
-
-    Args:
-        table: BeautifulSoup table Tag.
-
-    Returns:
-        List of markdown table lines.
-    """
-    table_rows: list[list[str]] = []
-    for tr_elem in table.find_all("tr"):
-        cells = tr_elem.find_all(["th", "td"])
-        if not cells:
-            continue
-        table_rows.append([cell.get_text(" ", strip=True) for cell in cells])
-
-    if not table_rows:
-        return []
-
-    output: list[str] = []
-    header_row: list[str] = table_rows[0]
-    output.append(" | ".join(header_row))
-    output.append(" | ".join(["---"] * len(header_row)))
-    for data_row in table_rows[1:]:
-        output.append(" | ".join(data_row))
-    return output
 
 
 def sanitize_markdown(markdown: str, config: ExtractionConfig | None = None) -> str:
