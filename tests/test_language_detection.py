@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from web_scraper.scrapers.crawl4ai_result import detect_language
+from web_scraper.content import detect_language
 
 
 def test_detect_language_flags_english() -> None:

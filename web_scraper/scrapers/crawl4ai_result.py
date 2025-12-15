@@ -11,11 +11,9 @@ from typing import Any
 
 from web_scraper.content import (
     content_stats,
-    detect_language,
     normalise_url,
-    sanitize_markdown,
+    postprocess_markdown,
 )
-from web_scraper.content.fixes import apply_fixes
 from web_scraper.exceptions import generate_correlation_id
 from web_scraper.models import Page, SiteConfig
 from web_scraper.utils import content_hash, url_path
@@ -99,17 +97,11 @@ def _process_crawl_result(
     if not markdown or not markdown.strip():
         return None
 
-    # Apply markdown fix plugins (e.g., missing link text, etc.)
-    if raw_html:
-        correlation_id = generate_correlation_id()
-        markdown = apply_fixes(
-            str(markdown), raw_html, correlation_id=correlation_id, config=config
-        )
-
-    # Sanitise and detect language
-    markdown = sanitize_markdown(markdown)
-    lang_info = detect_language(markdown)
-    markdown = lang_info.get("content", markdown)
+    # Apply markdown post-processing pipeline (fixes, sanitize, language detection)
+    correlation_id = generate_correlation_id()
+    markdown, lang_info = postprocess_markdown(
+        markdown, raw_html=raw_html, config=config, correlation_id=correlation_id
+    )
 
     # Get title
     title = _extract_title(crawl_result, markdown)
