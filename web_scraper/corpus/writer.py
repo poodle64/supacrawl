@@ -554,6 +554,7 @@ def _build_metadata(
         "site_config_hash": _hash_site_config(site, config_path),
         "crawl_engine": "crawl4ai",
         "crawl_engine_version": _get_crawl4ai_version(),
+        "schema_version": "1.0",
     }
 
 
