@@ -145,7 +145,7 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     click.echo(f"Markdown fixes: {fixes_status}")
 
 
-@app.command("map", help="Discover URLs from sitemap without crawling.")
+@app.command("map", help="Map site URLs that would be crawled (Firecrawl-style discovery).")
 @click.argument("site_name")
 @click.option(
     "--base-path",
@@ -153,36 +153,71 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     help="Base directory containing sites/ folder.",
 )
 @click.option(
-    "--sitemap-url",
-    type=str,
-    default=None,
-    help="Explicit sitemap URL to use (overrides auto-discovery).",
-)
-@click.option(
     "--max-urls",
     type=int,
-    default=1000,
+    default=200,
     show_default=True,
-    help="Maximum number of URLs to display.",
+    help="Maximum number of URLs to return.",
+)
+@click.option(
+    "--format",
+    type=click.Choice(["json", "jsonl"], case_sensitive=False),
+    default="jsonl",
+    show_default=True,
+    help="Output format: json (pretty) or jsonl (one object per line).",
+)
+@click.option(
+    "--output",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Output file path. If omitted, prints to stdout.",
+)
+@click.option(
+    "--use-sitemap/--no-sitemap",
+    default=None,
+    help="Override config.sitemap.enabled (default: use config).",
+)
+@click.option(
+    "--use-robots/--no-robots",
+    default=None,
+    help="Override config.robots.respect (default: use config).",
+)
+@click.option(
+    "--include-entrypoints-only",
+    is_flag=True,
+    default=False,
+    help="Return only entrypoints, no discovery.",
 )
 def map_site(
     site_name: str,
     base_path: Path | None,
-    sitemap_url: str | None,
     max_urls: int,
+    format: str,
+    output: Path | None,
+    use_sitemap: bool | None,
+    use_robots: bool | None,
+    include_entrypoints_only: bool,
 ) -> None:
     """
-    Discover URLs from a site's sitemap.
+    Map a site to discover all URLs that would be crawled.
 
-    Shows all URLs that would be crawled based on sitemap discovery
-    and the site's include/exclude patterns.
+    Discovers URLs from entrypoints, sitemaps, and HTML links (one hop),
+    applying include/exclude patterns and robots.txt rules.
 
     Args:
         site_name: Name of the site configuration (without .yaml extension).
         base_path: Optional base directory containing sites/ folder.
-        sitemap_url: Explicit sitemap URL to use.
-        max_urls: Maximum URLs to display.
+        max_urls: Maximum number of URLs to return.
+        format: Output format (json or jsonl).
+        output: Output file path (or stdout if omitted).
+        use_sitemap: Override sitemap discovery.
+        use_robots: Override robots.txt enforcement.
+        include_entrypoints_only: Return only entrypoints.
     """
+    import json
+
+    from web_scraper.map import map_site as map_site_func
+
     sites_dir = default_sites_dir(base_path)
 
     try:
@@ -193,54 +228,34 @@ def map_site(
         )
         raise SystemExit(1) from exc
 
-    # Determine sitemap URL to use
-    if sitemap_url:
-        sitemap_urls = [sitemap_url]
-    elif config.sitemap.urls:
-        sitemap_urls = config.sitemap.urls
-    else:
-        # Auto-discover from first entrypoint
-        if not config.entrypoints:
-            click.echo("Error: No entrypoints configured for auto-discovery.", err=True)
-            raise SystemExit(1)
-        click.echo(f"Discovering sitemaps from {config.entrypoints[0]}...")
-        sitemap_urls = asyncio.run(discover_sitemaps(config.entrypoints[0]))
-
-    if not sitemap_urls:
-        click.echo("No sitemaps found. Try specifying --sitemap-url explicitly.")
-        raise SystemExit(1)
-
-    click.echo(f"Found {len(sitemap_urls)} sitemap(s)")
-    for sm_url in sitemap_urls:
-        click.echo(f"  - {sm_url}")
-
-    # Parse all sitemaps
-    all_urls = []
-    for sm_url in sitemap_urls:
-        click.echo(f"\nParsing {sm_url}...")
-        urls = asyncio.run(parse_sitemap(sm_url, max_urls=max_urls))
-        all_urls.extend(urls)
-        click.echo(f"  Found {len(urls)} URLs")
-
-    # Filter by include/exclude patterns
-    filtered = filter_urls_by_patterns(
-        all_urls, config.include, config.exclude
-    )
-
-    click.echo("\n=== URL Summary ===")
-    click.echo(f"Total URLs in sitemap: {len(all_urls)}")
-    click.echo(f"URLs matching include/exclude: {len(filtered)}")
-    click.echo(f"Config max_pages: {config.max_pages}")
-
-    if len(filtered) > config.max_pages:
-        click.echo(
-            f"\nWarning: {len(filtered)} URLs exceed max_pages ({config.max_pages})"
+    # Run mapping
+    try:
+        url_entries = asyncio.run(
+            map_site_func(
+                config,
+                max_urls=max_urls,
+                include_entrypoints_only=include_entrypoints_only,
+                use_sitemap=use_sitemap,
+                use_robots=use_robots,
+            )
         )
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
 
-    click.echo(f"\n=== URLs ({min(len(filtered), max_urls)} shown) ===")
-    for i, url in enumerate(filtered[:max_urls]):
-        lastmod_str = f" (lastmod: {url.lastmod.date()})" if url.lastmod else ""
-        click.echo(f"{i+1:4d}. {url.loc}{lastmod_str}")
+    # Serialise output
+    if format.lower() == "json":
+        content = json.dumps(url_entries, indent=2, ensure_ascii=False)
+    else:  # jsonl
+        lines = [json.dumps(entry, ensure_ascii=False) for entry in url_entries]
+        content = "\n".join(lines) + "\n"
+
+    # Write to file or stdout
+    if output:
+        output.write_text(content, encoding="utf-8")
+        click.echo(f"Mapped {len(url_entries)} URLs to {output}", err=True)
+    else:
+        click.echo(content)
 
 
 @app.command("crawl", help="Run a crawl for a site.")
