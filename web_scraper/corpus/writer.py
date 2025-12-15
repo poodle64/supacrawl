@@ -5,13 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import aiofiles
+import yaml
 
 from web_scraper.models import Page, SiteConfig, OutputFormat
 from web_scraper.corpus.layout import new_snapshot_id, snapshot_root
@@ -466,8 +468,97 @@ def _remove_boilerplate_blocks(
     }
 
 
+def _get_git_commit() -> str | None:
+    """
+    Get the current git commit hash.
+    
+    Returns:
+        Git commit hash (short, 7 characters) or None if unavailable.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=7", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        return result.stdout.strip() or None
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+def _get_crawl4ai_version() -> str | None:
+    """
+    Get Crawl4AI version if available.
+    
+    Returns:
+        Version string or None if unavailable.
+    """
+    try:
+        import crawl4ai
+        if hasattr(crawl4ai, "__version__"):
+            return str(crawl4ai.__version__)
+    except (ImportError, AttributeError):
+        pass
+    return None
+
+
+def _hash_site_config(config: SiteConfig, config_path: Path | None = None) -> str:
+    """
+    Generate a deterministic SHA-256 hash of the site configuration.
+    
+    If config_path is provided, hashes the raw file content.
+    Otherwise, serializes the SiteConfig to YAML and hashes that.
+    
+    Args:
+        config: Site configuration.
+        config_path: Optional path to the original config file.
+        
+    Returns:
+        SHA-256 hash as hexadecimal string.
+    """
+    if config_path and config_path.exists():
+        # Hash raw file content for exact match
+        content = config_path.read_bytes()
+    else:
+        # Fallback: serialize config to YAML and hash
+        # Convert to dict, then to YAML
+        config_dict = config.model_dump(mode="json", exclude_none=False)
+        content = yaml.dump(config_dict, default_flow_style=False, sort_keys=True).encode("utf-8")
+    
+    return hashlib.sha256(content).hexdigest()
+
+
+def _build_metadata(
+    snapshot_id: str,
+    site: SiteConfig,
+    config_path: Path | None = None,
+) -> dict[str, Any]:
+    """
+    Build metadata object for manifest.
+    
+    Args:
+        snapshot_id: Snapshot identifier.
+        site: Site configuration.
+        config_path: Optional path to the original config file.
+        
+    Returns:
+        Metadata dictionary.
+    """
+    return {
+        "snapshot_id": snapshot_id,
+        "site_id": site.id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "git_commit": _get_git_commit(),
+        "site_config_hash": _hash_site_config(site, config_path),
+        "crawl_engine": "crawl4ai",
+        "crawl_engine_version": _get_crawl4ai_version(),
+    }
+
+
 async def write_snapshot(
-    site: SiteConfig, pages: list[Page], corpora_root: Path
+    site: SiteConfig, pages: list[Page], corpora_root: Path, config_path: Path | None = None
 ) -> Path:
     """
     Create a snapshot for the given site and pages.
@@ -476,6 +567,7 @@ async def write_snapshot(
         site: Site configuration.
         pages: List of scraped pages to include in the snapshot.
         corpora_root: Root directory for all corpora.
+        config_path: Optional path to the original site config file (for hashing).
 
     Returns:
         Path to the created snapshot directory.
@@ -519,6 +611,7 @@ async def write_snapshot(
         "formats": site.formats,
         "pages": manifest_pages,
         "correlation_id": correlation_id,
+        "metadata": _build_metadata(snapshot_id, site, config_path),
     }
 
     manifest_path = snapshot_path / "manifest.json"
@@ -541,9 +634,11 @@ class IncrementalSnapshotWriter:
         corpora_root: Path,
         snapshot_id: str | None = None,
         resume_snapshot: Path | None = None,
+        config_path: Path | None = None,
     ) -> None:
         self.site = site
         self.corpora_root = corpora_root
+        self.config_path = config_path
 
         # Handle resumption
         if resume_snapshot and resume_snapshot.exists():
@@ -738,6 +833,7 @@ class IncrementalSnapshotWriter:
                 for h, c in self.boilerplate_counts.items()
                 if c >= 2
             ],
+            "metadata": _build_metadata(self.snapshot_id, self.site, self.config_path),
         }
         if error:
             manifest["error"] = error
