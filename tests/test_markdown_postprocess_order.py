@@ -32,7 +32,7 @@ def test_postprocess_markdown_order() -> None:
     with patch("web_scraper.content.apply_fixes", side_effect=track_apply_fixes), patch(
         "web_scraper.content.sanitize_markdown", side_effect=track_sanitize_markdown
     ), patch("web_scraper.content.detect_language", side_effect=track_detect_language):
-        result_markdown, result_lang_info = postprocess_markdown(
+        result = postprocess_markdown(
             "raw_markdown", raw_html="<html>test</html>", config=MagicMock()
         )
 
@@ -43,8 +43,8 @@ def test_postprocess_markdown_order() -> None:
     )
 
     # Verify return values
-    assert result_markdown == "final_markdown"
-    assert result_lang_info["language"] == "en"
+    assert result.markdown == "final_markdown"
+    assert result.language["language"] == "en"
 
 
 def test_postprocess_markdown_skips_fixes_when_no_html() -> None:
@@ -63,10 +63,10 @@ def test_postprocess_markdown_skips_fixes_when_no_html() -> None:
     with patch("web_scraper.content.sanitize_markdown", side_effect=track_sanitize_markdown), patch(
         "web_scraper.content.detect_language", side_effect=track_detect_language
     ):
-        result_markdown, _ = postprocess_markdown("raw_markdown", raw_html=None, config=None)
+        result = postprocess_markdown("raw_markdown", raw_html=None, config=None)
 
     # Assert fixes are skipped when no raw_html
     assert call_order == ["sanitize_markdown", "detect_language"], (
         f"Expected order: ['sanitize_markdown', 'detect_language'], got: {call_order}"
     )
-    assert result_markdown == "final_markdown"
+    assert result.markdown == "final_markdown"

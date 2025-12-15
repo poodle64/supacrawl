@@ -99,9 +99,11 @@ def _process_crawl_result(
 
     # Apply markdown post-processing pipeline (fixes, sanitize, language detection)
     correlation_id = generate_correlation_id()
-    markdown, lang_info = postprocess_markdown(
+    result = postprocess_markdown(
         markdown, raw_html=raw_html, config=config, correlation_id=correlation_id
     )
+    markdown = result.markdown
+    lang_info = result.language
 
     # Get title
     title = _extract_title(crawl_result, markdown)
