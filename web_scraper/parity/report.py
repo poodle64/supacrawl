@@ -145,6 +145,42 @@ def generate_markdown_report(results: dict[str, Any], output_path: Path) -> None
             lines.append(f"- Tables: {metrics.get('table_count', 0)}")
             lines.append("")
 
+    # Fixes subsystem value section
+    if "fixes_metrics" in results:
+        fixes_metrics = results["fixes_metrics"]
+        lines.append("## Fixes Subsystem Value")
+        lines.append("")
+        lines.append("### Missing Anchor Text Links")
+        lines.append("")
+        lines.append(
+            f"- URLs with improved missing links: {fixes_metrics['urls_with_improved_missing_links']} "
+            f"out of {results['urls_tested']}"
+        )
+        lines.append(
+            f"- Total missing links (baseline): {fixes_metrics['total_missing_links_baseline']}"
+        )
+        lines.append(
+            f"- Total missing links (enhanced): {fixes_metrics['total_missing_links_enhanced']}"
+        )
+        lines.append(
+            f"- Missing links delta: {fixes_metrics['missing_links_delta']:+d} "
+            f"({fixes_metrics['missing_links_delta'] / max(fixes_metrics['total_missing_links_baseline'], 1) * 100:+.1f}%)"
+        )
+        lines.append("")
+
+        if fixes_metrics["urls_with_improved_missing_links"] > 0:
+            lines.append("**URLs with improved missing anchor text links:**")
+            for url in fixes_metrics["urls_with_improved_missing_links_list"]:
+                lines.append(f"- {url}")
+            lines.append("")
+
+        lines.append("### Similarity to Firecrawl")
+        lines.append("")
+        lines.append(
+            f"- Average similarity improvement: {fixes_metrics['avg_similarity_improvement'] * 100:+.2f}%"
+        )
+        lines.append("")
+
     # Decision gate
     decision = results["decision"]
     lines.append("## Decision Gate")
@@ -165,7 +201,7 @@ def generate_markdown_report(results: dict[str, Any], output_path: Path) -> None
     lines.append(f"- Success rate improvement: {decision_metrics['success_rate_improvement'] * 100:+.1f}%")
     lines.append("")
 
-    if decision["recommendation"] == "KEEP":
+    if decision["recommendation"] == "KEEP_FIXES":
         lines.append("### Next Steps (if KEEP)")
         lines.append("")
         lines.append("- Collapse fixes behind a single internal postprocess flag")

@@ -9,15 +9,24 @@ from pathlib import Path
 from typing import Any
 
 from web_scraper.models import SiteConfig
-from web_scraper.parity.firecrawl import scrape_with_firecrawl
+from web_scraper.parity.cache import get_cache_path, read_cache, write_cache
 from web_scraper.parity.metrics import (
     calculate_artefact_metrics,
     calculate_similarity_metrics,
+)
+from web_scraper.parity.providers import (
+    APIFirecrawlProvider,
+    MCPFirecrawlProvider,
+    get_firecrawl_provider,
 )
 from web_scraper.parity.urls import PARITY_TEST_URLS
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 
 LOGGER = logging.getLogger(__name__)
+
+
+
+
 
 
 def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
@@ -104,28 +113,90 @@ def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
     }
 
 
-async def run_parity_comparison(output_dir: Path) -> dict[str, Any]:
+async def run_parity_comparison(
+    output_dir: Path,
+    urls: list[str] | None = None,
+    max_urls: int | None = None,
+    no_cache: bool = False,
+    cache_only: bool = False,
+) -> dict[str, Any]:
     """
-    Run full parity comparison across all test URLs.
+    Run full parity comparison across test URLs.
 
     Args:
         output_dir: Directory for output files.
+        urls: Optional list of URLs to test (overrides default).
+        max_urls: Maximum number of URLs to process.
+        no_cache: Force re-fetch (ignore cache).
+        cache_only: Only use cache, fail if missing.
 
     Returns:
         Dictionary with complete comparison results.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = output_dir / "cache" / "firecrawl"
+
+    # Determine URLs to test
+    test_urls = urls if urls else PARITY_TEST_URLS
+    if max_urls:
+        test_urls = test_urls[:max_urls]
+
+    # Sort URLs for deterministic ordering
+    test_urls = sorted(test_urls)
+
+    # Determine Firecrawl provider
+    provider = get_firecrawl_provider()
+    provider_name = "none"
+    if isinstance(provider, MCPFirecrawlProvider):
+        provider_name = "mcp"
+    elif isinstance(provider, APIFirecrawlProvider):
+        provider_name = "api"
+
+    firecrawl_available = provider_name != "none"
 
     results: list[dict[str, Any]] = []
 
-    LOGGER.info(f"Starting parity comparison for {len(PARITY_TEST_URLS)} URLs")
+    LOGGER.info(f"Starting parity comparison for {len(test_urls)} URLs")
+    LOGGER.info(f"Firecrawl provider: {provider_name}")
 
-    for url in PARITY_TEST_URLS:
+    for url in test_urls:
         LOGGER.info(f"Processing {url}")
 
         # Scrape with Firecrawl
-        firecrawl_result = await scrape_with_firecrawl(url)
-        firecrawl_markdown = firecrawl_result["markdown"] if firecrawl_result else ""
+        firecrawl_markdown: str | None = None
+        if firecrawl_available:
+            # Get the provider instance
+            provider = get_firecrawl_provider()
+            if provider:
+                # Check cache first
+                cached_content = None
+                if cache_dir and not no_cache:
+                    cache_path = get_cache_path(cache_dir, url, provider_name)
+                    cached_content = read_cache(cache_path)
+                    if cached_content:
+                        LOGGER.info(f"Using cached Firecrawl content for {url}")
+                        firecrawl_markdown = cached_content
+
+                if not firecrawl_markdown:
+                    if cache_only:
+                        LOGGER.error(f"Cache-only mode: no cache found for {url}")
+                        firecrawl_markdown = None
+                    else:
+                        # Scrape with provider
+                        if isinstance(provider, MCPFirecrawlProvider):
+                            # MCP provider: call MCP tool via function interface
+                            # Note: In actual execution, MCP tools are called by the environment
+                            # This is a placeholder that will be replaced with actual MCP calls
+                            firecrawl_markdown = await provider.scrape_markdown(url)
+                        elif isinstance(provider, APIFirecrawlProvider):
+                            firecrawl_markdown = await provider.scrape_markdown(url)
+
+                    # Write to cache if successful
+                    if firecrawl_markdown and cache_dir:
+                        cache_path = get_cache_path(cache_dir, url, provider_name)
+                        write_cache(cache_path, firecrawl_markdown)
+        else:
+            LOGGER.warning(f"Firecrawl not available for {url}, skipping Firecrawl comparison")
 
         # Scrape with baseline-static
         baseline_dir = output_dir / "baseline" / _url_to_slug(url)
@@ -138,8 +209,9 @@ async def run_parity_comparison(output_dir: Path) -> dict[str, Any]:
         enhanced_markdown = enhanced_result["markdown"]
 
         # Calculate metrics for each artefact
+        firecrawl_markdown_str = firecrawl_markdown or ""
         firecrawl_metrics = (
-            calculate_artefact_metrics(firecrawl_markdown) if firecrawl_markdown else {}
+            calculate_artefact_metrics(firecrawl_markdown_str) if firecrawl_markdown_str else {}
         )
         baseline_metrics = (
             calculate_artefact_metrics(baseline_markdown) if baseline_markdown else {}
@@ -150,16 +222,17 @@ async def run_parity_comparison(output_dir: Path) -> dict[str, Any]:
 
         # Calculate similarity metrics
         similarity_metrics = {}
-        if firecrawl_markdown and baseline_markdown and enhanced_markdown:
+        if firecrawl_markdown_str and baseline_markdown and enhanced_markdown:
             similarity_metrics = calculate_similarity_metrics(
-                firecrawl_markdown, baseline_markdown, enhanced_markdown
+                firecrawl_markdown_str, baseline_markdown, enhanced_markdown
             )
 
         # Store results
         url_result = {
             "url": url,
             "firecrawl": {
-                "success": firecrawl_result["success"] if firecrawl_result else False,
+                "success": bool(firecrawl_markdown_str),
+                "provider": provider_name,
                 "metrics": firecrawl_metrics,
             },
             "baseline_static": {
@@ -181,14 +254,20 @@ async def run_parity_comparison(output_dir: Path) -> dict[str, Any]:
     # Calculate aggregate metrics
     aggregate = _calculate_aggregate_metrics(results)
 
+    # Calculate fixes subsystem value metrics
+    fixes_metrics = _calculate_fixes_metrics(results)
+
     # Generate decision gate
-    decision = _generate_decision_gate(results, aggregate)
+    decision = _generate_decision_gate(results, aggregate, fixes_metrics)
 
     return {
         "timestamp": datetime.now().isoformat(),
-        "urls_tested": len(PARITY_TEST_URLS),
+        "urls_tested": len(test_urls),
+        "firecrawl_provider": provider_name,
+        "firecrawl_available": firecrawl_available,
         "results": results,
         "aggregate": aggregate,
+        "fixes_metrics": fixes_metrics,
         "decision": decision,
     }
 
@@ -240,8 +319,62 @@ def _calculate_aggregate_metrics(results: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
+def _calculate_fixes_metrics(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Calculate metrics specific to fixes subsystem value.
+
+    Args:
+        results: Per-URL comparison results.
+
+    Returns:
+        Dictionary with fixes-specific metrics.
+    """
+    # Count URLs where enhanced improves "links missing anchor text" vs baseline
+    improved_missing_links: list[str] = []
+    total_missing_links_baseline = 0
+    total_missing_links_enhanced = 0
+
+    for result in results:
+        baseline_metrics = result["baseline_static"]["metrics"]
+        enhanced_metrics = result["enhanced"]["metrics"]
+
+        baseline_missing = baseline_metrics.get("links_missing_text", 0)
+        enhanced_missing = enhanced_metrics.get("links_missing_text", 0)
+
+        total_missing_links_baseline += baseline_missing
+        total_missing_links_enhanced += enhanced_missing
+
+        if enhanced_missing < baseline_missing:
+            improved_missing_links.append(result["url"])
+
+    # Calculate similarity improvements
+    similarity_improvements = []
+    for result in results:
+        if result["similarity"]:
+            sim = result["similarity"]
+            improvement = sim["firecrawl_vs_enhanced"] - sim["firecrawl_vs_baseline"]
+            similarity_improvements.append(improvement)
+
+    avg_similarity_improvement = (
+        sum(similarity_improvements) / len(similarity_improvements)
+        if similarity_improvements
+        else 0.0
+    )
+
+    return {
+        "urls_with_improved_missing_links": len(improved_missing_links),
+        "urls_with_improved_missing_links_list": improved_missing_links,
+        "total_missing_links_baseline": total_missing_links_baseline,
+        "total_missing_links_enhanced": total_missing_links_enhanced,
+        "missing_links_delta": total_missing_links_enhanced - total_missing_links_baseline,
+        "avg_similarity_improvement": avg_similarity_improvement,
+    }
+
+
 def _generate_decision_gate(
-    results: list[dict[str, Any]], aggregate: dict[str, Any]
+    results: list[dict[str, Any]],
+    aggregate: dict[str, Any],
+    fixes_metrics: dict[str, Any],
 ) -> dict[str, Any]:
     """
     Generate decision gate recommendation based on metrics.
@@ -249,6 +382,7 @@ def _generate_decision_gate(
     Args:
         results: Per-URL comparison results.
         aggregate: Aggregate metrics.
+        fixes_metrics: Fixes-specific metrics.
 
     Returns:
         Dictionary with decision gate analysis.
@@ -256,6 +390,7 @@ def _generate_decision_gate(
     # Thresholds for "material difference"
     SIMILARITY_THRESHOLD = 0.05  # 5% improvement
     SUCCESS_RATE_THRESHOLD = 0.10  # 10% improvement
+    MISSING_LINKS_IMPROVEMENT_THRESHOLD = 0.10  # 10% of URLs show improvement
 
     firecrawl_vs_baseline = aggregate["avg_similarity"]["firecrawl_vs_baseline"]
     firecrawl_vs_enhanced = aggregate["avg_similarity"]["firecrawl_vs_enhanced"]
@@ -263,31 +398,54 @@ def _generate_decision_gate(
 
     # Does enhanced outperform baseline?
     enhanced_outperforms_baseline = baseline_vs_enhanced < 0.95  # Enhanced is different
-    enhanced_closer_to_firecrawl = firecrawl_vs_enhanced > firecrawl_vs_baseline + SIMILARITY_THRESHOLD
+    enhanced_closer_to_firecrawl = (
+        firecrawl_vs_enhanced > firecrawl_vs_baseline + SIMILARITY_THRESHOLD
+    )
 
     # Success rate comparison
     baseline_success = aggregate["success_rates"]["baseline_static"]
     enhanced_success = aggregate["success_rates"]["enhanced"]
     success_rate_improvement = enhanced_success - baseline_success
 
+    # Missing links improvement
+    missing_links_improvement_rate = (
+        fixes_metrics["urls_with_improved_missing_links"] / len(results)
+        if results
+        else 0.0
+    )
+    missing_links_delta = fixes_metrics["missing_links_delta"]
+
     # Decision logic
-    if enhanced_closer_to_firecrawl and success_rate_improvement >= SUCCESS_RATE_THRESHOLD:
-        recommendation = "KEEP"
+    if (
+        enhanced_closer_to_firecrawl
+        and success_rate_improvement >= SUCCESS_RATE_THRESHOLD
+    ):
+        recommendation = "KEEP_FIXES"
         reason = (
             f"Enhanced output is {((firecrawl_vs_enhanced - firecrawl_vs_baseline) * 100):.1f}% "
             f"closer to Firecrawl and has {success_rate_improvement * 100:.1f}% better success rate"
         )
     elif enhanced_closer_to_firecrawl:
-        recommendation = "KEEP"
+        recommendation = "KEEP_FIXES"
         reason = (
             f"Enhanced output is {((firecrawl_vs_enhanced - firecrawl_vs_baseline) * 100):.1f}% "
             "closer to Firecrawl (success rate similar)"
         )
+    elif (
+        missing_links_improvement_rate >= MISSING_LINKS_IMPROVEMENT_THRESHOLD
+        and missing_links_delta < 0
+    ):
+        recommendation = "KEEP_FIXES"
+        reason = (
+            f"Enhanced output improves missing anchor text links on "
+            f"{fixes_metrics['urls_with_improved_missing_links']} URLs "
+            f"({missing_links_improvement_rate * 100:.1f}%)"
+        )
     elif enhanced_outperforms_baseline and baseline_vs_enhanced < 0.90:
-        recommendation = "KEEP"
+        recommendation = "KEEP_FIXES"
         reason = "Enhanced output is materially different from baseline (may indicate fixes are working)"
     else:
-        recommendation = "REMOVE"
+        recommendation = "REMOVE_FIXES"
         reason = (
             "Enhanced output does not materially outperform baseline-static or close gap to Firecrawl. "
             f"Similarity difference: {((firecrawl_vs_enhanced - firecrawl_vs_baseline) * 100):.1f}%"
@@ -304,6 +462,7 @@ def _generate_decision_gate(
             "baseline_success_rate": baseline_success,
             "enhanced_success_rate": enhanced_success,
             "success_rate_improvement": success_rate_improvement,
+            "missing_links_improvement_rate": missing_links_improvement_rate,
+            "missing_links_delta": missing_links_delta,
         },
     }
-

@@ -687,23 +687,64 @@ def extract(archive_path: Path, target_dir: Path | None) -> None:
     default=Path("parity-reports"),
     help="Directory for parity report output.",
 )
-def parity(output_dir: Path) -> None:
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    default=False,
+    help="Force re-fetch (ignore cache).",
+)
+@click.option(
+    "--cache-only",
+    is_flag=True,
+    default=False,
+    help="Only use cache, fail if missing.",
+)
+@click.option(
+    "--urls-file",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Optional file with URLs to test (one per line, overrides default).",
+)
+@click.option(
+    "--max-urls",
+    type=int,
+    default=None,
+    help="Maximum number of URLs to process.",
+)
+def parity(
+    output_dir: Path,
+    no_cache: bool,
+    cache_only: bool,
+    urls_file: Path | None,
+    max_urls: int | None,
+) -> None:
     """
     Run Firecrawl parity comparison to evaluate fixes subsystem.
 
     Compares web-scraper output (baseline-static vs enhanced) against Firecrawl
     to make evidence-based decision on whether fixes subsystem should be kept.
 
-    Requires FIRECRAWL_API_KEY environment variable for Firecrawl comparisons.
+    Uses MCP Firecrawl server if available, otherwise falls back to FIRECRAWL_API_KEY.
     """
     import asyncio
 
+    from web_scraper.parity.cache import load_urls_from_file
     from web_scraper.parity.harness import run_parity_comparison
     from web_scraper.parity.report import generate_json_report, generate_markdown_report
 
     try:
+        # Load URLs if file provided
+        urls = None
+        if urls_file:
+            urls = load_urls_from_file(urls_file)
+            click.echo(f"Loaded {len(urls)} URLs from {urls_file}")
+
         click.echo("Running Firecrawl parity comparison...")
-        results = asyncio.run(run_parity_comparison(output_dir))
+        results = asyncio.run(
+            run_parity_comparison(
+                output_dir, urls=urls, max_urls=max_urls, no_cache=no_cache, cache_only=cache_only
+            )
+        )
 
         # Generate reports
         json_path = output_dir / "parity-report.json"
@@ -716,6 +757,7 @@ def parity(output_dir: Path) -> None:
         click.echo(f"JSON report: {json_path}")
         click.echo(f"Markdown report: {markdown_path}")
         click.echo("")
+        click.echo(f"Firecrawl provider: {results.get('firecrawl_provider', 'none')}")
         click.echo(f"Recommendation: {results['decision']['recommendation']}")
         click.echo(f"Reason: {results['decision']['reason']}")
     except Exception as exc:
