@@ -29,6 +29,7 @@ class FakeScraper(Scraper):
         config: SiteConfig,
         corpora_dir: Path | None = None,
         resume_snapshot: Path | None = None,
+        target_urls: list[str] | None = None,
     ) -> tuple[list[Page], Path]:
         """Fake crawl implementation for testing."""
         base_dir = corpora_dir or Path.cwd() / "corpora"
@@ -36,10 +37,14 @@ class FakeScraper(Scraper):
         snapshot_path = snapshot_root(config.id, base_dir, snapshot_id)
         snapshot_path.mkdir(parents=True, exist_ok=True)
 
+        # Use target_urls if provided, otherwise use entrypoints
+        urls_to_use = target_urls if target_urls else config.entrypoints
+        first_url = urls_to_use[0] if urls_to_use else config.entrypoints[0]
+
         pages = [
             Page(
                 site_id=config.id,
-                url=config.entrypoints[0],
+                url=first_url,
                 title="Home",
                 path="/index",
                 content_markdown="Hello world",

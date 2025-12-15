@@ -10,6 +10,7 @@ The `web-scraper` CLI provides commands for managing site configurations, runnin
 
 - `list-sites` - List available site configurations
 - `show-site` - Show site configuration summary
+- `map` - Map site URLs that would be crawled (Firecrawl-style discovery)
 - `crawl` - Run a crawl for a site
 - `chunk` - Chunk an existing snapshot
 
@@ -62,13 +63,49 @@ Max Pages: 100
 Formats: html
 ```
 
+### map
+
+Map a site to discover all URLs that would be crawled, without actually crawling.
+
+**Usage:**
+```bash
+web-scraper map SITE_NAME [OPTIONS]
+```
+
+**Arguments:**
+- `SITE_NAME` - Site identifier (filename without `.yaml`)
+
+**Options:**
+- `--base-path PATH` - Base directory containing `sites/` folder (optional)
+- `--max-urls INT` - Maximum number of URLs to return (default: 200)
+- `--format FORMAT` - Output format: `json` or `jsonl` (default: `jsonl`)
+- `--output PATH` - Output file path (default: stdout)
+- `--use-sitemap/--no-sitemap` - Override config.sitemap.enabled
+- `--use-robots/--no-robots` - Override config.robots.respect
+- `--include-entrypoints-only` - Return only entrypoints, no discovery
+
+**Example:**
+```bash
+$ web-scraper map example-site --format jsonl --output urls.jsonl
+Mapped 42 URLs to urls.jsonl
+```
+
+**Output Format:**
+Each URL entry contains:
+- `url` - Normalised URL
+- `source` - Discovery source (`entrypoint`, `sitemap`, or `html_links`)
+- `depth` - Crawl depth (0 for entrypoints/sitemap, 1 for HTML links)
+- `allowed` - Whether robots.txt allows this URL
+- `included` - Whether URL matches include/exclude patterns
+- `excluded_reason` - Reason if excluded (`robots_disallow`, `exclude_pattern`, `not_in_include`, or `null`)
+
 ### crawl
 
 Run a crawl for a site configuration, creating a new corpus snapshot.
 
 **Usage:**
 ```bash
-web-scraper crawl SITE_NAME [--base-path PATH]
+web-scraper crawl SITE_NAME [OPTIONS]
 ```
 
 **Arguments:**
@@ -76,6 +113,14 @@ web-scraper crawl SITE_NAME [--base-path PATH]
 
 **Options:**
 - `--base-path PATH` - Base directory containing `sites/` and `corpora/` folders (optional)
+- `--verbose/--no-verbose` - Show crawl progress logs (default: false)
+- `--resume SNAPSHOT_ID` - Resume an existing crawl (snapshot ID or 'latest')
+- `--rps FLOAT` - Override requests-per-second rate limit
+- `--delay FLOAT` - Override per-domain delay (seconds)
+- `--pool-size INT` - Browser pool size
+- `--proxy URL` - Proxy URL(s) to use (can be specified multiple times)
+- `--formats FORMATS` - Comma-separated output formats (markdown, html, text, json). Overrides config.
+- `--from-map PATH` - Crawl only the URLs in a map output file (json or jsonl). URLs are filtered to include only entries where `included=true` and `allowed=true` (if present).
 
 **Example:**
 ```bash
@@ -83,6 +128,15 @@ $ web-scraper crawl example-site
 Starting crawl for example-site...
 Crawl completed: 42 pages
 Snapshot created: corpora/example-site/2025-01-15_1430/
+```
+
+**Crawl from Map:**
+```bash
+# Step 1: Generate map
+web-scraper map example-site --format jsonl --output urls.jsonl
+
+# Step 2: Crawl using map
+web-scraper crawl example-site --from-map urls.jsonl
 ```
 
 **Output:**
@@ -159,6 +213,28 @@ Chunks written: corpora/example-site/2025-01-15_1430/chunks.jsonl
    ```bash
    web-scraper chunk production-site 2025-01-15_1430
    ```
+
+### Map Then Crawl Workflow
+
+1. **Generate map:**
+   ```bash
+   web-scraper map example-site --format jsonl --output urls.jsonl
+   ```
+
+2. **Review mapped URLs:**
+   ```bash
+   cat urls.jsonl | jq '.url, .included, .excluded_reason'
+   ```
+
+3. **Crawl using map:**
+   ```bash
+   web-scraper crawl example-site --from-map urls.jsonl
+   ```
+
+This workflow provides deterministic URL discovery and crawling, useful for:
+- Reproducible crawls (same URLs every time)
+- Pre-filtering URLs before crawling
+- Separating discovery from crawling phases
 
 ### Processing Multiple Sites
 

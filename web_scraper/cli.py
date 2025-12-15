@@ -12,7 +12,6 @@ import click
 from web_scraper.config import default_corpora_dir, default_sites_dir
 from web_scraper.content.fixes.index import get_fix_index
 from web_scraper.corpus.compress import compress_snapshot, extract_archive
-from web_scraper.discovery import discover_sitemaps, parse_sitemap, filter_urls_by_patterns
 from web_scraper.prep.chunker import chunk_snapshot
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 from web_scraper.sites.loader import list_site_configs, load_site_config
@@ -307,6 +306,12 @@ def map_site(
     default=None,
     help="Comma-separated output formats (markdown, html, text, json). Overrides config.",
 )
+@click.option(
+    "--from-map",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Crawl only the URLs in a map output file (json or jsonl).",
+)
 def crawl(
     site_name: str,
     base_path: Path | None,
@@ -317,6 +322,7 @@ def crawl(
     pool_size: int | None,
     proxy: tuple[str, ...],
     formats: str | None,
+    from_map: Path | None,
 ) -> None:
     """
     Crawl a site and write a snapshot.
@@ -331,6 +337,7 @@ def crawl(
         pool_size: Browser pool size.
         proxy: Proxy URLs to use.
         formats: Comma-separated output formats.
+        from_map: Path to JSON or JSONL map file. If provided, crawl only URLs from map.
 
     Raises:
         click.ClickException: If the site configuration is not found or invalid.
@@ -355,6 +362,26 @@ def crawl(
             f"Error: {exc.message} [correlation_id={exc.correlation_id}]", err=True
         )
         raise SystemExit(1) from exc
+
+    # Handle map file if provided
+    target_urls: list[str] | None = None
+    if from_map:
+        from web_scraper.map_io import load_map_entries, select_crawl_urls
+
+        try:
+            # Load map entries
+            map_entries = load_map_entries(from_map)
+            if verbose:
+                click.echo(f"Loaded {len(map_entries)} entries from map file")
+
+            # Select crawl URLs (default filter: included=true and allowed=true if present)
+            target_urls = select_crawl_urls(map_entries)
+            if verbose:
+                click.echo(f"Selected {len(target_urls)} URLs from map for crawling")
+
+        except Exception as exc:
+            click.echo(f"Error loading map file: {exc}", err=True)
+            raise SystemExit(1) from exc
 
     # Override formats if specified
     if formats:
@@ -454,12 +481,16 @@ def crawl(
         browser_pool=browser_pool,
         proxy_rotator=proxy_rotator,
     )
-    click.echo(f"Starting crawl: {config.id} ({site_name}) with {len(config.entrypoints)} entrypoints...")
+    if target_urls:
+        click.echo(f"Starting crawl: {config.id} ({site_name}) with {len(target_urls)} URLs from map...")
+    else:
+        click.echo(f"Starting crawl: {config.id} ({site_name}) with {len(config.entrypoints)} entrypoints...")
 
     pages, snapshot_path = scraper.crawl(
         config,
         corpora_dir,
         resume_snapshot=resume_snapshot,
+        target_urls=target_urls,
     )
 
     click.echo(f"Finished crawl: {config.id} -> {len(pages)} pages")

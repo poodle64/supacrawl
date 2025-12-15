@@ -79,6 +79,7 @@ class Crawl4AIScraper(Scraper):
         config: SiteConfig,
         corpora_dir: Path | None = None,
         resume_snapshot: Path | None = None,
+        target_urls: list[str] | None = None,
     ) -> tuple[list[Page], Path]:
         """
         Crawl using Crawl4AI SDK.
@@ -87,6 +88,8 @@ class Crawl4AIScraper(Scraper):
             config: Site configuration to crawl.
             corpora_dir: Base corpora directory (defaults to cwd/corpora if None).
             resume_snapshot: Path to snapshot to resume from.
+            target_urls: Optional explicit list of URLs to crawl.
+                If provided, only crawl these URLs (no link discovery).
 
         Returns:
             Tuple of scraped Page objects and snapshot path.
@@ -110,7 +113,7 @@ class Crawl4AIScraper(Scraper):
         try:
             # Bridge async SDK to sync interface using asyncio.run()
             pages = asyncio.run(
-                self._crawl_async(config, correlation_id, snapshot_writer, state)
+                self._crawl_async(config, correlation_id, snapshot_writer, state, target_urls)
             )
             asyncio.run(snapshot_writer.complete())
         except ProviderError:
@@ -154,6 +157,7 @@ class Crawl4AIScraper(Scraper):
         correlation_id: str,
         writer: IncrementalSnapshotWriter,
         state: CrawlState | None = None,
+        target_urls: list[str] | None = None,
     ) -> list[Page]:
         """
         Asynchronously crawl using Crawl4AI SDK.
@@ -163,6 +167,8 @@ class Crawl4AIScraper(Scraper):
             correlation_id: Correlation ID for logging.
             writer: Snapshot writer for incremental saves.
             state: Optional crawl state for resumption.
+            target_urls: Optional explicit list of URLs to crawl.
+                If provided, only crawl these URLs (no link discovery).
 
         Returns:
             List of scraped Page objects.
@@ -183,6 +189,105 @@ class Crawl4AIScraper(Scraper):
         try:
             await writer.start()
             async with crawler:
+                # If target_urls provided, crawl only those URLs (no discovery)
+                if target_urls is not None:
+                    # Apply max_pages limit
+                    urls_to_crawl = target_urls[:config.max_pages]
+                    
+                    log_with_correlation(
+                        LOGGER,
+                        logging.INFO,
+                        "Crawling explicit URL list (no discovery)",
+                        correlation_id=correlation_id,
+                        url_count=len(urls_to_crawl),
+                        max_pages=config.max_pages,
+                        provider=self.provider_name,
+                    )
+                    
+                    for url in urls_to_crawl:
+                        # Check if we've hit max_pages limit
+                        if len(pages) >= config.max_pages:
+                            break
+                        
+                        # Skip if already seen
+                        if url in seen_urls:
+                            continue
+                        
+                        try:
+                            log_with_correlation(
+                                LOGGER,
+                                logging.INFO,
+                                "Crawling target URL",
+                                correlation_id=correlation_id,
+                                url=url,
+                                provider=self.provider_name,
+                            )
+                            # Crawl single URL without link discovery
+                            new_pages = await self._crawl_entrypoint(
+                                crawler, url, config, correlation_id, disable_deep_crawl=True
+                            )
+                            
+                            # Deduplicate pages by URL
+                            to_write: list[Page] = []
+                            for page in new_pages:
+                                normalised_url = page.url
+                                if normalised_url in seen_urls:
+                                    continue
+                                
+                                # Apply cleaning only for enhanced preset
+                                if config.markdown_quality_preset == "enhanced":
+                                    original_headings = [
+                                        line
+                                        for line in page.content_markdown.splitlines()
+                                        if line.strip() and line.strip().startswith("#")
+                                    ]
+                                    clean_content = clean_markdown(
+                                        page.content_markdown, config.cleaning
+                                    )
+                                else:
+                                    clean_content = page.content_markdown
+                                    original_headings = []
+                                
+                                # If cleaning removed all headings, restore them (enhanced preset only)
+                                if config.markdown_quality_preset == "enhanced":
+                                    cleaned_headings = [
+                                        line
+                                        for line in clean_content.splitlines()
+                                        if line.strip() and line.strip().startswith("#")
+                                    ]
+                                    if not cleaned_headings and original_headings:
+                                        max_restore = config.cleaning.skip_until_heading and 10 or 0
+                                        if max_restore:
+                                            headings_to_restore = original_headings[:max_restore]
+                                            clean_content = (
+                                                "\n".join(headings_to_restore) + "\n\n" + clean_content
+                                            )
+                                page = page.model_copy(update={"content_markdown": clean_content})
+                                seen_urls.add(normalised_url)
+                                pages.append(page)
+                                to_write.append(page)
+                            
+                            if to_write:
+                                await writer.add_pages(to_write)
+                                
+                        except ProviderError:
+                            raise
+                        except Exception as exc:
+                            log_with_correlation(
+                                LOGGER,
+                                logging.ERROR,
+                                f"Failed to crawl target URL {url}: {exc}",
+                                correlation_id=correlation_id,
+                                url=url,
+                                provider=self.provider_name,
+                                error=str(exc),
+                            )
+                            # Continue with next URL instead of failing entire crawl
+                            continue
+                    
+                    return pages
+                
+                # Default behavior: crawl entrypoints with discovery
                 # Crawl each entrypoint once
                 crawled_entrypoints: set[str] = set()
 
@@ -358,6 +463,7 @@ class Crawl4AIScraper(Scraper):
         entrypoint: str,
         config: SiteConfig,
         correlation_id: str,
+        disable_deep_crawl: bool = False,
     ) -> list[Page]:
         """
         Crawl a single entrypoint using Crawl4AI SDK.
@@ -367,6 +473,7 @@ class Crawl4AIScraper(Scraper):
             entrypoint: Entrypoint URL to crawl.
             config: Site configuration.
             correlation_id: Correlation ID for logging.
+            disable_deep_crawl: If True, disable link discovery (single page only).
 
         Returns:
             List of scraped Page objects.
@@ -384,9 +491,9 @@ class Crawl4AIScraper(Scraper):
             filters.append(exclude_filter)
         filter_chain = FilterChain(filters) if filters else None
 
-        # For single-page crawls, skip deep crawl to avoid max_page batching edge cases.
+        # For single-page crawls or when deep crawl disabled, skip deep crawl
         deep_crawl_strategy = None
-        if config.max_pages > 1:
+        if not disable_deep_crawl and config.max_pages > 1:
             deep_crawl_strategy = build_deep_crawl_strategy(config, filter_chain)
 
         # Build LLM configuration (generic provider or Ollama fallback)
