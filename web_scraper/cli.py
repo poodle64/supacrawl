@@ -680,6 +680,49 @@ def extract(archive_path: Path, target_dir: Path | None) -> None:
         raise SystemExit(1) from exc
 
 
+@app.command("parity", help="Run Firecrawl parity comparison harness.")
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=Path("parity-reports"),
+    help="Directory for parity report output.",
+)
+def parity(output_dir: Path) -> None:
+    """
+    Run Firecrawl parity comparison to evaluate fixes subsystem.
+
+    Compares web-scraper output (baseline-static vs enhanced) against Firecrawl
+    to make evidence-based decision on whether fixes subsystem should be kept.
+
+    Requires FIRECRAWL_API_KEY environment variable for Firecrawl comparisons.
+    """
+    import asyncio
+
+    from web_scraper.parity.harness import run_parity_comparison
+    from web_scraper.parity.report import generate_json_report, generate_markdown_report
+
+    try:
+        click.echo("Running Firecrawl parity comparison...")
+        results = asyncio.run(run_parity_comparison(output_dir))
+
+        # Generate reports
+        json_path = output_dir / "parity-report.json"
+        markdown_path = output_dir / "parity-report.md"
+
+        generate_json_report(results, json_path)
+        generate_markdown_report(results, markdown_path)
+
+        click.echo("Parity comparison complete!")
+        click.echo(f"JSON report: {json_path}")
+        click.echo(f"Markdown report: {markdown_path}")
+        click.echo("")
+        click.echo(f"Recommendation: {results['decision']['recommendation']}")
+        click.echo(f"Reason: {results['decision']['reason']}")
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
+
 @app.command("list-fixes", help="List all registered markdown fix plugins and their status.")
 def list_fixes() -> None:
     """
