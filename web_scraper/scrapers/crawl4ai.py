@@ -258,30 +258,38 @@ class Crawl4AIScraper(Scraper):
                             normalised_url = page.url
                             if normalised_url in seen_urls:
                                 continue
-                            # Preserve headings before cleaning
-                            original_headings = [
-                                line
-                                for line in page.content_markdown.splitlines()
-                                if line.strip() and line.strip().startswith("#")
-                            ]
-                            # Use configurable cleaner with site-specific rules
-                            clean_content = clean_markdown(
-                                page.content_markdown, config.cleaning
-                            )
-                            # If cleaning removed all headings, restore them
-                            cleaned_headings = [
-                                line
-                                for line in clean_content.splitlines()
-                                if line.strip() and line.strip().startswith("#")
-                            ]
-                            if not cleaned_headings and original_headings:
-                                # Prepend original headings to cleaned content
-                                max_restore = config.cleaning.skip_until_heading and 10 or 0
-                                if max_restore:
-                                    headings_to_restore = original_headings[:max_restore]
-                                    clean_content = (
-                                        "\n".join(headings_to_restore) + "\n\n" + clean_content
-                                    )
+                            # Apply cleaning only for enhanced preset
+                            if config.markdown_quality_preset == "enhanced":
+                                # Preserve headings before cleaning
+                                original_headings = [
+                                    line
+                                    for line in page.content_markdown.splitlines()
+                                    if line.strip() and line.strip().startswith("#")
+                                ]
+                                # Use configurable cleaner with site-specific rules
+                                clean_content = clean_markdown(
+                                    page.content_markdown, config.cleaning
+                                )
+                            else:
+                                # Pure Crawl4AI preset: skip cleaning
+                                clean_content = page.content_markdown
+                                original_headings = []
+                            
+                            # If cleaning removed all headings, restore them (enhanced preset only)
+                            if config.markdown_quality_preset == "enhanced":
+                                cleaned_headings = [
+                                    line
+                                    for line in clean_content.splitlines()
+                                    if line.strip() and line.strip().startswith("#")
+                                ]
+                                if not cleaned_headings and original_headings:
+                                    # Prepend original headings to cleaned content
+                                    max_restore = config.cleaning.skip_until_heading and 10 or 0
+                                    if max_restore:
+                                        headings_to_restore = original_headings[:max_restore]
+                                        clean_content = (
+                                            "\n".join(headings_to_restore) + "\n\n" + clean_content
+                                        )
                             page = page.model_copy(update={"content_markdown": clean_content})
                             seen_urls.add(normalised_url)
                             pages.append(page)

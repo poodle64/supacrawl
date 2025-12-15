@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -262,6 +262,10 @@ class SiteConfig(BaseModel):
     proxy: ProxyConfigModel = Field(default_factory=ProxyConfigModel)
     markdown_fixes: MarkdownFixesConfigModel = Field(
         default_factory=MarkdownFixesConfigModel
+    )
+    markdown_quality_preset: Literal["enhanced", "pure_crawl4ai"] = Field(
+        default="enhanced",
+        description="Markdown quality preset: 'enhanced' applies all post-processing, 'pure_crawl4ai' uses Crawl4AI output as-is",
     )
 
     @field_validator("entrypoints")
