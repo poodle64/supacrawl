@@ -271,34 +271,10 @@ def map_site(
     help="Show crawl progress logs.",
 )
 @click.option(
-    "--resume",
-    type=str,
-    default=None,
-    help="Resume an existing crawl. Pass snapshot ID or 'latest' for most recent.",
-)
-@click.option(
-    "--rps",
-    type=float,
-    default=None,
-    help="Override requests-per-second rate limit.",
-)
-@click.option(
-    "--delay",
-    type=float,
-    default=None,
-    help="Override per-domain delay (seconds).",
-)
-@click.option(
-    "--pool-size",
-    type=int,
-    default=None,
-    help="Browser pool size (default: from config or 3).",
-)
-@click.option(
-    "--proxy",
-    type=str,
-    multiple=True,
-    help="Proxy URL(s) to use. Can be specified multiple times.",
+    "--fresh",
+    is_flag=True,
+    default=False,
+    help="Start a new snapshot even if an incomplete one exists.",
 )
 @click.option(
     "--formats",
@@ -312,48 +288,136 @@ def map_site(
     default=None,
     help="Crawl only the URLs in a map output file (json or jsonl).",
 )
+@click.option(
+    "--concurrency",
+    type=int,
+    default=None,
+    help="Maximum concurrent page crawls (1-20). Overrides config.politeness.max_concurrent.",
+)
+@click.option(
+    "--delay",
+    type=float,
+    default=None,
+    help="Minimum delay between requests in seconds. Overrides config.politeness.delay_between_requests.",
+)
+@click.option(
+    "--timeout",
+    type=float,
+    default=None,
+    help="Page timeout in seconds (5-600). Overrides config.politeness.page_timeout.",
+)
+@click.option(
+    "--retries",
+    type=int,
+    default=None,
+    help="Maximum retry attempts (0-10). Overrides config.politeness.max_retries.",
+)
+@click.option(
+    "--chunks",
+    is_flag=True,
+    default=False,
+    help="Generate chunks.jsonl after crawl completes.",
+)
+@click.option(
+    "--max-chars",
+    type=int,
+    default=1200,
+    show_default=True,
+    help="Maximum characters per chunk (used with --chunks).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show URLs that would be crawled without fetching content.",
+)
+@click.option(
+    "--init",
+    type=str,
+    default=None,
+    help="Create site config from URL before crawling.",
+)
 def crawl(
     site_name: str,
     base_path: Path | None,
     verbose: bool,
-    resume: str | None,
-    rps: float | None,
-    delay: float | None,
-    pool_size: int | None,
-    proxy: tuple[str, ...],
+    fresh: bool,
     formats: str | None,
     from_map: Path | None,
+    concurrency: int | None,
+    delay: float | None,
+    timeout: float | None,
+    retries: int | None,
+    chunks: bool,
+    max_chars: int,
+    dry_run: bool,
+    init: str | None,
 ) -> None:
     """
     Crawl a site and write a snapshot.
 
     Args:
-        site_name: Name of the site configuration (without .yaml extension).
+        site_name: Name of the site configuration (without .yaml extension), or a URL when using --init.
         base_path: Optional base directory containing sites/ and corpora/ folders.
         verbose: Show detailed progress logs.
-        resume: Snapshot ID to resume, or 'latest'.
-        rps: Override requests-per-second.
-        delay: Override per-domain delay.
-        pool_size: Browser pool size.
-        proxy: Proxy URLs to use.
+        fresh: Start a new snapshot even if an incomplete one exists.
         formats: Comma-separated output formats.
         from_map: Path to JSON or JSONL map file. If provided, crawl only URLs from map.
+        concurrency: Override max concurrent page crawls.
+        delay: Override minimum delay between requests.
+        timeout: Override page timeout.
+        retries: Override max retry attempts.
+        chunks: Generate chunks.jsonl after crawl completes.
+        max_chars: Maximum characters per chunk.
+        dry_run: Show URLs that would be crawled without fetching content.
+        init: Site name for URL quick-start (use with URL as site_name argument).
 
     Raises:
         click.ClickException: If the site configuration is not found or invalid.
     """
     from web_scraper.corpus.state import (
-        find_latest_snapshot,
         find_resumable_snapshot,
         load_state,
     )
-    from web_scraper.rate_limit import RateLimitConfig, RateLimiter
-    from web_scraper.browser.pool import BrowserPool, BrowserPoolConfig
-    from web_scraper.network.proxy import ProxyRotator, ProxyConfig, Proxy
 
     _configure_logging(verbose)
     sites_dir = default_sites_dir(base_path)
     corpora_dir = default_corpora_dir(base_path)
+
+    # Handle URL quick-start: if site_name looks like a URL, require --init
+    if site_name.startswith("http://") or site_name.startswith("https://"):
+        if not init:
+            click.echo(
+                "Error: When using a URL as the first argument, you must provide --init <site_name>",
+                err=True,
+            )
+            click.echo("Example: web-scraper crawl https://example.com --init my-site", err=True)
+            raise SystemExit(1)
+        
+        # Create site config from URL
+        from web_scraper.init import scaffold_site_config
+        
+        url = site_name
+        actual_site_name = init
+        
+        try:
+            config_path = scaffold_site_config(
+                site_name=actual_site_name,
+                sites_dir=sites_dir,
+                url=url,
+                interactive=False,
+            )
+            if verbose:
+                click.echo(f"Created {config_path}")
+        except click.ClickException as exc:
+            click.echo(f"Error: {exc.message}", err=True)
+            raise SystemExit(1) from exc
+        except Exception as exc:
+            click.echo(f"Error creating config: {exc}", err=True)
+            raise SystemExit(1) from exc
+        
+        # Now use the created config
+        site_name = actual_site_name
 
     try:
         config = load_site_config(site_name, sites_dir)
@@ -362,6 +426,24 @@ def crawl(
             f"Error: {exc.message} [correlation_id={exc.correlation_id}]", err=True
         )
         raise SystemExit(1) from exc
+
+    # Handle dry-run mode
+    if dry_run:
+        import asyncio
+        from web_scraper.map import map_site as map_site_func
+        
+        try:
+            url_entries = asyncio.run(
+                map_site_func(config, max_urls=config.max_pages)
+            )
+            for entry in url_entries:
+                url = entry.get("url", entry) if isinstance(entry, dict) else entry
+                click.echo(url)
+            click.echo(f"\n{len(url_entries)} URLs would be crawled")
+        except Exception as exc:
+            click.echo(f"Error during URL discovery: {exc}", err=True)
+            raise SystemExit(1) from exc
+        return  # Exit without crawling
 
     # Handle map file if provided
     target_urls: list[str] | None = None
@@ -401,109 +483,231 @@ def crawl(
                 click.echo(f"Error: Invalid format: {e}", err=True)
                 raise SystemExit(1) from e
 
-    # Handle resume option
-    resume_snapshot: Path | None = None
-    if resume:
-        if resume == "latest":
-            resume_snapshot = find_resumable_snapshot(corpora_dir, config.id)
-            if not resume_snapshot:
-                # Try latest even if completed
-                resume_snapshot = find_latest_snapshot(corpora_dir, config.id)
-        else:
-            resume_snapshot = corpora_dir / config.id / resume
+    # Apply politeness overrides from CLI
+    politeness_updates: dict[str, object] = {}
+    if concurrency is not None:
+        if not 1 <= concurrency <= 20:
+            click.echo("Error: --concurrency must be between 1 and 20", err=True)
+            raise SystemExit(1)
+        politeness_updates["max_concurrent"] = concurrency
+    if delay is not None:
+        if delay < 0:
+            click.echo("Error: --delay must be non-negative", err=True)
+            raise SystemExit(1)
+        # Set both min and max to the same value for consistent delay
+        politeness_updates["delay_between_requests"] = (delay, delay + 0.5)
+    if timeout is not None:
+        if not 5.0 <= timeout <= 600.0:
+            click.echo("Error: --timeout must be between 5 and 600 seconds", err=True)
+            raise SystemExit(1)
+        politeness_updates["page_timeout"] = timeout
+    if retries is not None:
+        if not 0 <= retries <= 10:
+            click.echo("Error: --retries must be between 0 and 10", err=True)
+            raise SystemExit(1)
+        politeness_updates["max_retries"] = retries
 
-        if resume_snapshot and resume_snapshot.exists():
+    if politeness_updates:
+        new_politeness = config.politeness.model_copy(update=politeness_updates)
+        config = config.model_copy(update={"politeness": new_politeness})
+        if verbose:
+            click.echo(
+                f"Politeness settings: concurrency={config.politeness.max_concurrent}, "
+                f"delay={config.politeness.delay_between_requests}, "
+                f"timeout={config.politeness.page_timeout}s, "
+                f"retries={config.politeness.max_retries}"
+            )
+
+    # Auto-resume logic
+    resume_snapshot: Path | None = None
+    completed_pages = 0
+    if not fresh:
+        assert config.id is not None, "config.id must be set after validation"
+        resume_snapshot = find_resumable_snapshot(corpora_dir, config.id)
+        if resume_snapshot:
             state = load_state(resume_snapshot)
             if state:
-                if state.status == "completed":
-                    click.echo(
-                        f"Warning: Snapshot {resume_snapshot.name} is already completed. "
-                        "Starting fresh crawl instead.",
-                        err=True,
-                    )
-                    resume_snapshot = None
-                else:
-                    click.echo(
-                        f"Resuming crawl from {resume_snapshot.name}: "
-                        f"{state.checkpoint_page} pages completed, "
-                        f"{len(state.pending_urls)} pending, "
-                        f"{len(state.failed_urls)} failed"
-                    )
-        elif resume_snapshot:
-            click.echo(f"Warning: Snapshot {resume} not found. Starting fresh crawl.", err=True)
-            resume_snapshot = None
+                completed_pages = state.checkpoint_page
+                pending_pages = max(0, config.max_pages - completed_pages)
+                click.echo(
+                    f"Resuming {config.name} ({completed_pages} completed, "
+                    f"{pending_pages} pending)..."
+                )
+    
+    if fresh:
+        # Check if there was an incomplete snapshot we're ignoring
+        assert config.id is not None, "config.id must be set after validation"
+        incomplete = find_resumable_snapshot(corpora_dir, config.id)
+        if incomplete:
+            click.echo(f"Starting fresh crawl for {config.name}...")
+        else:
+            click.echo(f"Starting crawl for {config.name}...")
+    elif not resume_snapshot:
+        click.echo(f"Starting crawl for {config.name}...")
 
-    # Build rate limiter
-    rate_config = RateLimitConfig(
-        requests_per_second=rps or config.rate_limit.requests_per_second,
-        per_domain_delay=delay or config.rate_limit.per_domain_delay,
-        max_concurrent=config.rate_limit.max_concurrent,
-        respect_crawl_delay=config.rate_limit.respect_crawl_delay,
-        adaptive=config.rate_limit.adaptive,
-    )
-    rate_limiter = RateLimiter(rate_config)
-    if verbose:
-        click.echo(
-            f"Rate limiting: {rate_config.requests_per_second} RPS, "
-            f"{rate_config.per_domain_delay}s domain delay, "
-            f"max {rate_config.max_concurrent} concurrent"
-        )
+    # Create scraper (pacing is controlled by Crawl4AI internally)
+    scraper = Crawl4AIScraper()
 
-    # Build browser pool (if enabled)
-    browser_pool: BrowserPool | None = None
-    if config.browser_pool.enabled:
-        pool_config = BrowserPoolConfig(
-            pool_size=pool_size or config.browser_pool.pool_size,
-            max_pages_per_browser=config.browser_pool.max_pages_per_browser,
-            restart_on_crash=config.browser_pool.restart_on_crash,
+    try:
+        pages, snapshot_path = scraper.crawl(
+            config,
+            corpora_dir,
+            resume_snapshot=resume_snapshot,
+            target_urls=target_urls,
         )
-        browser_pool = BrowserPool(config=pool_config)
+        
+        # Generate chunks if requested
+        chunk_count = 0
+        if chunks:
+            import asyncio
+            from web_scraper.prep.chunker import chunk_snapshot
+            chunks_path = asyncio.run(chunk_snapshot(snapshot_path, max_chars=max_chars))
+            # Count chunks
+            chunk_count = sum(1 for _ in chunks_path.read_text().splitlines())
+        
+        # Output summary
+        assert config.id is not None, "config.id must be set after validation"
+        if chunks:
+            click.echo(f"Crawled {len(pages)} pages, generated {chunk_count} chunks")
+        else:
+            click.echo(f"Crawled {len(pages)} pages")
+        
+        # Show output path - use relative path if base_path not provided, else show from base
+        if base_path is None:
+            click.echo(f"Output: corpora/{config.id}/latest/")
+        else:
+            click.echo(f"Output: {base_path}/corpora/{config.id}/latest/")
         if verbose:
-            click.echo(f"Browser pool: {pool_config.pool_size} browsers")
+            click.echo(f"Snapshot ID: {snapshot_path.name}")
+    except KeyboardInterrupt:
+        # Handle Ctrl+C at CLI level as fallback
+        click.echo("\nCrawl interrupted.", err=True)
+        raise SystemExit(130)  # Standard exit code for SIGINT
+    except Exception as exc:
+        # Check for CrawlInterrupted (graceful shutdown with saved state)
+        from web_scraper.exceptions import CrawlInterrupted
+        if isinstance(exc, CrawlInterrupted):
+            click.echo(f"\nCrawl interrupted. Progress saved: {exc.pages_completed} pages.", err=True)
+            click.echo(f"Resume: web-scraper crawl {site_name}", err=True)
+            raise SystemExit(130)
+        raise
 
-    # Build proxy rotator (if configured)
-    proxy_rotator: ProxyRotator | None = None
-    if proxy or config.proxy.enabled:
-        proxy_list = list(proxy) if proxy else config.proxy.proxies
-        if proxy_list:
-            proxy_config = ProxyConfig(
-                enabled=True,
-                proxies=[Proxy.from_url(p) for p in proxy_list],
-                min_success_rate=config.proxy.min_success_rate,
-                fallback_direct=config.proxy.fallback_direct,
-            )
-            proxy_rotator = ProxyRotator(proxy_config)
-            if verbose:
-                click.echo(f"Proxy rotation: {len(proxy_list)} proxies")
 
-    scraper = Crawl4AIScraper(
-        rate_limiter=rate_limiter,
-        browser_pool=browser_pool,
-        proxy_rotator=proxy_rotator,
-    )
-    if target_urls:
-        click.echo(f"Starting crawl: {config.id} ({site_name}) with {len(target_urls)} URLs from map...")
-    else:
-        click.echo(f"Starting crawl: {config.id} ({site_name}) with {len(config.entrypoints)} entrypoints...")
+@app.command("list-snapshots", help="List snapshots for a site.")
+@click.argument("site_name")
+@click.option(
+    "--base-path",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    help="Base directory containing corpora/ folder.",
+)
+def list_snapshots(site_name: str, base_path: Path | None) -> None:
+    """
+    List all snapshots for a site with metadata.
 
-    pages, snapshot_path = scraper.crawl(
-        config,
-        corpora_dir,
-        resume_snapshot=resume_snapshot,
-        target_urls=target_urls,
-    )
-
-    click.echo(f"Finished crawl: {config.id} -> {len(pages)} pages")
-    click.echo(f"Snapshot created at {snapshot_path}")
-
-    # Show rate limit stats if verbose
-    if verbose:
-        stats = rate_limiter.stats
+    Args:
+        site_name: Name of the site.
+        base_path: Optional base directory containing corpora/ folder.
+    """
+    import json
+    from web_scraper.corpus.symlink import LATEST_SYMLINK_NAME
+    
+    corpora_dir = default_corpora_dir(base_path)
+    site_dir = corpora_dir / site_name
+    
+    if not site_dir.exists():
+        click.echo(f"No snapshots found for site: {site_name}")
+        return
+    
+    snapshots = []
+    for item in site_dir.iterdir():
+        # Skip the 'latest' symlink
+        if item.name == LATEST_SYMLINK_NAME:
+            continue
+        if not item.is_dir():
+            continue
+        
+        manifest_path = item / "manifest.json"
+        if not manifest_path.exists():
+            continue
+        
+        try:
+            manifest = json.loads(manifest_path.read_text())
+            status = manifest.get("status", "unknown")
+            total_pages = manifest.get("total_pages", 0)
+            created_at = manifest.get("created_at", "unknown")
+            
+            # Check for chunks
+            chunks_path = item / "chunks.jsonl"
+            if chunks_path.exists():
+                chunk_count = sum(1 for _ in chunks_path.read_text().splitlines())
+            else:
+                chunk_count = None
+            
+            snapshots.append({
+                "id": item.name,
+                "status": status,
+                "pages": total_pages,
+                "chunks": chunk_count,
+                "created_at": created_at,
+            })
+        except Exception:
+            continue
+    
+    # Sort by snapshot ID descending (most recent first)
+    snapshots.sort(key=lambda s: s["id"], reverse=True)
+    
+    if not snapshots:
+        click.echo(f"No snapshots found for site: {site_name}")
+        return
+    
+    # Print table
+    for snap in snapshots:
+        chunks_str = f"{snap['chunks']:>4}" if snap['chunks'] is not None else "   -"
         click.echo(
-            f"Rate limiting: {stats['total_requests']} requests, "
-            f"{stats['total_wait_time']:.1f}s total wait, "
-            f"{stats['rate_limit_hits']} 429 responses"
+            f"{snap['id']}  {snap['status']:<10}  {snap['pages']:>4} pages  "
+            f"{chunks_str} chunks  {snap['created_at']}"
         )
+
+
+@app.command("init", help="Create a new site configuration.")
+@click.argument("site_name")
+@click.option(
+    "--url",
+    type=str,
+    default=None,
+    help="Starting URL for the site.",
+)
+@click.option(
+    "--base-path",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    help="Base directory containing sites/ folder.",
+)
+def init(site_name: str, url: str | None, base_path: Path | None) -> None:
+    """
+    Create a new site configuration file.
+
+    Args:
+        site_name: Site identifier (becomes filename without .yaml).
+        url: Optional starting URL.
+        base_path: Optional base directory.
+    """
+    from web_scraper.init import scaffold_site_config
+    
+    sites_dir = default_sites_dir(base_path)
+    
+    try:
+        config_path = scaffold_site_config(
+            site_name=site_name,
+            sites_dir=sites_dir,
+            url=url,
+            interactive=(url is None),
+        )
+        click.echo(f"Created {config_path}")
+    except click.ClickException:
+        raise
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
 
 
 @app.command("chunk", help="Chunk a snapshot into JSONL output.")
@@ -586,7 +790,20 @@ def chunk(
                 ollama_summarize=ollama_summarize,
             )
         )
-        click.echo(f"Chunks written to {output_path}")
+        # Count chunks
+        chunk_count = sum(1 for _ in output_path.read_text().splitlines())
+        click.echo(f"Generated {chunk_count} chunks")
+        # Show output path - respect base_path
+        if base_path is None:
+            if snapshot_id == "latest":
+                click.echo(f"Output: corpora/{site_id}/latest/chunks.jsonl")
+            else:
+                click.echo(f"Output: corpora/{site_id}/{snapshot_id}/chunks.jsonl")
+        else:
+            if snapshot_id == "latest":
+                click.echo(f"Output: {base_path}/corpora/{site_id}/latest/chunks.jsonl")
+            else:
+                click.echo(f"Output: {base_path}/corpora/{site_id}/{snapshot_id}/chunks.jsonl")
     except WebScrapeError as exc:
         click.echo(
             f"Error: {exc.message} [correlation_id={exc.correlation_id}]", err=True
@@ -680,12 +897,12 @@ def extract(archive_path: Path, target_dir: Path | None) -> None:
         raise SystemExit(1) from exc
 
 
-@app.command("parity", help="Run Firecrawl parity comparison harness.")
+@app.command("parity", hidden=True, help="[Dev] Run Firecrawl parity comparison harness.")
 @click.option(
     "--output-dir",
     type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-    default=Path("parity-reports"),
-    help="Directory for parity report output.",
+    default=Path("docs/parity"),
+    help="Directory for parity report output (default: docs/parity).",
 )
 @click.option(
     "--no-cache",
@@ -721,16 +938,17 @@ def parity(
     """
     Run Firecrawl parity comparison to evaluate fixes subsystem.
 
+    This is a development command for comparing web-scraper output against Firecrawl.
+    It is hidden from the main help output.
+
     Compares web-scraper output (baseline-static vs enhanced) against Firecrawl
     to make evidence-based decision on whether fixes subsystem should be kept.
 
-    Uses MCP Firecrawl server if available, otherwise falls back to FIRECRAWL_API_KEY.
+    Requires FIRECRAWL_API_KEY environment variable for Firecrawl comparisons.
     """
-    import asyncio
-
-    from web_scraper.parity.cache import load_urls_from_file
-    from web_scraper.parity.harness import run_parity_comparison
-    from web_scraper.parity.report import generate_json_report, generate_markdown_report
+    from tools.parity.cache import load_urls_from_file
+    from tools.parity.harness import run_parity_comparison
+    from tools.parity.report import generate_json_report, generate_markdown_report
 
     try:
         # Load URLs if file provided
@@ -765,10 +983,13 @@ def parity(
         raise SystemExit(1) from exc
 
 
-@app.command("list-fixes", help="List all registered markdown fix plugins and their status.")
+@app.command("list-fixes", hidden=True, help="[Dev] List all registered markdown fix plugins.")
 def list_fixes() -> None:
     """
     List all registered markdown fix plugins.
+
+    This is a development command for inspecting available fixes.
+    It is hidden from the main help output.
 
     Shows each fix's name, description, issue pattern, and upstream issue.
     Fixes are controlled via site configuration YAML files.

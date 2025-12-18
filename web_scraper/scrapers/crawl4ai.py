@@ -15,11 +15,25 @@ try:
 except ImportError:
     from typing_extensions import override
 
-from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, LLMExtractionStrategy  # type: ignore[import-untyped]
+import re
+from urllib.parse import urlsplit
+
+from crawl4ai import (  # type: ignore[import-untyped]
+    AsyncWebCrawler,
+    CrawlerRunConfig,
+    LLMExtractionStrategy,
+    RateLimiter,
+    SemaphoreDispatcher,
+)
+from crawl4ai.deep_crawling import (  # type: ignore[import-untyped]
+    BFSDeepCrawlStrategy,
+    BestFirstCrawlingStrategy,
+    KeywordRelevanceScorer,
+)
 from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter  # type: ignore[import-untyped]
 
 from web_scraper.content.cleaner import clean_markdown
-from web_scraper.exceptions import ProviderError, generate_correlation_id
+from web_scraper.exceptions import CrawlInterrupted, ProviderError, generate_correlation_id
 from web_scraper.models import Page, SiteConfig
 from web_scraper.scrapers.base import Scraper
 from web_scraper.scrapers.crawl4ai_config import (
@@ -28,23 +42,188 @@ from web_scraper.scrapers.crawl4ai_config import (
     build_markdown_generator,
     cache_mode,
 )
-from web_scraper.scrapers.crawl4ai_deep import build_deep_crawl_strategy
 from web_scraper.scrapers.crawl4ai_result import extract_pages_from_result
-from web_scraper.scrapers.crawl4ai_retry import (
-    is_client_error,
-    retry_attempts,
-    retry_backoff,
-    retry_base_delay,
-    retry_jitter,
-)
 from web_scraper.utils import log_with_correlation
 from web_scraper.corpus.writer import IncrementalSnapshotWriter
 from web_scraper.corpus.state import CrawlState, load_state
-from web_scraper.rate_limit import RateLimiter
-from web_scraper.browser.pool import BrowserPool
-from web_scraper.network.proxy import ProxyRotator
 
 LOGGER = logging.getLogger(__name__)
+
+
+# --- Retry/backoff helpers ---
+
+
+def _retry_attempts(config: SiteConfig | None = None) -> int:
+    """Return max retry attempts for crawl operations."""
+    if config and config.politeness.max_retries is not None:
+        return config.politeness.max_retries
+    try:
+        return max(1, int(os.getenv("CRAWL4AI_RETRY_ATTEMPTS", "3")))
+    except ValueError:
+        return 3
+
+
+def _retry_base_delay() -> float:
+    """Return base delay (seconds) for exponential backoff."""
+    try:
+        return max(0.1, float(os.getenv("CRAWL4AI_RETRY_BASE_DELAY", "1.0")))
+    except ValueError:
+        return 1.0
+
+
+def _retry_backoff() -> float:
+    """Return multiplier for exponential backoff."""
+    try:
+        return max(1.0, float(os.getenv("CRAWL4AI_RETRY_BACKOFF", "2.0")))
+    except ValueError:
+        return 2.0
+
+
+def _retry_jitter() -> float:
+    """Return jitter factor (0-1) to randomise backoff."""
+    try:
+        raw = float(os.getenv("CRAWL4AI_RETRY_JITTER", "0.3"))
+        return max(0.0, min(raw, 1.0))
+    except ValueError:
+        return 0.3
+
+
+def _build_rate_limiter(config: SiteConfig) -> RateLimiter:
+    """Build a Crawl4AI RateLimiter from config."""
+    delay_min, delay_max = config.politeness.delay_between_requests
+    return RateLimiter(
+        base_delay=(delay_min, delay_max),
+        max_delay=60.0,  # Cap backoff at 60 seconds
+        max_retries=config.politeness.max_retries,
+        rate_limit_codes=[429, 503],  # Standard rate limit codes
+    )
+
+
+def _build_dispatcher(config: SiteConfig) -> SemaphoreDispatcher:
+    """Build a Crawl4AI SemaphoreDispatcher from config."""
+    rate_limiter = _build_rate_limiter(config)
+    return SemaphoreDispatcher(
+        max_session_permit=config.politeness.max_concurrent,
+        rate_limiter=rate_limiter,
+    )
+
+
+def _is_client_error(exc: Exception) -> bool:
+    """Heuristic to avoid retrying on 4xx client errors."""
+    status_candidates: list[int] = []
+    for attr in ("status_code", "status", "code"):
+        val = getattr(exc, attr, None)
+        if isinstance(val, int):
+            status_candidates.append(val)
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        for attr in ("status_code", "status"):
+            val = getattr(response, attr, None)
+            if isinstance(val, int):
+                status_candidates.append(val)
+
+    for status in status_candidates:
+        if 400 <= status < 500:
+            return True
+
+    msg = str(exc)
+    match = re.search(r"\b4\d\d\b", msg) if msg else None
+    if match:
+        code = int(match.group(0))
+        if 400 <= code < 500:
+            return True
+
+    return False
+
+
+# --- Deep crawl strategy helpers (inlined from crawl4ai_deep.py) ---
+
+
+def _estimate_max_depth(max_pages: int) -> int:
+    """Heuristic depth estimate from max_pages."""
+    if max_pages <= 1:
+        return 1
+    if max_pages <= 10:
+        return 2
+    if max_pages <= 100:
+        return 3
+    if max_pages <= 1000:
+        return 4
+    return 5
+
+
+def _keyword_seeds(config: SiteConfig) -> list[str]:
+    """
+    Derive lightweight keywords from include patterns and entrypoint paths
+    to help the best-first scorer prioritise relevant docs.
+    """
+    tokens: set[str] = set()
+    stopwords = {
+        "https",
+        "http",
+        "www",
+        "docs",
+        "doc",
+        "api",
+        "v1",
+        "v2",
+        "reference",
+        "guide",
+        "guides",
+        "overview",
+        "index",
+        "html",
+    }
+
+    def add_from_url(url: str) -> None:
+        parts = urlsplit(url)
+        for part in parts.path.split("/"):
+            for piece in re.split(r"[-_]", part):
+                token = piece.strip().lower()
+                if len(token) < 3 or token.isdigit() or token in stopwords:
+                    continue
+                tokens.add(token)
+
+    for pattern in config.include:
+        add_from_url(pattern)
+    for entry in config.entrypoints:
+        add_from_url(entry)
+
+    # Fall back to id/name keywords
+    assert config.id is not None, "config.id must be set after validation"
+    for val in (config.id, config.name):
+        for piece in re.split(r"[\s/_-]", val):
+            token = piece.strip().lower()
+            if len(token) > 2 and token not in stopwords:
+                tokens.add(token)
+
+    return sorted(tokens)
+
+
+def _build_deep_crawl_strategy(
+    config: SiteConfig, filter_chain: FilterChain | None
+) -> BFSDeepCrawlStrategy | BestFirstCrawlingStrategy:
+    """Prefer best-first crawling with keyword scoring to stay on-topic."""
+    max_depth = _estimate_max_depth(config.max_pages)
+    keywords = _keyword_seeds(config)
+
+    if keywords:
+        scorer = KeywordRelevanceScorer(keywords=keywords, weight=0.7)
+        return BestFirstCrawlingStrategy(
+            max_depth=max_depth,
+            include_external=config.include_subdomains,
+            filter_chain=filter_chain,
+            url_scorer=scorer,
+            max_pages=config.max_pages,
+        )
+
+    return BFSDeepCrawlStrategy(
+        max_depth=max_depth,
+        include_external=config.include_subdomains,
+        filter_chain=filter_chain,
+        max_pages=config.max_pages,
+    )
 
 
 class Crawl4AIScraper(Scraper):
@@ -55,23 +234,14 @@ class Crawl4AIScraper(Scraper):
     def __init__(
         self,
         crawler: AsyncWebCrawler | None = None,
-        rate_limiter: RateLimiter | None = None,
-        browser_pool: BrowserPool | None = None,
-        proxy_rotator: ProxyRotator | None = None,
     ) -> None:
         """
         Initialise the Crawl4AI provider.
 
         Args:
             crawler: Optional preconfigured AsyncWebCrawler (useful for testing).
-            rate_limiter: Optional rate limiter for politeness controls.
-            browser_pool: Optional browser pool for efficient browser reuse.
-            proxy_rotator: Optional proxy rotator for proxy rotation.
         """
         self._crawler = crawler
-        self._rate_limiter = rate_limiter
-        self._browser_pool = browser_pool
-        self._proxy_rotator = proxy_rotator
 
     @override
     def crawl(
@@ -116,6 +286,21 @@ class Crawl4AIScraper(Scraper):
                 self._crawl_async(config, correlation_id, snapshot_writer, state, target_urls)
             )
             asyncio.run(snapshot_writer.complete())
+        except KeyboardInterrupt:
+            # Graceful shutdown on Ctrl+C: mark as interrupted, save state
+            log_with_correlation(
+                LOGGER,
+                logging.WARNING,
+                "Crawl interrupted by user (Ctrl+C). Saving progress...",
+                correlation_id=correlation_id,
+                provider=self.provider_name,
+            )
+            asyncio.run(snapshot_writer.abort("interrupted"))
+            snapshot_path = snapshot_writer.snapshot_root()
+            raise CrawlInterrupted(
+                snapshot_path=snapshot_path,
+                pages_completed=len(snapshot_writer.get_filtered_pages()),
+            )
         except ProviderError:
             asyncio.run(snapshot_writer.abort("provider_error"))
             raise
@@ -194,6 +379,9 @@ class Crawl4AIScraper(Scraper):
                     # Apply max_pages limit
                     urls_to_crawl = target_urls[:config.max_pages]
                     
+                    # Get delay settings from config
+                    delay_min, delay_max = config.politeness.delay_between_requests
+                    
                     log_with_correlation(
                         LOGGER,
                         logging.INFO,
@@ -201,9 +389,12 @@ class Crawl4AIScraper(Scraper):
                         correlation_id=correlation_id,
                         url_count=len(urls_to_crawl),
                         max_pages=config.max_pages,
+                        delay_range=(delay_min, delay_max),
+                        max_concurrent=config.politeness.max_concurrent,
                         provider=self.provider_name,
                     )
                     
+                    crawl_count = 0
                     for url in urls_to_crawl:
                         # Check if we've hit max_pages limit
                         if len(pages) >= config.max_pages:
@@ -269,6 +460,13 @@ class Crawl4AIScraper(Scraper):
                             
                             if target_pages:
                                 await writer.add_pages(target_pages)
+                            
+                            # Increment crawl count and apply delay before next request
+                            crawl_count += 1
+                            if crawl_count < len(urls_to_crawl):
+                                # Random delay between min and max
+                                delay = delay_min + random.random() * (delay_max - delay_min)
+                                await asyncio.sleep(delay)
                                 
                         except ProviderError:
                             raise
@@ -494,7 +692,7 @@ class Crawl4AIScraper(Scraper):
         # For single-page crawls or when deep crawl disabled, skip deep crawl
         deep_crawl_strategy = None
         if not disable_deep_crawl and config.max_pages > 1:
-            deep_crawl_strategy = build_deep_crawl_strategy(config, filter_chain)
+            deep_crawl_strategy = _build_deep_crawl_strategy(config, filter_chain)
 
         # Build LLM configuration (generic provider or Ollama fallback)
         llm_config = build_llm_config(correlation_id)
@@ -514,6 +712,8 @@ class Crawl4AIScraper(Scraper):
         markdown_generator = build_markdown_generator(llm_config, correlation_id, config)
 
         # Build crawler run configuration (Crawl4AI 0.7.8+)
+        # Use page_timeout from config (convert seconds to milliseconds)
+        page_timeout_ms = int(config.politeness.page_timeout * 1000)
         run_config = CrawlerRunConfig(
             deep_crawl_strategy=deep_crawl_strategy,
             cache_mode=cache_mode(),
@@ -526,7 +726,7 @@ class Crawl4AIScraper(Scraper):
             wait_until=os.getenv("CRAWL4AI_WAIT_UNTIL", "networkidle"),
             wait_for_images=config.only_main_content,  # Wait for images when extracting main content
             delay_before_return_html=0.25,
-            page_timeout=120000,
+            page_timeout=page_timeout_ms,
             markdown_generator=markdown_generator,
             extraction_strategy=extraction_strategy,  # Use LLM if configured
             locale=os.getenv("CRAWL4AI_LOCALE", "en-US"),
@@ -538,12 +738,14 @@ class Crawl4AIScraper(Scraper):
         if hasattr(run_config, "blocked_resource_patterns"):
             run_config.blocked_resource_patterns = blocked
 
+        # Entrypoint timeout is separate from page_timeout (overall operation timeout)
         entrypoint_timeout_ms = int(os.getenv("CRAWL4AI_ENTRYPOINT_TIMEOUT_MS", "180000"))
 
-        attempts = retry_attempts()
-        base_delay = retry_base_delay()
-        backoff = retry_backoff()
-        jitter = retry_jitter()
+        # Use retry config from politeness settings
+        attempts = _retry_attempts(config)
+        base_delay = _retry_base_delay()
+        backoff = _retry_backoff()
+        jitter = _retry_jitter()
         last_error: Exception | None = None
 
         for attempt in range(1, attempts + 1):
@@ -573,7 +775,7 @@ class Crawl4AIScraper(Scraper):
                 )
             except Exception as exc:
                 last_error = exc
-                retryable = not is_client_error(exc)
+                retryable = not _is_client_error(exc)
                 log_level = logging.ERROR if (attempt == attempts or not retryable) else logging.WARNING
                 log_with_correlation(
                     LOGGER,

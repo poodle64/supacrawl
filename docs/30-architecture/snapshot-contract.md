@@ -11,19 +11,28 @@ Snapshots are stored in a hierarchical directory structure:
 ```
 corpora/
   {site_id}/
+    latest/               (symlink to most recent snapshot)
     {snapshot_id}/
       manifest.json
+      .meta/              (internal artefacts)
+        crawl_state.json
+        checksums.sha256
+        run.log.jsonl
       {format}/
         {url_hierarchy}/
           {filename}.{ext}
+      chunks.jsonl        (optional)
 ```
 
 **Components:**
 - `site_id`: Site configuration identifier (from `SiteConfig.id`)
-- `snapshot_id`: Timestamp-based identifier (ISO 8601 format: `YYYYMMDDTHHMMSS`)
+- `latest`: Symlink to most recent snapshot (always points to current data)
+- `snapshot_id`: Timestamp-based identifier (format: `YYYY-MM-DD_HHMM`, timezone: Australia/Brisbane)
+- `.meta`: Internal directory for crawl state, checksums, and logs
 - `format`: Output format directory (`markdown`, `html`, `text`, `json`)
 - `url_hierarchy`: Directory structure preserving URL path hierarchy
 - `filename`: Filesystem-safe filename derived from URL
+- `chunks.jsonl`: Optional chunked output for LLM consumption
 
 ## Manifest Structure
 

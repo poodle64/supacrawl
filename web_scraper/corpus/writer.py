@@ -499,7 +499,7 @@ def _get_crawl4ai_version() -> str | None:
         Version string or None if unavailable.
     """
     try:
-        import crawl4ai
+        import crawl4ai  # type: ignore[import-untyped]
         if hasattr(crawl4ai, "__version__"):
             return str(crawl4ai.__version__)
     except (ImportError, AttributeError):
@@ -578,6 +578,7 @@ async def write_snapshot(
     """
     correlation_id = generate_correlation_id()
     snapshot_id = new_snapshot_id()
+    assert site.id is not None, "site.id must be set after validation"
     snapshot_path = snapshot_root(site.id, corpora_root, snapshot_id)
     snapshot_path.mkdir(parents=True, exist_ok=True)
 
@@ -651,12 +652,13 @@ class IncrementalSnapshotWriter:
             self._state = load_state(resume_snapshot) or CrawlState()
         else:
             self.snapshot_id = snapshot_id or new_snapshot_id()
+            assert site.id is not None, "site.id must be set after validation"
             self.snapshot_path = snapshot_root(site.id, corpora_root, self.snapshot_id)
             self._state = CrawlState()
 
         self.manifest_path = self.snapshot_path / "manifest.json"
-        self.run_log_path = self.snapshot_path / "run.log.jsonl"
-        self.checksums_path = self.snapshot_path / "checksums.sha256"
+        self.run_log_path = self.snapshot_path / ".meta" / "run.log.jsonl"
+        self.checksums_path = self.snapshot_path / ".meta" / "checksums.sha256"
         self.manifest_pages: list[dict[str, Any]] = []
         self.started = False
         self.correlation_id = generate_correlation_id()
@@ -678,6 +680,7 @@ class IncrementalSnapshotWriter:
     async def start(self) -> None:
         """Initialise snapshot directories and write an in-progress manifest."""
         self.snapshot_path.mkdir(parents=True, exist_ok=True)
+        (self.snapshot_path / ".meta").mkdir(exist_ok=True)  # Create .meta/ directory
         await self._write_manifest(status="in_progress")
         self.started = True
 
@@ -700,11 +703,16 @@ class IncrementalSnapshotWriter:
         await self._apply_boilerplate_and_write(status="in_progress")
 
     async def complete(self) -> None:
-        """Mark manifest as completed."""
+        """Mark manifest as completed and update latest symlink."""
         await self._apply_boilerplate_and_write(status="completed")
         self._state.finish("completed")
         save_state(self._state, self.snapshot_path)
         await self.log_event({"type": "completed"})
+        
+        # Update latest symlink to point to this snapshot
+        from web_scraper.corpus.symlink import update_latest_symlink
+        site_dir = self.snapshot_path.parent
+        update_latest_symlink(site_dir, self.snapshot_id)
 
     async def abort(self, error: str | None = None) -> None:
         """Mark manifest as aborted."""

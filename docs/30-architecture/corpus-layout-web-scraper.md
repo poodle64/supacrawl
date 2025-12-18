@@ -18,8 +18,13 @@ Each crawl creates a new snapshot in the following structure:
 ```
 corpora/
 ├── {site_id}/
+│   ├── latest/                 (symlink to most recent snapshot)
 │   ├── {snapshot_id}/
 │   │   ├── manifest.json
+│   │   ├── .meta/              (internal artefacts)
+│   │   │   ├── crawl_state.json
+│   │   │   ├── checksums.sha256
+│   │   │   └── run.log.jsonl
 │   │   ├── markdown/
 │   │   │   ├── api/
 │   │   │   │   ├── 2/
@@ -42,25 +47,35 @@ corpora/
 
 - **`corpora/`**: Root directory for all corpus output
 - **`{site_id}/`**: Site identifier from `SiteConfig.id`
-- **`{snapshot_id}/`**: Timestamp-based snapshot identifier
+- **`latest/`**: Symlink to most recent snapshot (updated on each successful crawl)
+- **`{snapshot_id}/`**: Timestamp-based snapshot identifier (format: `YYYY-MM-DD_HHMM`)
+- **`.meta/`**: Internal directory for crawl state, checksums, and logs (not part of public contract)
+  - `crawl_state.json`: Resumption state for interrupted crawls
+  - `checksums.sha256`: SHA256 checksums for all content files
+  - `run.log.jsonl`: Structured crawl logs
 - **`{format}/`**: Format-based directories (e.g., `markdown/`, `html/`, `json/`)
   - Each format directory preserves URL hierarchy as subdirectories
   - Root URLs (e.g., `https://example.com/`) are stored as `index.{ext}` in the format directory
   - URL paths (e.g., `/api/2/overview`) are stored as `api/2/overview.{ext}`
-- **`manifest.json`**: Snapshot metadata and page index
+- **`manifest.json`**: Snapshot metadata and page index (machine contract)
 - **`chunks.jsonl`**: Optional chunked content for LLM consumption
 
 ## Snapshot ID Generation
 
 ### Timestamp Format
 
-Snapshot IDs use ISO 8601 format without separators:
+Snapshot IDs use a timestamp format with date separators:
 
 ```
 YYYY-MM-DD_HHMM
 ```
 
 **Example:** `2025-01-15_1430` (15 January 2025, 14:30 AEST)
+
+**Format details:**
+- Date: `YYYY-MM-DD` (ISO 8601 date with hyphens)
+- Time: `HHMM` (24-hour format, no separators)
+- Separator: `_` (underscore between date and time)
 
 ### Timezone
 
@@ -73,7 +88,7 @@ from zoneinfo import ZoneInfo
 def new_snapshot_id() -> str:
     """Generate a new snapshot ID using current time in Australia/Brisbane."""
     now = datetime.now(ZoneInfo("Australia/Brisbane"))
-    return now.strftime("%Y%m%dT%H%M%S")
+    return now.strftime("%Y-%m-%d_%H%M")
 ```
 
 ### Uniqueness
@@ -216,14 +231,41 @@ Each chunk contains:
 - **`chunk_index`**: Zero-based chunk index within page
 - **`content`**: Chunk text content
 
+## Latest Symlink
+
+### Purpose
+
+The `latest` symlink in each site directory always points to the most recent snapshot. This provides:
+
+- **Stable path**: Consumers can always access current data via `corpora/{site_id}/latest/`
+- **No brittle paths**: No need to track specific snapshot IDs
+- **Automatic updates**: Updated on every successful crawl
+
+### Symlink Semantics
+
+- **Location**: `corpora/{site_id}/latest`
+- **Target**: Relative path to most recent snapshot (e.g., `2025-01-15_1430`)
+- **Type**: Symbolic link (POSIX filesystem feature)
+- **Updates**: Created or updated when crawl completes successfully
+- **Persistence**: Survives across crawls (always points to newest)
+
+**Example:**
+```bash
+$ ls -l corpora/example-site/
+lrwxr-xr-x latest -> 2025-01-15_1430
+drwxr-xr-x 2025-01-15_1430/
+drwxr-xr-x 2025-01-14_0900/
+```
+
 ## Downstream Consumer Integration
 
 ### Reading Snapshots
 
-1. List snapshots: `corpora/{site_id}/` directories
-2. Read manifest: `corpora/{site_id}/{snapshot_id}/manifest.json`
-3. Load pages: Read files from format directories (e.g., `markdown/`, `html/`) using manifest paths
-4. Process chunks: Read `chunks.jsonl` line by line
+1. Use latest symlink: `corpora/{site_id}/latest/` for current data
+2. Or list snapshots: `corpora/{site_id}/` directories (exclude `latest`)
+3. Read manifest: `corpora/{site_id}/{snapshot_id}/manifest.json`
+4. Load pages: Read files from format directories (e.g., `markdown/`, `html/`) using manifest paths
+5. Process chunks: Read `chunks.jsonl` line by line (if present)
 
 ### Example Integration
 
@@ -231,8 +273,14 @@ Each chunk contains:
 import json
 from pathlib import Path
 
+def load_latest_snapshot(site_id: str) -> dict:
+    """Load latest snapshot manifest using symlink."""
+    manifest_path = Path(f"corpora/{site_id}/latest/manifest.json")
+    with manifest_path.open() as f:
+        return json.load(f)
+
 def load_snapshot(site_id: str, snapshot_id: str) -> dict:
-    """Load snapshot manifest and return metadata."""
+    """Load specific snapshot manifest by ID."""
     manifest_path = Path(f"corpora/{site_id}/{snapshot_id}/manifest.json")
     with manifest_path.open() as f:
         return json.load(f)
@@ -250,11 +298,13 @@ def load_chunks(site_id: str, snapshot_id: str) -> list[dict]:
 ## Best Practices
 
 1. **Snapshot Isolation**: Each crawl creates a new snapshot (no overwriting)
-2. **Manifest First**: Always create manifest before writing pages
-3. **Atomic Writes**: Write manifest to temp file, then rename
-4. **Safe Filenames**: Use filesystem-safe slugs for page files
-5. **Content Hashing**: Include content hashes for deduplication
-6. **Metadata Preservation**: Capture all crawl context in manifest
+2. **Use Latest Symlink**: Consumers should prefer `latest/` for current data
+3. **Ignore .meta Directory**: Internal artefacts in `.meta/` are not part of public contract
+4. **Manifest First**: Always create manifest before writing pages
+5. **Atomic Writes**: Write manifest to temp file, then rename
+6. **Safe Filenames**: Use filesystem-safe slugs for page files
+7. **Content Hashing**: Include content hashes for deduplication
+8. **Metadata Preservation**: Capture all crawl context in manifest
 
 ## References
 

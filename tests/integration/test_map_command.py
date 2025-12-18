@@ -16,7 +16,7 @@ from web_scraper.map import map_site
 from web_scraper.sites.loader import load_site_config
 
 # Fixture paths
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 SITES_DIR = FIXTURES_DIR / "sites"
 HTML_DIR = FIXTURES_DIR / "html" / "map_site"
 

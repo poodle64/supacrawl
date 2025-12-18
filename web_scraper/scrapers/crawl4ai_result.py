@@ -118,6 +118,7 @@ def _process_crawl_result(
     # Build extra metadata
     extra = _build_extra_metadata(crawl_result, markdown, lang_info)
 
+    assert config.id is not None, "config.id must be set after validation"
     return Page(
         site_id=config.id,
         url=url,

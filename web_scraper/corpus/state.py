@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 LOGGER = logging.getLogger(__name__)
 
 # State file name within snapshot directory
-STATE_FILE = "crawl_state.json"
+STATE_FILE = ".meta/crawl_state.json"
 
 
 def _brisbane_now() -> datetime:
@@ -166,7 +166,7 @@ def save_state(state: CrawlState, snapshot_path: Path) -> None:
         snapshot_path: Path to snapshot directory.
     """
     state_file = snapshot_path / STATE_FILE
-    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.parent.mkdir(parents=True, exist_ok=True)  # Creates .meta/ if needed
 
     try:
         with state_file.open("w", encoding="utf-8") as f:
@@ -187,6 +187,13 @@ def load_state(snapshot_path: Path) -> CrawlState | None:
         CrawlState if found and valid, None otherwise.
     """
     state_file = snapshot_path / STATE_FILE
+    
+    # Backward compatibility: check old location
+    old_state_file = snapshot_path / "crawl_state.json"
+    if not state_file.exists() and old_state_file.exists():
+        state_file = old_state_file
+        LOGGER.debug("Using legacy state file location: %s", old_state_file)
+    
     if not state_file.exists():
         return None
 

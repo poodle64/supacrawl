@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
+
 def new_snapshot_id(now: datetime | None = None) -> str:
     """
     Return a timestamped snapshot identifier.

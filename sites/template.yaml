@@ -6,8 +6,10 @@
 # Required fields are marked with # REQUIRED
 # Optional fields have default values shown in comments
 
-# REQUIRED: Unique site identifier (must match filename without .yaml)
-id: example-site
+# OPTIONAL: Unique site identifier (auto-derived from filename if omitted)
+# If you include this field, it must match the filename without .yaml
+# Example: example-site.yaml -> id: example-site
+# id: example-site
 
 # REQUIRED: Human-readable site name
 name: Example Site
@@ -65,45 +67,23 @@ robots:
   # Minimum delay between requests (seconds), applied on top of Crawl-delay
   min_delay: 0.0
 
-# OPTIONAL: Rate limiting configuration
-# Default: requests_per_second: 2.0, per_domain_delay: 1.0, max_concurrent: 5
-rate_limit:
-  # Maximum requests per second (global)
-  requests_per_second: 2.0
-  # Minimum seconds between requests to same domain
-  per_domain_delay: 1.0
-  # Maximum concurrent requests
+# OPTIONAL: Politeness and pacing configuration
+# These settings control how aggressively the crawler requests pages.
+# Defaults are conservative to avoid overwhelming target servers.
+politeness:
+  # Maximum concurrent page crawls (1-20)
+  # Default: 5
   max_concurrent: 5
-  # Whether to respect robots.txt Crawl-delay
-  respect_crawl_delay: true
-  # Whether to adaptively slow down on 429 responses
-  adaptive: true
-
-# OPTIONAL: Browser pool configuration
-# Default: enabled: true, pool_size: 3, max_pages_per_browser: 100
-browser_pool:
-  # Whether browser pooling is enabled
-  enabled: true
-  # Number of browsers to maintain in pool
-  pool_size: 3
-  # Maximum pages before recycling a browser
-  max_pages_per_browser: 100
-  # Whether to restart crashed browsers
-  restart_on_crash: true
-
-# OPTIONAL: Proxy configuration
-# Default: enabled: false
-proxy:
-  # Whether proxy rotation is enabled
-  enabled: false
-  # Rotation strategy: "round_robin", "random", "health_based"
-  rotation: round_robin
-  # List of proxy URLs (http://host:port or with auth)
-  proxies: []
-  # Minimum success rate before removing proxy
-  min_success_rate: 0.5
-  # Whether to fall back to direct connection if all proxies fail
-  fallback_direct: true
+  # Delay range between requests in seconds (min, max)
+  # A random value in this range is chosen for each request
+  # Default: [1.0, 2.0]
+  delay_between_requests: [1.0, 2.0]
+  # Maximum time to wait for a page to load (seconds, 5-600)
+  # Default: 120
+  page_timeout: 120
+  # Maximum retry attempts for failed requests (0-10)
+  # Default: 3
+  max_retries: 3
 
 # OPTIONAL: Markdown fixes configuration
 # Markdown fixes are workarounds for issues in upstream tools (like Crawl4AI)

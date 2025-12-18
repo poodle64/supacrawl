@@ -36,54 +36,6 @@ class FirecrawlProvider(Protocol):
         ...
 
 
-class MCPFirecrawlProvider:
-    """Firecrawl provider using MCP server."""
-
-    def __init__(self) -> None:
-        """Initialize MCP provider."""
-        self._available = self._check_mcp_available()
-
-    def _check_mcp_available(self) -> bool:
-        """
-        Check if MCP Firecrawl server is available.
-        
-        Note: This is a best-effort check. Actual availability is verified
-        when calling scrape_markdown.
-        """
-        # MCP tools are available via the environment when running in Cursor
-        # We can't check availability without actually trying to use them
-        # So we assume available and handle errors in scrape_markdown
-        return True
-
-    def is_available(self) -> bool:
-        """Check if MCP provider is available."""
-        return self._available
-
-    async def scrape_markdown(self, url: str) -> str | None:
-        """
-        Scrape URL using Firecrawl MCP server.
-
-        Args:
-            url: URL to scrape.
-
-        Returns:
-            Markdown content, or None on error.
-        """
-        try:
-            # MCP tools are available via the function calling interface
-            # We need to call the MCP tool through the available interface
-            # Note: This requires the MCP server to be configured in the environment
-            LOGGER.info(f"Scraping {url} with Firecrawl MCP")
-            
-            # The actual MCP call happens via the harness which has access to MCP tools
-            # This is a placeholder that will be replaced by actual MCP tool calls
-            # in the harness when MCP tools are available
-            return None
-        except Exception as e:
-            LOGGER.error(f"MCP Firecrawl error for {url}: {e}")
-            return None
-
-
 class APIFirecrawlProvider:
     """Firecrawl provider using REST API."""
 
@@ -150,22 +102,13 @@ class APIFirecrawlProvider:
 
 def get_firecrawl_provider() -> FirecrawlProvider | None:
     """
-    Get the best available Firecrawl provider.
+    Get the available Firecrawl provider.
 
-    Selection order:
-    1. MCP provider (if available)
-    2. API provider (if API key set)
-    3. None (skip Firecrawl)
+    Uses API provider if FIRECRAWL_API_KEY is set, otherwise returns None.
 
     Returns:
-        FirecrawlProvider instance, or None if none available.
+        FirecrawlProvider instance, or None if API key not set.
     """
-    # Try MCP first
-    mcp_provider = MCPFirecrawlProvider()
-    if mcp_provider.is_available():
-        return mcp_provider
-
-    # Fall back to API
     api_provider = APIFirecrawlProvider()
     if api_provider.is_available():
         return api_provider

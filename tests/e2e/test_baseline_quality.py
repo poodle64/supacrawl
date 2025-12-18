@@ -13,12 +13,13 @@ import pytest
 from tests.helpers.quality_metrics import (
     calculate_all_metrics,
 )
+from tests.helpers.server import setup_static_server
 from web_scraper.models import SiteConfig
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 from web_scraper.sites.loader import load_site_config
 
 # Fixture paths
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 SITES_DIR = FIXTURES_DIR / "sites"
 BASELINE_METRICS_FILE = FIXTURES_DIR / "baseline_metrics.json"
 
@@ -73,40 +74,6 @@ def baseline_metrics() -> dict[str, Any]:
     return {}
 
 
-def _setup_static_server(tmp_path: Path) -> tuple[str, Any]:
-    """
-    Set up a local HTTP server for static HTML fixture.
-    
-    Args:
-        tmp_path: Temporary directory path.
-        
-    Returns:
-        Tuple of (base_url, server_instance).
-    """
-    import http.server
-    import socketserver
-    import threading
-    
-    html_dir = FIXTURES_DIR / "html"
-    
-    class Handler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(html_dir), **kwargs)
-    
-    # Use port 0 to get a free port
-    httpd = socketserver.TCPServer(("127.0.0.1", 0), Handler)
-    port = httpd.server_address[1]
-    base_url = f"http://127.0.0.1:{port}"
-    
-    # Start server in daemon thread (will be cleaned up when process exits)
-    server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    server_thread.start()
-    
-    # Small delay to ensure server is ready
-    import time
-    time.sleep(0.1)
-    
-    return base_url, httpd
 
 
 @pytest.mark.parametrize("site_id", BASELINE_SITES)
@@ -141,7 +108,7 @@ def test_baseline_quality_capture(site_id: str, tmp_path: Path) -> None:
     
     # Handle static site with local server
     if site_id == "baseline-static":
-        base_url, server = _setup_static_server(tmp_path)
+        base_url, server = setup_static_server(tmp_path)
         # Update entrypoint to use local server
         config = load_site_config(site_id, SITES_DIR)
         config = config.model_copy(
@@ -197,9 +164,17 @@ def test_baseline_quality_assert(baseline_metrics: dict[str, Any], site_id: str,
     if site_id not in baseline_metrics:
         pytest.skip(f"Baseline not captured for {site_id}. Run test_baseline_quality_capture first.")
     
+    # Skip live network tests in offline CI (unless explicitly enabled)
+    if site_id in ("baseline-simple", "baseline-multi"):
+        if os.getenv("CI") and not os.getenv("CRAWL4AI_TEST_ENABLED"):
+            pytest.skip(
+                f"Skipping live network test for {site_id} in CI. "
+                "Set CRAWL4AI_TEST_ENABLED=1 to enable."
+            )
+    
     # Handle static site with local server
     if site_id == "baseline-static":
-        base_url, server = _setup_static_server(tmp_path)
+        base_url, server = setup_static_server(tmp_path)
         # Update entrypoint to use local server
         config = load_site_config(site_id, SITES_DIR)
         config = config.model_copy(
@@ -265,7 +240,7 @@ def test_baseline_determinism(site_id: str, tmp_path: Path) -> None:
         tmp_path: Temporary directory for test output.
     """
     # Set up local server
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Load and modify config
     config = load_site_config(site_id, SITES_DIR)

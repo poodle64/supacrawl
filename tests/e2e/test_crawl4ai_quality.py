@@ -207,7 +207,7 @@ def test_crawl4ai_quality_on_test_urls() -> None:
             LOGGER.warning(f"  ✗ Failed: {error}")
 
     # Save results
-    results_file = Path(__file__).parent / "test_crawl4ai_quality_results.json"
+    results_file = Path(__file__).parent.parent / "fixtures" / "test_crawl4ai_quality_results.json"
     with results_file.open("w") as f:
         json.dump(results, f, indent=2)
 

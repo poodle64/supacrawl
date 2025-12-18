@@ -1,0 +1,47 @@
+"""Pytest configuration and shared fixtures for web-scraper tests."""
+
+from __future__ import annotations
+
+import pytest
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register custom markers."""
+    config.addinivalue_line("markers", "unit: Pure logic tests with no I/O, network, or browser")
+    config.addinivalue_line(
+        "markers", "integration: Filesystem-heavy tests, may use local HTTP server and Playwright"
+    )
+    config.addinivalue_line(
+        "markers",
+        "e2e: End-to-end tests with live network, Crawl4AI/Playwright, or external services",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """
+    Automatically apply markers based on directory structure.
+    
+    Tests in tests/unit/ get @pytest.mark.unit
+    Tests in tests/integration/ get @pytest.mark.integration
+    Tests in tests/e2e/ get @pytest.mark.e2e
+    """
+    for item in items:
+        # Skip if already has a category marker
+        markers = list(item.iter_markers())
+        marker_names = [m.name for m in markers]
+        if any(m in marker_names for m in ("unit", "integration", "e2e")):
+            continue
+        
+        # Check the test file path
+        test_path = str(item.path) if hasattr(item, "path") else ""
+        
+        # Auto-mark based on directory structure
+        if "/e2e/" in test_path or "\\e2e\\" in test_path:
+            item.add_marker(pytest.mark.e2e)
+        elif "/integration/" in test_path or "\\integration\\" in test_path:
+            item.add_marker(pytest.mark.integration)
+        elif "/unit/" in test_path or "\\unit\\" in test_path:
+            item.add_marker(pytest.mark.unit)
+        else:
+            # Default to unit for any stray tests
+            item.add_marker(pytest.mark.unit)

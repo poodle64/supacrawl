@@ -17,7 +17,8 @@ from pathlib import Path
 
 def test_crawl4ai_result_does_not_import_html_to_markdown() -> None:
     """Assert that crawl4ai_result.py does not import html_to_markdown."""
-    result_file = Path(__file__).parent.parent / "web_scraper" / "scrapers" / "crawl4ai_result.py"
+    # Navigate from tests/unit/ to project root, then to web_scraper/scrapers/
+    result_file = Path(__file__).parent.parent.parent / "web_scraper" / "scrapers" / "crawl4ai_result.py"
     content = result_file.read_text()
     
     # Parse AST to check imports
@@ -37,7 +38,8 @@ def test_crawl4ai_result_does_not_import_html_to_markdown() -> None:
 
 def test_scrapers_module_does_not_import_html_to_markdown() -> None:
     """Assert that no file in web_scraper/scrapers/ imports html_to_markdown or extract_main_content."""
-    scrapers_dir = Path(__file__).parent.parent / "web_scraper" / "scrapers"
+    # Navigate from tests/unit/ to project root, then to web_scraper/scrapers/
+    scrapers_dir = Path(__file__).parent.parent.parent / "web_scraper" / "scrapers"
     
     violations: list[str] = []
     

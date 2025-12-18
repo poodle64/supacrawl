@@ -9,27 +9,22 @@ from pathlib import Path
 from typing import Any
 
 from web_scraper.models import SiteConfig
-from web_scraper.parity.cache import get_cache_path, read_cache, write_cache
-from web_scraper.parity.metrics import (
+from tools.parity.cache import get_cache_path, read_cache, write_cache
+from tools.parity.metrics import (
     calculate_artefact_metrics,
     calculate_similarity_metrics,
 )
-from web_scraper.parity.providers import (
+from tools.parity.providers import (
     APIFirecrawlProvider,
-    MCPFirecrawlProvider,
     get_firecrawl_provider,
 )
-from web_scraper.parity.urls import PARITY_TEST_URLS
+from tools.parity.urls import PARITY_TEST_URLS
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 
 LOGGER = logging.getLogger(__name__)
 
 
-
-
-
-
-def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
+async def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
     """
     Scrape URL with baseline-static configuration (pure_crawl4ai, fixes disabled).
 
@@ -40,6 +35,10 @@ def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
     Returns:
         Dictionary with markdown content and metadata.
     """
+    from web_scraper.exceptions import generate_correlation_id
+    from web_scraper.corpus.writer import IncrementalSnapshotWriter
+    from web_scraper.scrapers.crawl4ai import _crawl_settings_summary
+
     config = SiteConfig(
         id="parity-baseline",
         name="Parity Baseline",
@@ -55,23 +54,41 @@ def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
     config.markdown_fixes.enabled = False
 
     scraper = Crawl4AIScraper()
-    pages, snapshot_path = scraper.crawl(config, corpora_dir=output_dir)
-
-    if pages:
+    correlation_id = generate_correlation_id()
+    snapshot_writer = IncrementalSnapshotWriter(
+        config,
+        output_dir,
+        resume_snapshot=None,
+    )
+    snapshot_writer.crawl_settings = _crawl_settings_summary()
+    
+    try:
+        pages = await scraper._crawl_async(config, correlation_id, snapshot_writer, None, None)
+        await snapshot_writer.complete()
+        
+        if pages:
+            return {
+                "markdown": pages[0].content_markdown,
+                "url": url,
+                "success": True,
+            }
         return {
-            "markdown": pages[0].content_markdown,
+            "markdown": "",
             "url": url,
-            "success": True,
+            "success": False,
+            "error": "No pages returned",
         }
-    return {
-        "markdown": "",
-        "url": url,
-        "success": False,
-        "error": "No pages returned",
-    }
+    except Exception as exc:
+        await snapshot_writer.abort(str(exc))
+        return {
+            "markdown": "",
+            "url": url,
+            "success": False,
+            "error": str(exc),
+        }
 
 
-def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
+async def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
     """
     Scrape URL with enhanced configuration (enhanced preset, fixes enabled).
 
@@ -82,6 +99,10 @@ def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
     Returns:
         Dictionary with markdown content and metadata.
     """
+    from web_scraper.exceptions import generate_correlation_id
+    from web_scraper.corpus.writer import IncrementalSnapshotWriter
+    from web_scraper.scrapers.crawl4ai import _crawl_settings_summary
+
     config = SiteConfig(
         id="parity-enhanced",
         name="Parity Enhanced",
@@ -97,20 +118,38 @@ def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
     config.markdown_fixes.enabled = True
 
     scraper = Crawl4AIScraper()
-    pages, snapshot_path = scraper.crawl(config, corpora_dir=output_dir)
-
-    if pages:
+    correlation_id = generate_correlation_id()
+    snapshot_writer = IncrementalSnapshotWriter(
+        config,
+        output_dir,
+        resume_snapshot=None,
+    )
+    snapshot_writer.crawl_settings = _crawl_settings_summary()
+    
+    try:
+        pages = await scraper._crawl_async(config, correlation_id, snapshot_writer, None, None)
+        await snapshot_writer.complete()
+        
+        if pages:
+            return {
+                "markdown": pages[0].content_markdown,
+                "url": url,
+                "success": True,
+            }
         return {
-            "markdown": pages[0].content_markdown,
+            "markdown": "",
             "url": url,
-            "success": True,
+            "success": False,
+            "error": "No pages returned",
         }
-    return {
-        "markdown": "",
-        "url": url,
-        "success": False,
-        "error": "No pages returned",
-    }
+    except Exception as exc:
+        await snapshot_writer.abort(str(exc))
+        return {
+            "markdown": "",
+            "url": url,
+            "success": False,
+            "error": str(exc),
+        }
 
 
 async def run_parity_comparison(
@@ -147,9 +186,7 @@ async def run_parity_comparison(
     # Determine Firecrawl provider
     provider = get_firecrawl_provider()
     provider_name = "none"
-    if isinstance(provider, MCPFirecrawlProvider):
-        provider_name = "mcp"
-    elif isinstance(provider, APIFirecrawlProvider):
+    if isinstance(provider, APIFirecrawlProvider):
         provider_name = "api"
 
     firecrawl_available = provider_name != "none"
@@ -182,14 +219,12 @@ async def run_parity_comparison(
                         LOGGER.error(f"Cache-only mode: no cache found for {url}")
                         firecrawl_markdown = None
                     else:
-                        # Scrape with provider
-                        if isinstance(provider, MCPFirecrawlProvider):
-                            # MCP provider: call MCP tool via function interface
-                            # Note: In actual execution, MCP tools are called by the environment
-                            # This is a placeholder that will be replaced with actual MCP calls
+                        # Scrape with provider (API only)
+                        if isinstance(provider, APIFirecrawlProvider):
                             firecrawl_markdown = await provider.scrape_markdown(url)
-                        elif isinstance(provider, APIFirecrawlProvider):
-                            firecrawl_markdown = await provider.scrape_markdown(url)
+                        else:
+                            LOGGER.warning(f"No Firecrawl provider available for {url}")
+                            firecrawl_markdown = None
 
                     # Write to cache if successful
                     if firecrawl_markdown and cache_dir:
@@ -200,12 +235,12 @@ async def run_parity_comparison(
 
         # Scrape with baseline-static
         baseline_dir = output_dir / "baseline" / _url_to_slug(url)
-        baseline_result = _scrape_baseline_static(url, baseline_dir)
+        baseline_result = await _scrape_baseline_static(url, baseline_dir)
         baseline_markdown = baseline_result["markdown"]
 
         # Scrape with enhanced
         enhanced_dir = output_dir / "enhanced" / _url_to_slug(url)
-        enhanced_result = _scrape_enhanced(url, enhanced_dir)
+        enhanced_result = await _scrape_enhanced(url, enhanced_dir)
         enhanced_markdown = enhanced_result["markdown"]
 
         # Calculate metrics for each artefact

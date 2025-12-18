@@ -22,10 +22,10 @@ def test_manifest_validates_against_schema(tmp_path: Path) -> None:
     except ImportError:
         pytest.skip("jsonschema package not available (install with: pip install jsonschema)")
     
-    from tests.test_baseline_quality import _setup_static_server
+    from tests.helpers.server import setup_static_server
     
     # Set up local HTTP server
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Load baseline-static config
     config = SiteConfig.model_validate({
@@ -50,8 +50,8 @@ def test_manifest_validates_against_schema(tmp_path: Path) -> None:
     
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     
-    # Load schema
-    schema_path = Path(__file__).parent.parent / "schemas" / "snapshot-manifest.schema.json"
+    # Load schema (at project root)
+    schema_path = Path(__file__).parent.parent.parent / "schemas" / "snapshot-manifest.schema.json"
     assert schema_path.exists(), f"Schema file should exist at {schema_path}"
     
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
@@ -78,10 +78,10 @@ def test_manifest_schema_rejects_unknown_top_level_fields(tmp_path: Path) -> Non
     except ImportError:
         pytest.skip("jsonschema package not available (install with: pip install jsonschema)")
     
-    from tests.test_baseline_quality import _setup_static_server
+    from tests.helpers.server import setup_static_server
     
     # Set up local HTTP server
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Load baseline-static config
     config = SiteConfig.model_validate({
@@ -104,8 +104,8 @@ def test_manifest_schema_rejects_unknown_top_level_fields(tmp_path: Path) -> Non
     manifest_path = snapshot_path / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     
-    # Load schema
-    schema_path = Path(__file__).parent.parent / "schemas" / "snapshot-manifest.schema.json"
+    # Load schema (at project root)
+    schema_path = Path(__file__).parent.parent.parent / "schemas" / "snapshot-manifest.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     
     # Inject unknown top-level field

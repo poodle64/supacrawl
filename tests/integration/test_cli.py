@@ -100,6 +100,11 @@ class FakeScraper(Scraper):
             json_module.dumps(manifest, indent=2), encoding="utf-8"
         )
 
+        # Create latest symlink (simulating what writer.complete() does)
+        from web_scraper.corpus.symlink import update_latest_symlink
+        site_dir = snapshot_path.parent
+        update_latest_symlink(site_dir, snapshot_id)
+
         return pages, snapshot_path
 
 
@@ -138,7 +143,7 @@ def test_cli_crawl_and_chunk_end_to_end(monkeypatch, tmp_path: Path) -> None:
 
     assert crawl_result.exit_code == 0
     site_dir = corpora_dir / "example"
-    snapshots = list(site_dir.iterdir())
+    snapshots = [d for d in site_dir.iterdir() if d.is_dir() and d.name != "latest"]
     assert len(snapshots) == 1
     snapshot_id = snapshots[0].name
 
@@ -261,3 +266,54 @@ def test_cli_crawl_invalid_config_shows_error(tmp_path: Path) -> None:
     assert result.exit_code != 0
     assert "Error:" in result.output
     assert "correlation_id=" in result.output
+
+
+def test_cli_crawl_creates_latest_symlink(monkeypatch, tmp_path: Path) -> None:
+    """Crawl command should create a 'latest' symlink."""
+    base_path = tmp_path
+    _write_site_config(base_path)
+
+    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app, ["crawl", "example", "--base-path", str(base_path)]
+    )
+
+    assert result.exit_code == 0
+    
+    # Check symlink exists
+    latest_symlink = base_path / "corpora" / "example" / "latest"
+    assert latest_symlink.is_symlink()
+    
+    # Check symlink resolves to a valid snapshot
+    resolved = latest_symlink.resolve()
+    assert resolved.is_dir()
+    assert (resolved / "manifest.json").exists()
+
+
+def test_cli_crawl_dry_run_shows_urls_without_snapshot(tmp_path: Path) -> None:
+    """Crawl with --dry-run should show URLs without creating snapshot."""
+    base_path = tmp_path
+    _write_site_config(base_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app, ["crawl", "example", "--dry-run", "--base-path", str(base_path)]
+    )
+
+    assert result.exit_code == 0
+    
+    # Check output contains URLs
+    assert "https://example.com" in result.output
+    
+    # Check output contains summary
+    assert "URLs would be crawled" in result.output
+    
+    # Check no snapshot was created
+    corpora_dir = base_path / "corpora"
+    if corpora_dir.exists():
+        site_dir = corpora_dir / "example"
+        if site_dir.exists():
+            snapshots = [d for d in site_dir.iterdir() if d.is_dir() and d.name != "latest"]
+            assert len(snapshots) == 0, "No snapshots should be created in dry-run mode"

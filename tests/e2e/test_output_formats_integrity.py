@@ -7,52 +7,18 @@ written to disk and properly referenced in the manifest.
 from __future__ import annotations
 
 import json
-import http.server
-import socketserver
-import threading
-import time
 from pathlib import Path
-from typing import Any
 from urllib.parse import urljoin
 
-
+from tests.helpers.server import setup_static_server
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 from web_scraper.sites.loader import load_site_config
 
 # Fixture paths
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 SITES_DIR = FIXTURES_DIR / "sites"
 
 
-def _setup_static_server(tmp_path: Path) -> tuple[str, Any]:
-    """
-    Set up a local HTTP server for static HTML fixture.
-    
-    Args:
-        tmp_path: Temporary directory path.
-        
-    Returns:
-        Tuple of (base_url, server_instance).
-    """
-    html_dir = FIXTURES_DIR / "html"
-    
-    class Handler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(html_dir), **kwargs)
-    
-    # Use port 0 to get a free port
-    httpd = socketserver.TCPServer(("127.0.0.1", 0), Handler)
-    port = httpd.server_address[1]
-    base_url = f"http://127.0.0.1:{port}"
-    
-    # Start server in daemon thread (will be cleaned up when process exits)
-    server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    server_thread.start()
-    
-    # Small delay to ensure server is ready
-    time.sleep(0.1)
-    
-    return base_url, httpd
 
 
 def test_all_formats_written_to_disk(tmp_path: Path) -> None:
@@ -63,7 +29,7 @@ def test_all_formats_written_to_disk(tmp_path: Path) -> None:
         tmp_path: Temporary directory for test output.
     """
     # Set up local server (network-free)
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Load baseline-static config and override formats
     config = load_site_config("baseline-static", SITES_DIR)
@@ -117,7 +83,7 @@ def test_manifest_formats_integrity(tmp_path: Path) -> None:
         tmp_path: Temporary directory for test output.
     """
     # Set up local server (network-free)
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Load baseline-static config and override formats
     config = load_site_config("baseline-static", SITES_DIR)
@@ -192,7 +158,7 @@ def test_cross_format_naming_consistency(tmp_path: Path) -> None:
         tmp_path: Temporary directory for test output.
     """
     # Set up local server (network-free)
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Load baseline-static config and override formats
     config = load_site_config("baseline-static", SITES_DIR)

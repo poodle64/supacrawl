@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from web_scraper.parity.cache import (
+from tools.parity.cache import (
     get_cache_path,
     load_urls_from_file,
     read_cache,

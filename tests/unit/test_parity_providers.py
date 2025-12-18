@@ -7,28 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from web_scraper.parity.providers import (
+from tools.parity.providers import (
     APIFirecrawlProvider,
-    MCPFirecrawlProvider,
     get_firecrawl_provider,
 )
-
-
-class TestMCPFirecrawlProvider:
-    """Tests for MCP Firecrawl provider."""
-
-    def test_is_available_returns_true(self) -> None:
-        """Test that MCP provider reports as available."""
-        provider = MCPFirecrawlProvider()
-        assert provider.is_available() is True
-
-    @pytest.mark.asyncio
-    async def test_scrape_markdown_returns_none_placeholder(self) -> None:
-        """Test that MCP provider returns None (placeholder implementation)."""
-        provider = MCPFirecrawlProvider()
-        result = await provider.scrape_markdown("https://example.com")
-        # Currently returns None as placeholder - actual MCP calls happen in harness
-        assert result is None
 
 
 class TestAPIFirecrawlProvider:
@@ -88,23 +70,15 @@ class TestAPIFirecrawlProvider:
 class TestProviderSelection:
     """Tests for provider selection logic."""
 
-    def test_get_firecrawl_provider_prefers_mcp(self) -> None:
-        """Test that MCP provider is preferred when available."""
-        provider = get_firecrawl_provider()
-        # MCP is always reported as available in current implementation
-        assert isinstance(provider, MCPFirecrawlProvider)
-
-    def test_get_firecrawl_provider_falls_back_to_api(self) -> None:
-        """Test that API provider is used when MCP unavailable."""
-        with patch("web_scraper.parity.providers.MCPFirecrawlProvider.is_available", return_value=False):
-            with patch.dict(os.environ, {"FIRECRAWL_API_KEY": "test-key"}):
-                provider = get_firecrawl_provider()
-                assert isinstance(provider, APIFirecrawlProvider)
+    def test_get_firecrawl_provider_uses_api_when_available(self) -> None:
+        """Test that API provider is used when API key is set."""
+        with patch.dict(os.environ, {"FIRECRAWL_API_KEY": "test-key"}):
+            provider = get_firecrawl_provider()
+            assert isinstance(provider, APIFirecrawlProvider)
 
     def test_get_firecrawl_provider_returns_none_when_none_available(self) -> None:
         """Test that None is returned when no provider available."""
-        with patch("web_scraper.parity.providers.MCPFirecrawlProvider.is_available", return_value=False):
-            with patch.dict(os.environ, {}, clear=True):
-                provider = get_firecrawl_provider()
-                assert provider is None
+        with patch.dict(os.environ, {}, clear=True):
+            provider = get_firecrawl_provider()
+            assert provider is None
 

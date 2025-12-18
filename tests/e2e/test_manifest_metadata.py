@@ -19,10 +19,10 @@ def test_manifest_contains_metadata(tmp_path: Path) -> None:
     
     Uses existing local static fixture to avoid network.
     """
-    from tests.test_baseline_quality import _setup_static_server
+    from tests.helpers.server import setup_static_server
     
     # Set up local HTTP server
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Load baseline-static config
     config = SiteConfig.model_validate({
@@ -80,10 +80,10 @@ def test_site_config_hash_is_stable(tmp_path: Path) -> None:
     
     Runs two crawls with the same config and verifies hash matches.
     """
-    from tests.test_baseline_quality import _setup_static_server
+    from tests.helpers.server import setup_static_server
     
     # Set up local HTTP server
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     # Create identical config
     config = SiteConfig.model_validate({
@@ -122,10 +122,10 @@ def test_created_at_is_iso8601(tmp_path: Path) -> None:
     
     Validates format only, not value.
     """
-    from tests.test_baseline_quality import _setup_static_server
+    from tests.helpers.server import setup_static_server
     
     # Set up local HTTP server
-    base_url, server = _setup_static_server(tmp_path)
+    base_url, server = setup_static_server(tmp_path)
     
     config = SiteConfig.model_validate({
         "id": "test-iso",
