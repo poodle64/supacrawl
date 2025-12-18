@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -151,95 +151,45 @@ class RobotsConfigModel(BaseModel):
     min_delay: float = 0.0
 
 
-class RateLimitConfigModel(BaseModel):
-    """Configuration for rate limiting and politeness controls.
+class CrawlPolitenessConfig(BaseModel):
+    """Configuration for crawl politeness and pacing.
 
-    Controls request pacing to avoid overwhelming target servers.
+    These settings map directly to Crawl4AI's native controls.
+    All timing values are in seconds.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    # Maximum requests per second (global)
-    requests_per_second: float = 2.0
+    # Maximum concurrent page crawls (Crawl4AI SemaphoreDispatcher.max_session_permit)
+    max_concurrent: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum concurrent page crawls (1-20)",
+    )
 
-    # Minimum seconds between requests to same domain
-    per_domain_delay: float = 1.0
+    # Delay between requests in seconds (min, max) for random jitter
+    # Maps to Crawl4AI RateLimiter.base_delay
+    delay_between_requests: tuple[float, float] = Field(
+        default=(1.0, 2.0),
+        description="Delay range (min, max) seconds between requests",
+    )
 
-    # Maximum concurrent requests
-    max_concurrent: int = 5
+    # Page timeout in seconds (Crawl4AI page_timeout, converted to ms internally)
+    page_timeout: float = Field(
+        default=120.0,
+        ge=5.0,
+        le=600.0,
+        description="Maximum time to wait for a page to load (seconds)",
+    )
 
-    # Whether to respect robots.txt Crawl-delay
-    respect_crawl_delay: bool = True
-
-    # Whether to adaptively slow down on 429 responses
-    adaptive: bool = True
-
-
-class BrowserPoolConfigModel(BaseModel):
-    """Configuration for browser pooling.
-
-    Controls browser reuse and pooling for performance.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Whether browser pooling is enabled
-    enabled: bool = True
-
-    # Number of browsers to maintain in pool
-    pool_size: int = 3
-
-    # Maximum pages before recycling a browser
-    max_pages_per_browser: int = 100
-
-    # Whether to restart crashed browsers
-    restart_on_crash: bool = True
-
-
-class ProxyConfigModel(BaseModel):
-    """Configuration for proxy rotation.
-
-    Controls proxy usage and rotation for avoiding blocks.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Whether proxy rotation is enabled
-    enabled: bool = False
-
-    # Rotation strategy: round_robin, random, health_based
-    rotation: str = "round_robin"
-
-    # List of proxy URLs (http://host:port or with auth)
-    proxies: list[str] = Field(default_factory=list)
-
-    # Minimum success rate before removing proxy
-    min_success_rate: float = 0.5
-
-    # Whether to fall back to direct connection if all proxies fail
-    fallback_direct: bool = True
-
-
-class LinkDiscoveryWorkaroundConfigModel(BaseModel):
-    """
-    Configuration for link discovery workaround.
-
-    WORKAROUND: This is a temporary workaround where Crawl4AI's deep crawl
-    strategies discover links but don't follow them, even with correct filter
-    configuration. Issue #1176 is closed but may not have fixed this behavior.
-    See: https://github.com/unclecode/crawl4ai/issues/1176
-
-    Test with enabled: false to verify if Crawl4AI deep crawl works correctly.
-    This can be removed when Crawl4AI deep crawl correctly follows links.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Whether to enable the link discovery workaround
-    enabled: bool = False
-
-    # Maximum iterations to prevent infinite loops
-    max_iterations: int = 10
+    # Maximum retry attempts for failed requests
+    max_retries: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="Maximum retry attempts for failed requests",
+    )
 
 
 class MarkdownFixesConfigModel(BaseModel):
@@ -267,7 +217,9 @@ class SiteConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str
+    # id is auto-derived from filename if not provided
+    # The validator ensures it's always a string after validation
+    id: str | None = None
     name: str
     entrypoints: list[str]
     include: list[str]
@@ -279,15 +231,47 @@ class SiteConfig(BaseModel):
     cleaning: CleaningConfig = Field(default_factory=CleaningConfig)
     sitemap: SitemapConfigModel = Field(default_factory=SitemapConfigModel)
     robots: RobotsConfigModel = Field(default_factory=RobotsConfigModel)
-    rate_limit: RateLimitConfigModel = Field(default_factory=RateLimitConfigModel)
-    browser_pool: BrowserPoolConfigModel = Field(default_factory=BrowserPoolConfigModel)
-    proxy: ProxyConfigModel = Field(default_factory=ProxyConfigModel)
-    link_discovery_workaround: LinkDiscoveryWorkaroundConfigModel = Field(
-        default_factory=LinkDiscoveryWorkaroundConfigModel
-    )
+    politeness: CrawlPolitenessConfig = Field(default_factory=CrawlPolitenessConfig)
     markdown_fixes: MarkdownFixesConfigModel = Field(
         default_factory=MarkdownFixesConfigModel
     )
+    markdown_quality_preset: Literal["enhanced", "pure_crawl4ai"] = Field(
+        default="enhanced",
+        description="Markdown quality preset: 'enhanced' applies all post-processing, 'pure_crawl4ai' uses Crawl4AI output as-is",
+    )
+
+    def model_post_init(self, __context: Any) -> None:
+        """Post-initialization to derive or validate id."""
+        # Get expected_id from context (set by loader)
+        expected_id = __context.get("expected_id") if __context else None
+        
+        # If id is missing or None, derive it from expected_id
+        if self.id is None:
+            if expected_id is None:
+                correlation_id = generate_correlation_id()
+                raise ValidationError(
+                    "Site configuration must have an 'id' field or be loaded with filename context.",
+                    field="id",
+                    value=self.id,
+                    correlation_id=correlation_id,
+                    context={"expected_id": expected_id},
+                )
+            # Auto-derive from filename stem
+            object.__setattr__(self, "id", expected_id)
+        elif expected_id is not None and self.id != expected_id:
+            # If id is present, validate it matches the filename stem
+            correlation_id = generate_correlation_id()
+            raise ValidationError(
+                f"Site configuration 'id' field ('{self.id}') must match the filename stem ('{expected_id}'). "
+                f"Either remove the 'id' field to auto-derive it, or set it to '{expected_id}'.",
+                field="id",
+                value=self.id,
+                correlation_id=correlation_id,
+                context={"expected_id": expected_id, "actual_id": self.id},
+            )
+        
+        # After post_init, id is guaranteed to be a string (for type checkers)
+        assert self.id is not None, "id must be set after validation"
 
     @field_validator("entrypoints")
     @classmethod

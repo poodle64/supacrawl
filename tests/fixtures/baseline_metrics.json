@@ -1,0 +1,44 @@
+{
+  "baseline-multi": {
+    "avg_char_count": 8018.0,
+    "avg_code_block_count": 6.5,
+    "avg_heading_count": 16.0,
+    "avg_link_count": 9.5,
+    "avg_word_count": 1210.0,
+    "content_hash_first_page": "b59f468044965c5c77715e9b6b7f39c2a1810bb4a4c7654fabbd14c62756a1c8",
+    "manifest_exists": true,
+    "manifest_page_count": 2,
+    "markdown_files_written": 2,
+    "pages_with_headings": 2,
+    "total_pages": 2,
+    "unique_urls": 2
+  },
+  "baseline-simple": {
+    "avg_char_count": 3211.0,
+    "avg_code_block_count": 0.0,
+    "avg_heading_count": 4.0,
+    "avg_link_count": 5.0,
+    "avg_word_count": 451.0,
+    "content_hash_first_page": "2503ca1fd442e8b90eb6323fe392f158e092067a14b69f4f332924b2f3ed25e0",
+    "manifest_exists": true,
+    "manifest_page_count": 1,
+    "markdown_files_written": 1,
+    "pages_with_headings": 1,
+    "total_pages": 1,
+    "unique_urls": 1
+  },
+  "baseline-static": {
+    "avg_char_count": 545.0,
+    "avg_code_block_count": 1.0,
+    "avg_heading_count": 5.0,
+    "avg_link_count": 1.0,
+    "avg_word_count": 79.0,
+    "content_hash_first_page": "854a348208b6775b95bdf806c0b5e9f026e9bddfdf037e0ff0c0f4eb2db519b8",
+    "manifest_exists": true,
+    "manifest_page_count": 1,
+    "markdown_files_written": 1,
+    "pages_with_headings": 1,
+    "total_pages": 1,
+    "unique_urls": 1
+  }
+}

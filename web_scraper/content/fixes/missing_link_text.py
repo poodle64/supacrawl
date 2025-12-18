@@ -13,7 +13,6 @@ This fix can be enabled/disabled via site configuration (markdown_fixes section)
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
@@ -160,7 +159,9 @@ def _find_strong_link_at_start(li_tag: Tag) -> tuple[str, str] | None:
         link = strong.find("a", recursive=False)
         if link:
             link_text = link.get_text(strip=True)
-            link_url = link.get("href", "")
+            href_attr = link.get("href", "")
+            # Convert to str (BeautifulSoup can return AttributeValueList)
+            link_url = str(href_attr) if href_attr else ""
             if link_text and link_url:
                 return (link_text, link_url)
 
@@ -170,7 +171,9 @@ def _find_strong_link_at_start(li_tag: Tag) -> tuple[str, str] | None:
         link = first_child.find("a")
         if link:
             link_text = link.get_text(strip=True)
-            link_url = link.get("href", "")
+            href_attr = link.get("href", "")
+            # Convert to str (BeautifulSoup can return AttributeValueList)
+            link_url = str(href_attr) if href_attr else ""
             if link_text and link_url:
                 return (link_text, link_url)
 

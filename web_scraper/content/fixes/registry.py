@@ -78,7 +78,7 @@ def apply_fixes(
 
     for fix in _REGISTRY:
         # Check if fix is enabled: config override > global enabled
-        fix_enabled = fixes_enabled
+        fix_enabled: bool = fixes_enabled
         
         # Config override takes precedence
         if fix.name in fix_overrides:

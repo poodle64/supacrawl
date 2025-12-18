@@ -11,13 +11,9 @@ from typing import Any
 
 from web_scraper.content import (
     content_stats,
-    detect_language,
-    extract_main_content,
-    html_to_markdown,
     normalise_url,
-    sanitize_markdown,
+    postprocess_markdown,
 )
-from web_scraper.content.fixes import apply_fixes
 from web_scraper.exceptions import generate_correlation_id
 from web_scraper.models import Page, SiteConfig
 from web_scraper.utils import content_hash, url_path
@@ -101,17 +97,17 @@ def _process_crawl_result(
     if not markdown or not markdown.strip():
         return None
 
-    # Apply markdown fix plugins (e.g., missing link text, etc.)
-    if raw_html:
-        correlation_id = generate_correlation_id()
-        markdown = apply_fixes(
-            str(markdown), raw_html, correlation_id=correlation_id, config=config
-        )
-
-    # Sanitise and detect language
-    markdown = sanitize_markdown(markdown)
-    lang_info = detect_language(markdown)
-    markdown = lang_info.get("content", markdown)
+    # Apply markdown post-processing pipeline (fixes, sanitize, language detection)
+    correlation_id = generate_correlation_id()
+    result = postprocess_markdown(
+        markdown,
+        raw_html=raw_html,
+        config=config,
+        correlation_id=correlation_id,
+        preset=config.markdown_quality_preset,
+    )
+    markdown = result.markdown
+    lang_info = result.language
 
     # Get title
     title = _extract_title(crawl_result, markdown)
@@ -122,6 +118,7 @@ def _process_crawl_result(
     # Build extra metadata
     extra = _build_extra_metadata(crawl_result, markdown, lang_info)
 
+    assert config.id is not None, "config.id must be set after validation"
     return Page(
         site_id=config.id,
         url=url,
@@ -168,7 +165,8 @@ def _extract_markdown(
     Extract markdown content from crawl result.
 
     Prefers fit_markdown when only_main_content is true,
-    falls back to raw_markdown or HTML extraction.
+    falls back to raw_markdown. Returns empty string if Crawl4AI
+    provides no markdown.
     """
     markdown_obj = getattr(crawl_result, "markdown", None)
     raw_md = getattr(markdown_obj, "raw_markdown", None) if markdown_obj else None
@@ -184,10 +182,7 @@ def _extract_markdown(
         # Use raw_markdown when only_main_content is false
         return str(raw_md) if raw_md else ""
     else:
-        # Fallback to HTML-based extraction
-        if raw_html:
-            content_html, _ = extract_main_content(raw_html)
-            return html_to_markdown(content_html)
+        # No markdown from Crawl4AI - return empty string
         return ""
 
 

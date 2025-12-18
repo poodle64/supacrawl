@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 
@@ -149,3 +150,26 @@ class ProviderError(WebScrapeError):
         if provider is not None:
             context["provider"] = provider
         super().__init__(message, correlation_id=correlation_id, context=context)
+
+
+class CrawlInterrupted(Exception):
+    """Raised when a crawl is interrupted by user (Ctrl+C).
+
+    This is NOT a WebScrapeError because it is not an error condition.
+    It signals that the crawl was stopped gracefully and state was saved.
+    """
+
+    def __init__(self, snapshot_path: Path, pages_completed: int) -> None:
+        """
+        Initialise with snapshot path and progress info.
+
+        Args:
+            snapshot_path: Path to the snapshot directory with saved state.
+            pages_completed: Number of pages successfully crawled before interruption.
+        """
+        self.snapshot_path = snapshot_path
+        self.pages_completed = pages_completed
+        super().__init__(
+            f"Crawl interrupted after {pages_completed} pages. "
+            f"State saved to {snapshot_path}. Resume by running the same command again."
+        )

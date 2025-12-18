@@ -1,0 +1,25 @@
+id: baseline-static
+name: Baseline Static (Local HTML)
+
+# Note: Entrypoint is replaced in test with local HTTP server URL
+entrypoints:
+  - http://127.0.0.1:8000/index.html
+
+include:
+  - http://127.0.0.1:8000/**
+
+exclude: []
+
+max_pages: 1
+
+formats:
+  - markdown
+
+only_main_content: true
+include_subdomains: false
+
+sitemap:
+  enabled: false
+
+markdown_fixes:
+  enabled: false

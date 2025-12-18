@@ -11,6 +11,41 @@ Web-scraper uses pytest for testing with patterns for:
 - **Scraper Tests**: Test Crawl4AI scraper and error handling
 - **CLI Tests**: Test command-line interface
 
+## Test Categories
+
+Tests are organised into directories with automatic marker assignment:
+
+- **`tests/unit/`**: Pure logic tests, no I/O or browser (marker: `unit`)
+- **`tests/integration/`**: Filesystem operations, mocks, local HTTP server (marker: `integration`)
+- **`tests/e2e/`**: Real Crawl4AI/Playwright, slow (marker: `e2e`)
+
+Run specific categories:
+
+```bash
+# Fast tests only (unit + integration)
+pytest -q -m "not e2e"
+
+# End-to-end tests only
+pytest -q -m "e2e"
+
+# All tests
+pytest -q
+```
+
+### Live Network Tests
+
+Two e2e baseline quality tests require live internet access to external websites. These tests are automatically skipped unless the `CRAWL4AI_TEST_ENABLED=1` environment variable is set:
+
+```bash
+# Run all tests including live network tests
+CRAWL4AI_TEST_ENABLED=1 pytest -q
+
+# Skip live network tests (default)
+pytest -q
+```
+
+All other tests are fully offline-safe and use local fixtures only.
+
 ## Unit Testing Patterns
 
 ### Testing Provider Classes

@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/poodle64/web-scraper/schemas/snapshot-manifest.schema.json",
+  "title": "Web Scraper Snapshot Manifest",
+  "description": "Schema for snapshot manifest.json files produced by web-scraper",
+  "type": "object",
+  "required": [
+    "site_id",
+    "site_name",
+    "snapshot_id",
+    "created_at",
+    "provider",
+    "entrypoints",
+    "total_pages",
+    "formats",
+    "pages",
+    "correlation_id",
+    "metadata"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "site_id": {
+      "type": "string",
+      "description": "Site configuration identifier"
+    },
+    "site_name": {
+      "type": "string",
+      "description": "Human-readable site name"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "description": "Unique snapshot identifier (timestamp-based)"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 timestamp when snapshot was created"
+    },
+    "provider": {
+      "type": "string",
+      "description": "Crawler provider name (e.g., 'crawl4ai')"
+    },
+    "entrypoints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uri"
+      },
+      "description": "List of entrypoint URLs used for crawling"
+    },
+    "total_pages": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of pages in snapshot"
+    },
+    "formats": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["markdown", "html", "text", "json"]
+      },
+      "description": "List of output formats produced"
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/page"
+      },
+      "description": "Array of page metadata entries"
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Correlation ID for request tracking"
+    },
+    "metadata": {
+      "$ref": "#/definitions/metadata",
+      "description": "Snapshot metadata with provenance information"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["in_progress", "completed", "aborted"],
+      "description": "Snapshot status (optional, present in incremental writes)"
+    },
+    "crawl_settings": {
+      "type": "object",
+      "description": "Crawl configuration summary (optional)"
+    },
+    "stats": {
+      "type": "object",
+      "description": "Aggregated statistics (optional, present when completed)"
+    },
+    "boilerplate_hashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": ["hash", "count"]
+      },
+      "description": "Boilerplate content hashes (optional)"
+    },
+    "error": {
+      "type": "string",
+      "description": "Error message if snapshot creation failed (optional)"
+    }
+  },
+  "definitions": {
+    "page": {
+      "type": "object",
+      "required": [
+        "url",
+        "title",
+        "content_hash",
+        "path",
+        "formats"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Page URL"
+        },
+        "title": {
+          "type": "string",
+          "description": "Page title"
+        },
+        "content_hash": {
+          "type": "string",
+          "description": "SHA-256 hash of page content"
+        },
+        "path": {
+          "type": "string",
+          "description": "Primary file path relative to snapshot root"
+        },
+        "formats": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "description": "File path relative to snapshot root for this format"
+          },
+          "description": "Map of format name to file path",
+          "propertyNames": {
+            "enum": ["markdown", "html", "text", "json"]
+          }
+        },
+        "status_code": {
+          "type": "integer",
+          "description": "HTTP status code (optional)"
+        },
+        "language": {
+          "type": "string",
+          "description": "Detected page language (optional)"
+        },
+        "fetch_stats": {
+          "type": "object",
+          "description": "Fetch statistics (optional)"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "site_id",
+        "created_at",
+        "site_config_hash",
+        "crawl_engine",
+        "schema_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "description": "Snapshot identifier"
+        },
+        "site_id": {
+          "type": "string",
+          "description": "Site configuration identifier"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC ISO-8601 timestamp when snapshot was created"
+        },
+        "git_commit": {
+          "type": ["string", "null"],
+          "description": "Git commit hash (7 characters) or null if unavailable"
+        },
+        "site_config_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 hash of site configuration"
+        },
+        "crawl_engine": {
+          "type": "string",
+          "enum": ["crawl4ai"],
+          "description": "Crawler engine name"
+        },
+        "crawl_engine_version": {
+          "type": ["string", "null"],
+          "description": "Crawler engine version or null if unavailable"
+        },
+        "schema_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Manifest schema version (e.g., '1.0')"
+        }
+      }
+    }
+  }
+}

@@ -13,6 +13,7 @@ from web_scraper.models import SiteConfig
 from web_scraper.exceptions import (
     ConfigurationError,
     FileNotFoundError,
+    ValidationError,
     generate_correlation_id,
 )
 from web_scraper.utils import log_with_correlation
@@ -104,8 +105,11 @@ def load_site_config(config_name: str | Path, sites_dir: Path) -> SiteConfig:
             context={"config_name": str(config_name)},
         )
 
+    # Extract filename stem for id derivation/validation
+    expected_id = config_path.stem
+
     try:
-        return SiteConfig(**data)
+        return SiteConfig.model_validate(data, context={"expected_id": expected_id})
     except PydanticValidationError as exc:
         log_with_correlation(
             LOGGER,
@@ -120,5 +124,21 @@ def load_site_config(config_name: str | Path, sites_dir: Path) -> SiteConfig:
             f"Check that all required fields are present and valid.",
             config_path=str(config_path),
             correlation_id=correlation_id,
+            context={"validation_errors": str(exc), "config_name": str(config_name)},
+        ) from exc
+    except ValidationError as exc:
+        # Our custom ValidationError (from model_post_init)
+        log_with_correlation(
+            LOGGER,
+            logging.ERROR,
+            f"Validation failed for {config_path}: {exc}",
+            correlation_id=exc.correlation_id,
+            config_path=str(config_path),
+            validation_errors=str(exc),
+        )
+        raise ConfigurationError(
+            f"Site configuration validation failed: {exc.message}",
+            config_path=str(config_path),
+            correlation_id=exc.correlation_id,
             context={"validation_errors": str(exc), "config_name": str(config_name)},
         ) from exc

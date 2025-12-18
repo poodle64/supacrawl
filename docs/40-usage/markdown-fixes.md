@@ -145,5 +145,4 @@ Periodically review fixes to determine if they're still needed:
 
 ## Related Documentation
 
-- See `REMOVE_WORKAROUND.md` for the link discovery workaround pattern (similar approach)
 - See `USAGE_GUIDE.md` for general usage information

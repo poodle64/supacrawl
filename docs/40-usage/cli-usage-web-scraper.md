@@ -10,6 +10,7 @@ The `web-scraper` CLI provides commands for managing site configurations, runnin
 
 - `list-sites` - List available site configurations
 - `show-site` - Show site configuration summary
+- `map` - Map site URLs that would be crawled (Firecrawl-style discovery)
 - `crawl` - Run a crawl for a site
 - `chunk` - Chunk an existing snapshot
 
@@ -62,13 +63,49 @@ Max Pages: 100
 Formats: html
 ```
 
+### map
+
+Map a site to discover all URLs that would be crawled, without actually crawling.
+
+**Usage:**
+```bash
+web-scraper map SITE_NAME [OPTIONS]
+```
+
+**Arguments:**
+- `SITE_NAME` - Site identifier (filename without `.yaml`)
+
+**Options:**
+- `--base-path PATH` - Base directory containing `sites/` folder (optional)
+- `--max-urls INT` - Maximum number of URLs to return (default: 200)
+- `--format FORMAT` - Output format: `json` or `jsonl` (default: `jsonl`)
+- `--output PATH` - Output file path (default: stdout)
+- `--use-sitemap/--no-sitemap` - Override config.sitemap.enabled
+- `--use-robots/--no-robots` - Override config.robots.respect
+- `--include-entrypoints-only` - Return only entrypoints, no discovery
+
+**Example:**
+```bash
+$ web-scraper map example-site --format jsonl --output urls.jsonl
+Mapped 42 URLs to urls.jsonl
+```
+
+**Output Format:**
+Each URL entry contains:
+- `url` - Normalised URL
+- `source` - Discovery source (`entrypoint`, `sitemap`, or `html_links`)
+- `depth` - Crawl depth (0 for entrypoints/sitemap, 1 for HTML links)
+- `allowed` - Whether robots.txt allows this URL
+- `included` - Whether URL matches include/exclude patterns
+- `excluded_reason` - Reason if excluded (`robots_disallow`, `exclude_pattern`, `not_in_include`, or `null`)
+
 ### crawl
 
 Run a crawl for a site configuration, creating a new corpus snapshot.
 
 **Usage:**
 ```bash
-web-scraper crawl SITE_NAME [--base-path PATH]
+web-scraper crawl SITE_NAME [OPTIONS]
 ```
 
 **Arguments:**
@@ -76,19 +113,80 @@ web-scraper crawl SITE_NAME [--base-path PATH]
 
 **Options:**
 - `--base-path PATH` - Base directory containing `sites/` and `corpora/` folders (optional)
+- `--verbose/--no-verbose` - Show crawl progress logs (default: false)
+- `--fresh` - Start a fresh crawl (ignore incomplete snapshots)
+- `--dry-run` - Show URLs that would be crawled without fetching content
+- `--chunks` - Generate chunks.jsonl after crawl completes
+- `--formats FORMATS` - Comma-separated output formats (markdown, html, text, json). Overrides config.
+- `--from-map PATH` - Crawl only the URLs in a map output file (json or jsonl). URLs are filtered to include only entries where `included=true` and `allowed=true` (if present).
+- `--concurrency INT` - Maximum concurrent page crawls (1-20). Overrides config.politeness.max_concurrent.
+- `--delay FLOAT` - Minimum delay between requests in seconds. Overrides config.politeness.delay_between_requests.
+- `--timeout FLOAT` - Page timeout in seconds (5-600). Overrides config.politeness.page_timeout.
+- `--retries INT` - Maximum retry attempts (0-10). Overrides config.politeness.max_retries.
 
 **Example:**
 ```bash
 $ web-scraper crawl example-site
 Starting crawl for example-site...
-Crawl completed: 42 pages
-Snapshot created: corpora/example-site/2025-01-15_1430/
+Crawled 42 pages
+Output: corpora/example-site/latest/
+```
+
+**Auto-Resume:**
+Crawls automatically resume from incomplete snapshots. If a previous crawl was interrupted, running the same command will continue from where it left off. Use `--fresh` to force a new snapshot instead.
+
+**With Politeness Overrides:**
+```bash
+# Slower, more polite crawl
+$ web-scraper crawl example-site --concurrency 2 --delay 3.0 --timeout 180
+
+# Faster crawl for known-safe targets
+$ web-scraper crawl example-site --concurrency 10 --delay 0.5
+```
+
+**Crawl from Map:**
+```bash
+# Step 1: Generate map
+web-scraper map example-site --format jsonl --output urls.jsonl
+
+# Step 2: Crawl using map
+web-scraper crawl example-site --from-map urls.jsonl
 ```
 
 **Output:**
 - Creates snapshot directory: `corpora/{site_id}/{snapshot_id}/`
 - Writes manifest: `corpora/{site_id}/{snapshot_id}/manifest.json`
-- Writes pages: `corpora/{site_id}/{snapshot_id}/pages/*`
+- Writes pages by format: `corpora/{site_id}/{snapshot_id}/{format}/*`
+- Updates symlink: `corpora/{site_id}/latest/` → `{snapshot_id}/`
+
+### list-snapshots
+
+List all snapshots for a site with status and metadata.
+
+**Usage:**
+```bash
+web-scraper list-snapshots SITE_NAME [--base-path PATH]
+```
+
+**Arguments:**
+- `SITE_NAME` - Site identifier (same as used for crawl)
+
+**Options:**
+- `--base-path PATH` - Base directory containing `corpora/` folder (optional)
+
+**Example:**
+```bash
+$ web-scraper list-snapshots meta
+2025-12-15_0847  completed   42 pages    15 chunks  2025-12-15T08:47:00+10:00
+2025-12-14_1200  aborted     12 pages     - chunks  2025-12-14T12:00:00+10:00
+```
+
+**Output columns:**
+- Snapshot ID (timestamp format)
+- Status (completed, in_progress, aborted)
+- Page count
+- Chunk count (or `-` if no chunks)
+- Created timestamp
 
 ### chunk
 
@@ -160,6 +258,28 @@ Chunks written: corpora/example-site/2025-01-15_1430/chunks.jsonl
    web-scraper chunk production-site 2025-01-15_1430
    ```
 
+### Map Then Crawl Workflow
+
+1. **Generate map:**
+   ```bash
+   web-scraper map example-site --format jsonl --output urls.jsonl
+   ```
+
+2. **Review mapped URLs:**
+   ```bash
+   cat urls.jsonl | jq '.url, .included, .excluded_reason'
+   ```
+
+3. **Crawl using map:**
+   ```bash
+   web-scraper crawl example-site --from-map urls.jsonl
+   ```
+
+This workflow provides deterministic URL discovery and crawling, useful for:
+- Reproducible crawls (same URLs every time)
+- Pre-filtering URLs before crawling
+- Separating discovery from crawling phases
+
 ### Processing Multiple Sites
 
 ```bash
@@ -168,6 +288,26 @@ for site in $(web-scraper list-sites); do
   web-scraper crawl "$site"
 done
 ```
+
+## Interruption Handling
+
+If you interrupt a crawl with Ctrl+C, web-scraper handles it gracefully:
+
+1. **Progress is saved**: All pages crawled so far are written to the snapshot
+2. **Manifest is updated**: The manifest shows `status: aborted`
+3. **State is preserved**: Crawl state file is saved for resumption
+
+**Resuming an interrupted crawl:**
+
+Crawls automatically resume from incomplete snapshots. Simply run the same command again:
+
+```bash
+# Run again to resume from where it left off
+$ web-scraper crawl example-site
+Resuming Example Site (42 completed, 58 pending)...
+```
+
+The resumed crawl will skip already-completed URLs and continue from where it left off. Use `--fresh` to start a new snapshot instead.
 
 ## Error Handling
 

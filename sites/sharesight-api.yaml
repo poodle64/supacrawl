@@ -21,14 +21,6 @@ include_subdomains: false
 sitemap:
   enabled: true
 
-# WORKAROUND: Enable link discovery workaround for Crawl4AI deep crawl issue
-# This iteratively discovers and crawls links from scraped pages
-# Issue #1176 is closed, but deep crawl may still not follow links correctly
-# Test with enabled: false to verify if Crawl4AI deep crawl works
-link_discovery_workaround:
-  enabled: true
-  max_iterations: 10
-
 markdown_fixes:
   enabled: true
   fixes:

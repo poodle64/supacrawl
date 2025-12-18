@@ -1,0 +1,24 @@
+id: baseline-simple
+name: Baseline Simple (Sharesight API)
+
+entrypoints:
+  - https://portfolio.sharesight.com/api
+
+include:
+  - https://portfolio.sharesight.com/api/**
+
+exclude: []
+
+max_pages: 10
+
+formats:
+  - markdown
+
+only_main_content: true
+include_subdomains: false
+
+sitemap:
+  enabled: false
+
+markdown_fixes:
+  enabled: false

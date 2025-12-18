@@ -11,8 +11,6 @@ Fixes are automatically registered when their modules are imported.
 
 from __future__ import annotations
 
-from typing import Any
-
 # Import fixes to register them
 from web_scraper.content.fixes import missing_link_text  # noqa: F401
 

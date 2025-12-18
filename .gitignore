@@ -35,3 +35,6 @@ corpora/*
 
 # Local site configs
 sites/*.local.yaml
+
+# Parity harness generated output (dev only)
+docs/parity/
