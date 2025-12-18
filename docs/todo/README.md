@@ -35,11 +35,13 @@ Completed todos are archived in the [`done/`](./done/) subfolder.
 | 014 | Extract magic numbers into configuration | 2025-12-13 |
 | 015 | Document all environment variables | 2025-12-13 |
 | 016 | Remove site-specific hardcoding | 2025-12-13 |
+| 017 | Implement all declared output formats | 2025-12-13 |
 | 018 | Sitemap discovery and parsing | 2025-12-13 |
 | 019 | robots.txt parsing and compliance | 2025-12-13 |
-| 022 | Progress reporting | 2025-12-13 |
 | 020 | Crawl resumption support | 2025-12-13 |
 | 021 | Rate limiting and politeness controls | 2025-12-13 |
+| 022 | Progress reporting | 2025-12-13 |
 | 023 | Browser pool for performance | 2025-12-13 |
 | 024 | Proxy rotation | 2025-12-13 |
-| 017 | Implement all declared output formats | 2025-12-13 |
+| 027 | Two-layer model refactor (execution checklist) | 2025-12-18 |
+| --- | Workflow analysis and usability improvements | 2025-12-18 |
