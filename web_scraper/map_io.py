@@ -32,12 +32,12 @@ def load_map_entries(map_path: Path) -> list[dict[str, Any]]:
     """
     if not map_path.exists():
         raise FileNotFoundError(f"Map file not found: {map_path}")
-    
+
     content = map_path.read_text(encoding="utf-8").strip()
-    
+
     if not content:
         return []
-    
+
     # Try JSON array first
     try:
         parsed_entries = json.loads(content)
@@ -45,7 +45,7 @@ def load_map_entries(map_path: Path) -> list[dict[str, Any]]:
             return parsed_entries
     except json.JSONDecodeError:
         pass
-    
+
     # Try JSONL (one JSON object per line)
     entries: list[dict[str, Any]] = []
     for line in content.splitlines():
@@ -59,10 +59,10 @@ def load_map_entries(map_path: Path) -> list[dict[str, Any]]:
         except json.JSONDecodeError as e:
             LOGGER.warning("Skipping invalid JSONL line in %s: %s", map_path, e)
             continue
-    
+
     if entries:
         return entries
-    
+
     raise ValueError(f"Invalid map file format: {map_path}. Expected JSON array or JSONL.")
 
 
@@ -84,32 +84,32 @@ def select_crawl_urls(map_entries: list[dict[str, Any]]) -> list[str]:
     """
     urls: list[str] = []
     seen: set[str] = set()
-    
+
     for entry in map_entries:
         if not isinstance(entry, dict):
             continue
-        
+
         url = entry.get("url")
         if not url or not isinstance(url, str):
             continue
-        
+
         # Default filter: include only if allowed and included (if keys present)
         # If keys missing, treat as eligible
         allowed = entry.get("allowed")
         included = entry.get("included")
-        
+
         # If keys are present, they must be True
         if allowed is not None and not allowed:
             continue
         if included is not None and not included:
             continue
-        
+
         # Normalise and deduplicate
         normalised = normalise_url(url, html=None, entrypoint=None)
         if normalised and normalised not in seen:
             seen.add(normalised)
             urls.append(normalised)
-    
+
     # Sort for determinism
     return sorted(urls)
 

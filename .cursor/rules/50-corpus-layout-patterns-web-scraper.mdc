@@ -5,7 +5,33 @@ ISO/IEC 25010:
   Primary: Compatibility
 description: Corpus snapshot layout patterns and manifest structure requirements
 globs: "**/*"
-alwaysApply: true
+alwaysApply: false
+
+agentMapping:
+  skillName: corpus-dev
+  skillDescription: Corpus management with snapshot layout, manifest generation, compression, and chunking
+  triggers:
+    - corpus
+    - snapshot
+    - manifest
+    - layout
+    - writer
+    - compression
+    - archive
+    - chunk
+    - chunking
+  allowedTools:
+    - Read
+    - Write
+    - Edit
+    - Bash
+    - Grep
+    - Glob
+  model: sonnet
+  includeRules:
+    - 50-site-config-patterns-web-scraper.mdc
+  type: skill
+  priority: 8
 ---
 
 # Corpus Layout Patterns
@@ -50,7 +76,7 @@ All corpus snapshots must follow consistent directory structure and manifest for
 {
   "site_id": "example-site",
   "site_name": "Example Site",
-  "provider": "crawl4ai",
+  "provider": "playwright",
   "snapshot_id": "20250115T143022",
   "created_at": "2025-01-15T14:30:22+10:00",
   "entrypoints": ["https://example.com"],

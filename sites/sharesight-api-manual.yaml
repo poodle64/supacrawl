@@ -1,0 +1,41 @@
+id: sharesight-api-manual
+name: Sharesight API Documentation (Manual URLs)
+
+# Manual URL list to work around SPA routing issues
+# URLs discovered from original crawl
+entrypoints:
+  - https://portfolio.sharesight.com/api
+  - https://portfolio.sharesight.com/api/2/overview
+  - https://portfolio.sharesight.com/api/2/authentication_flow
+  - https://portfolio.sharesight.com/api/2/configuring_oauth
+  - https://portfolio.sharesight.com/api/2/usage_limits
+  - https://portfolio.sharesight.com/api/2/codes
+  - https://portfolio.sharesight.com/api/2/doc/index.html
+  - https://portfolio.sharesight.com/api/3/overview
+  - https://portfolio.sharesight.com/api/3/authentication_flow
+  - https://portfolio.sharesight.com/api/3/configuring_oauth
+  - https://portfolio.sharesight.com/api/3/usage_limits
+  - https://portfolio.sharesight.com/api/3/codes
+  - https://portfolio.sharesight.com/api/3/doc/index.html
+
+include:
+  - https://portfolio.sharesight.com/api*
+
+exclude: []
+
+max_pages: 500
+formats:
+  - markdown
+  - html
+  - json
+only_main_content: true
+include_subdomains: false
+
+# Disable sitemap to use manual URL list with fresh browser contexts
+sitemap:
+  enabled: false
+
+markdown_fixes:
+  enabled: true
+  fixes:
+    missing-link-text-in-lists: true

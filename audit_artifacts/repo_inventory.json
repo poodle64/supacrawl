@@ -1,0 +1,241 @@
+{
+  "repository": "web-scraper",
+  "audit_date": "2025-12-20",
+  "version": "2025.12.0",
+  "python_required": ">=3.12",
+
+  "entrypoints": {
+    "cli_commands": [
+      {"command": "list-sites", "description": "List available site configuration files"},
+      {"command": "show-site", "description": "Show site configuration summary"},
+      {"command": "map", "description": "Map site URLs that would be crawled (Firecrawl-style discovery)"},
+      {"command": "crawl", "description": "Run a crawl for a site"},
+      {"command": "list-snapshots", "description": "List snapshots for a site"},
+      {"command": "init", "description": "Create a new site configuration"},
+      {"command": "chunk", "description": "Chunk a snapshot into JSONL output"},
+      {"command": "compress", "description": "Compress a snapshot for archival"},
+      {"command": "extract", "description": "Extract a compressed snapshot archive"},
+      {"command": "parity", "description": "Run Firecrawl parity comparison harness (hidden dev)"},
+      {"command": "list-fixes", "description": "List markdown fix plugins (hidden dev)"}
+    ],
+    "api_servers": null,
+    "workers": null,
+    "main_entry": "web_scraper.cli:app",
+    "module_execution": "python -m web_scraper"
+  },
+
+  "scraping_engine": {
+    "primary_framework": "crawl4ai",
+    "version": ">=0.7.8",
+    "provider_class": "Crawl4AIScraper",
+    "file_path": "web_scraper/scrapers/crawl4ai.py",
+    "render_modes": {
+      "browser_based": true,
+      "http_only": false,
+      "primary_mode": "browser"
+    },
+    "browser_automation": {
+      "tool": "Playwright",
+      "browser_types": ["chromium"],
+      "headless_default": true
+    },
+    "content_extraction": [
+      "Markdown (DefaultMarkdownGenerator)",
+      "HTML (raw preservation)",
+      "Text extraction",
+      "JSON metadata",
+      "Content filters: PruningContentFilter, BM25ContentFilter, LLMContentFilter",
+      "Markdown fix plugins"
+    ]
+  },
+
+  "storage_layout": {
+    "base_directory": "corpora/",
+    "structure": {
+      "site_level": "{site_id}/",
+      "latest_symlink": "latest/",
+      "snapshot_directory": "{snapshot_id}/",
+      "manifest_file": "manifest.json",
+      "metadata_directory": ".meta/",
+      "content_directories": {
+        "markdown": "markdown/",
+        "html": "html/",
+        "text": "text/",
+        "json": "json/"
+      },
+      "chunks_file": "chunks.jsonl"
+    },
+    "naming_conventions": {
+      "snapshot_id_format": "YYYY-MM-DD_HHMM",
+      "timezone": "Australia/Brisbane",
+      "url_to_filename": "slugified URL paths, preserving hierarchy",
+      "root_urls": "index.{ext}",
+      "slug_rules": "lowercase, hyphen-separated, max 80 chars"
+    },
+    "versioning": {
+      "immutable_snapshots": true,
+      "timestamped": true,
+      "auto_resume": true,
+      "state_file": ".meta/state.json",
+      "status_values": ["in_progress", "completed", "aborted"]
+    },
+    "manifest_schema": {
+      "file": "manifest.json",
+      "schema_location": "schemas/snapshot-manifest.schema.json",
+      "schema_version": "1.0",
+      "key_fields": [
+        "site_id", "site_name", "snapshot_id", "created_at",
+        "provider", "entrypoints", "total_pages", "formats",
+        "pages[]", "correlation_id", "metadata"
+      ]
+    }
+  },
+
+  "configuration": {
+    "environment_variables": {
+      "commonly_used": [
+        {"name": "CRAWL4AI_HEADLESS", "default": "true", "description": "Run browser in headless mode"},
+        {"name": "CRAWL4AI_ENTRYPOINT_TIMEOUT_MS", "default": "60000", "description": "Timeout per page in ms"},
+        {"name": "CRAWL4AI_USE_OLLAMA", "default": "false", "description": "Enable Ollama for AI summaries"},
+        {"name": "OLLAMA_HOST", "default": "http://localhost:11434", "description": "Ollama server URL"},
+        {"name": "OLLAMA_MODEL", "default": "llama3.2", "description": "Ollama model for summaries"}
+      ],
+      "browser_settings": [
+        {"name": "CRAWL4AI_BROWSER_TYPE", "default": "chromium"},
+        {"name": "CRAWL4AI_VIEWPORT_WIDTH", "default": "1280"},
+        {"name": "CRAWL4AI_VIEWPORT_HEIGHT", "default": "720"},
+        {"name": "CRAWL4AI_ACCEPT_LANGUAGE", "default": "en-US,en;q=0.9"},
+        {"name": "CRAWL4AI_LOCALE", "default": "en-US"},
+        {"name": "CRAWL4AI_TIMEZONE", "default": "Australia/Brisbane"}
+      ],
+      "retry_logic": [
+        {"name": "CRAWL4AI_RETRY_ATTEMPTS", "default": "3"},
+        {"name": "CRAWL4AI_RETRY_BASE_DELAY", "default": "1.0"},
+        {"name": "CRAWL4AI_RETRY_BACKOFF", "default": "2.0"},
+        {"name": "CRAWL4AI_RETRY_JITTER", "default": "0.1"}
+      ],
+      "content_filtering": [
+        {"name": "CRAWL4AI_CONTENT_FILTER", "default": "pruning"},
+        {"name": "CRAWL4AI_PRUNING_THRESHOLD", "default": "0.48"},
+        {"name": "CRAWL4AI_PRUNING_MIN_WORDS", "default": "10"}
+      ]
+    },
+    "config_files": {
+      "site_configs": {"format": "YAML", "location": "sites/{site_name}.yaml"},
+      "manifest": {"format": "JSON", "location": "corpora/{site_id}/{snapshot_id}/manifest.json"},
+      "state": {"format": "JSON", "location": "corpora/{site_id}/{snapshot_id}/.meta/state.json"},
+      "chunks": {"format": "JSONL", "location": "corpora/{site_id}/{snapshot_id}/chunks.jsonl"},
+      "environment": {"format": ".env", "location": ".env"}
+    },
+    "defaults": {
+      "headless": true,
+      "page_timeout": "60 seconds",
+      "max_concurrent": 5,
+      "delay_between_requests": "1.0-2.0 seconds",
+      "max_retries": 3,
+      "output_formats": ["markdown", "html", "json"],
+      "only_main_content": true,
+      "include_subdomains": false,
+      "sitemap": "disabled by default",
+      "robots_txt": "respect=true, enforcement=warn"
+    }
+  },
+
+  "orchestration": {
+    "docker_compose": null,
+    "makefiles": null,
+    "shell_scripts": null,
+    "ci_cd_workflows": null,
+    "development_tools": [
+      "Conda environment (environment.yaml)",
+      "Parity harness (tools/parity/)",
+      "Pre-commit hooks (configured)"
+    ]
+  },
+
+  "dependencies": {
+    "runtime": [
+      {"name": "aiofiles", "version": ">=24.1.0", "purpose": "Async file I/O"},
+      {"name": "beautifulsoup4", "version": ">=4.12.3", "purpose": "HTML parsing"},
+      {"name": "click", "version": ">=8.1.7", "purpose": "CLI framework"},
+      {"name": "crawl4ai", "version": ">=0.7.8", "purpose": "Primary scraping framework (includes Playwright)"},
+      {"name": "httpx", "version": ">=0.28.1", "purpose": "HTTP client"},
+      {"name": "ollama", "version": ">=0.1.0", "purpose": "LLM integration (optional)"},
+      {"name": "pydantic", "version": ">=2.9.0", "purpose": "Data validation"},
+      {"name": "pyyaml", "version": ">=6.0.1", "purpose": "YAML parsing"}
+    ],
+    "development": [
+      {"name": "mypy", "version": ">=1.11.0", "purpose": "Static type checking"},
+      {"name": "pre-commit", "version": ">=3.7.0", "purpose": "Git hooks"},
+      {"name": "pytest", "version": ">=8.3.0", "purpose": "Testing framework"},
+      {"name": "pytest-asyncio", "version": ">=0.23.0", "purpose": "Async test support"},
+      {"name": "pytest-xdist", "version": ">=3.5.0", "purpose": "Parallel test execution"},
+      {"name": "ruff", "version": ">=0.6.2", "purpose": "Linter and formatter"},
+      {"name": "types-aiofiles", "version": ">=24.1.0", "purpose": "Type stubs"},
+      {"name": "types-PyYAML", "version": ">=6.0.1", "purpose": "Type stubs"}
+    ],
+    "build": [
+      {"name": "hatchling", "purpose": "Build backend"}
+    ]
+  },
+
+  "code_statistics": {
+    "source_code": {
+      "total_python_files": 38,
+      "total_directories": 18,
+      "total_lines": 7664,
+      "largest_files": [
+        {"file": "cli.py", "lines": 1032, "purpose": "CLI commands"},
+        {"file": "scrapers/crawl4ai.py", "lines": 831, "purpose": "Main scraper implementation"},
+        {"file": "corpus/writer.py", "lines": 689, "purpose": "Snapshot writer"},
+        {"file": "prep/chunker.py", "lines": 385, "purpose": "Chunking logic"},
+        {"file": "discovery/sitemap.py", "lines": 363, "purpose": "Sitemap discovery"},
+        {"file": "models.py", "lines": 349, "purpose": "Pydantic models"},
+        {"file": "map.py", "lines": 312, "purpose": "URL mapping"},
+        {"file": "scrapers/crawl4ai_config.py", "lines": 301, "purpose": "Crawl4AI config builders"},
+        {"file": "content/fixes.py", "lines": 300, "purpose": "Markdown fix plugins"},
+        {"file": "discovery/robots.py", "lines": 293, "purpose": "Robots.txt parsing"}
+      ]
+    },
+    "test_code": {
+      "total_test_files": 38,
+      "total_lines": 4782,
+      "organization": {
+        "unit": "tests/unit/ - Pure logic tests (no I/O, network, browser)",
+        "integration": "tests/integration/ - Filesystem-heavy tests, local HTTP, Playwright",
+        "e2e": "tests/e2e/ - End-to-end tests with live network, Crawl4AI"
+      },
+      "largest_test_files": [
+        {"file": "integration/test_cli.py", "lines": 316},
+        {"file": "e2e/test_baseline_quality.py", "lines": 278},
+        {"file": "e2e/test_crawl_from_map.py", "lines": 272},
+        {"file": "integration/test_politeness.py", "lines": 242},
+        {"file": "e2e/test_crawl4ai_quality.py", "lines": 241}
+      ]
+    }
+  },
+
+  "major_modules": [
+    {"module": "cli.py", "purpose": "CLI interface (Click-based)"},
+    {"module": "scrapers/", "purpose": "Crawl4AI integration"},
+    {"module": "corpus/", "purpose": "Snapshot writing, compression, state management"},
+    {"module": "content/", "purpose": "Content extraction, markdown fixes, language detection"},
+    {"module": "discovery/", "purpose": "Sitemap, robots.txt discovery"},
+    {"module": "prep/", "purpose": "Chunking, Ollama integration"},
+    {"module": "sites/", "purpose": "Site config loading"},
+    {"module": "models.py", "purpose": "Pydantic data models"},
+    {"module": "exceptions.py", "purpose": "Custom exceptions with correlation IDs"},
+    {"module": "progress.py", "purpose": "Progress reporting"},
+    {"module": "tools/parity/", "purpose": "Firecrawl parity comparison harness"}
+  ],
+
+  "documentation": [
+    "README.md - Project overview, quick start",
+    "CHANGELOG.md - Version history",
+    "docs/30-architecture/ - Architecture documentation",
+    "docs/40-usage/ - Usage guides",
+    "docs/70-reliability/ - Reliability patterns",
+    "docs/parity/ - Parity reports (gitignored, generated)",
+    "schemas/snapshot-manifest.schema.json - JSON schema for manifest"
+  ]
+}

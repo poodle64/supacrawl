@@ -19,14 +19,14 @@ from tools.parity.providers import (
     get_firecrawl_provider,
 )
 from tools.parity.urls import PARITY_TEST_URLS
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 
 LOGGER = logging.getLogger(__name__)
 
 
 async def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
     """
-    Scrape URL with baseline-static configuration (pure_crawl4ai, fixes disabled).
+    Scrape URL with baseline-static configuration (Playwright-based scraping).
 
     Args:
         url: URL to scrape.
@@ -37,7 +37,6 @@ async def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
     """
     from web_scraper.exceptions import generate_correlation_id
     from web_scraper.corpus.writer import IncrementalSnapshotWriter
-    from web_scraper.scrapers.crawl4ai import _crawl_settings_summary
 
     config = SiteConfig(
         id="parity-baseline",
@@ -49,18 +48,17 @@ async def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
         formats=["markdown"],
         only_main_content=True,
         include_subdomains=False,
-        markdown_quality_preset="pure_crawl4ai",
     )
     config.markdown_fixes.enabled = False
 
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     correlation_id = generate_correlation_id()
     snapshot_writer = IncrementalSnapshotWriter(
         config,
         output_dir,
         resume_snapshot=None,
     )
-    snapshot_writer.crawl_settings = _crawl_settings_summary()
+    # snapshot_writer.crawl_settings removed (was Crawl4AI-specific)
     
     try:
         pages = await scraper._crawl_async(config, correlation_id, snapshot_writer, None, None)
@@ -101,7 +99,6 @@ async def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
     """
     from web_scraper.exceptions import generate_correlation_id
     from web_scraper.corpus.writer import IncrementalSnapshotWriter
-    from web_scraper.scrapers.crawl4ai import _crawl_settings_summary
 
     config = SiteConfig(
         id="parity-enhanced",
@@ -113,18 +110,17 @@ async def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
         formats=["markdown"],
         only_main_content=True,
         include_subdomains=False,
-        markdown_quality_preset="enhanced",
     )
     config.markdown_fixes.enabled = True
 
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     correlation_id = generate_correlation_id()
     snapshot_writer = IncrementalSnapshotWriter(
         config,
         output_dir,
         resume_snapshot=None,
     )
-    snapshot_writer.crawl_settings = _crawl_settings_summary()
+    # snapshot_writer.crawl_settings removed (was Crawl4AI-specific)
     
     try:
         pages = await scraper._crawl_async(config, correlation_id, snapshot_writer, None, None)

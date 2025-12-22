@@ -143,7 +143,7 @@ async def _load_manifest(snapshot_path: Path) -> dict:
         ValueError: If manifest is missing required metadata or schema_version.
     """
     from web_scraper.exceptions import ValidationError
-    
+
     manifest_path = snapshot_path / "manifest.json"
     if not manifest_path.exists():
         correlation_id = generate_correlation_id()
@@ -154,10 +154,10 @@ async def _load_manifest(snapshot_path: Path) -> dict:
             correlation_id=correlation_id,
             context={"snapshot_path": str(snapshot_path)},
         )
-    async with aiofiles.open(manifest_path, "r", encoding="utf-8") as handle:
+    async with aiofiles.open(manifest_path, encoding="utf-8") as handle:
         content = await handle.read()
         manifest = json.loads(content)
-    
+
     # Strict validation: require metadata and schema_version
     if "metadata" not in manifest:
         correlation_id = generate_correlation_id()
@@ -168,7 +168,7 @@ async def _load_manifest(snapshot_path: Path) -> dict:
             correlation_id=correlation_id,
             context={"snapshot_path": str(snapshot_path)},
         )
-    
+
     metadata = manifest["metadata"]
     if "schema_version" not in metadata:
         correlation_id = generate_correlation_id()
@@ -179,7 +179,7 @@ async def _load_manifest(snapshot_path: Path) -> dict:
             correlation_id=correlation_id,
             context={"snapshot_path": str(snapshot_path)},
         )
-    
+
     # Validate required metadata fields
     required_metadata_fields = [
         "snapshot_id",
@@ -199,7 +199,7 @@ async def _load_manifest(snapshot_path: Path) -> dict:
             correlation_id=correlation_id,
             context={"snapshot_path": str(snapshot_path), "missing_fields": missing_fields},
         )
-    
+
     return manifest
 
 
@@ -215,7 +215,7 @@ async def _load_page_text(snapshot_path: Path, relative_path: str) -> str:
         Page text content.
     """
     page_path = snapshot_path / relative_path
-    async with aiofiles.open(page_path, "r", encoding="utf-8") as handle:
+    async with aiofiles.open(page_path, encoding="utf-8") as handle:
         return await handle.read()
 
 

@@ -14,7 +14,7 @@ from web_scraper.content.fixes import get_fix_index
 from web_scraper.corpus.compress import compress_snapshot, extract_archive
 from web_scraper.exceptions import WebScrapeError
 from web_scraper.prep.chunker import chunk_snapshot
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+# Crawl4AI removed - now using Playwright-based stack
 from web_scraper.sites.loader import list_site_configs, load_site_config
 
 
@@ -704,13 +704,7 @@ def map_site(
     default=None,
     help="Create site config from URL before crawling.",
 )
-@click.option(
-    "--provider",
-    type=click.Choice(["crawl4ai", "playwright"], case_sensitive=False),
-    default="crawl4ai",
-    show_default=True,
-    help="Scraping provider: crawl4ai (default) or playwright (for SPAs with routing issues).",
-)
+# Provider option removed - now always uses Playwright
 def crawl(
     site_name: str,
     base_path: Path | None,
@@ -726,7 +720,6 @@ def crawl(
     max_chars: int,
     dry_run: bool,
     init: str | None,
-    provider: str,
 ) -> None:
     """
     Crawl a site and write a snapshot.
@@ -746,7 +739,6 @@ def crawl(
         max_chars: Maximum characters per chunk.
         dry_run: Show URLs that would be crawled without fetching content.
         init: Site name for URL quick-start (use with URL as site_name argument).
-        provider: Scraping provider to use (crawl4ai or playwright).
 
     Raises:
         click.ClickException: If the site configuration is not found or invalid.
@@ -922,30 +914,24 @@ def crawl(
     elif not resume_snapshot:
         click.echo(f"Starting crawl for {config.name}...")
 
-    # Create scraper based on provider selection
-    # Playwright provider requires target_urls (no link discovery)
-    if provider.lower() == "playwright":
-        from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
+    # Create Playwright scraper
+    # Playwright requires explicit URL list - use from_map or entrypoints
+    from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 
-        # Playwright requires explicit URL list - use from_map or entrypoints
-        if target_urls is None:
-            # Use entrypoints as target URLs for Playwright
-            target_urls = list(config.entrypoints)
-            if verbose:
-                click.echo(
-                    f"Playwright provider: using {len(target_urls)} entrypoints as target URLs"
-                )
-                click.echo(
-                    "Note: Playwright does not discover links. Use --from-map for multi-page crawls."
-                )
+    if target_urls is None:
+        # Use entrypoints as target URLs for Playwright
+        target_urls = list(config.entrypoints)
+        if verbose:
+            click.echo(
+                f"Playwright provider: using {len(target_urls)} entrypoints as target URLs"
+            )
+            click.echo(
+                "Note: Playwright does not discover links. Use --from-map for multi-page crawls."
+            )
 
-        scraper = PlaywrightScraper()
-        if verbose:
-            click.echo("Using Playwright provider (SPA-compatible)")
-    else:
-        scraper = Crawl4AIScraper()
-        if verbose:
-            click.echo("Using Crawl4AI provider")
+    scraper = PlaywrightScraper()
+    if verbose:
+        click.echo("Using Playwright provider")
 
     try:
         pages, snapshot_path = scraper.crawl(

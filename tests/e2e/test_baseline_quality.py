@@ -15,7 +15,7 @@ from tests.helpers.quality_metrics import (
 )
 from tests.helpers.server import setup_static_server
 from web_scraper.models import SiteConfig
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 from web_scraper.sites.loader import load_site_config
 
 # Fixture paths
@@ -124,7 +124,7 @@ def test_baseline_quality_capture(site_id: str, tmp_path: Path) -> None:
     config = _apply_fast_mode_config(config)
     
     # Crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Calculate metrics
@@ -190,7 +190,7 @@ def test_baseline_quality_assert(baseline_metrics: dict[str, Any], site_id: str,
     config = _apply_fast_mode_config(config)
     
     # Crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Calculate metrics
@@ -253,7 +253,7 @@ def test_baseline_determinism(site_id: str, tmp_path: Path) -> None:
     config = _apply_fast_mode_config(config)
     
     # Run crawl twice
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     
     # First crawl
     corpora_dir_1 = tmp_path / "run1"

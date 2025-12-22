@@ -5,7 +5,7 @@ entrypoints:
   - https://portfolio.sharesight.com/api
 
 include:
-  - https://portfolio.sharesight.com/api/**
+  - https://portfolio.sharesight.com/api*
 
 exclude: []
 

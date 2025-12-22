@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import override
 
 from click.testing import CliRunner
 
@@ -12,19 +11,17 @@ from web_scraper.cli import app
 from web_scraper.corpus.layout import new_snapshot_id, snapshot_root
 from web_scraper.corpus.writer import SCHEMA_VERSION
 from web_scraper.models import Page, SiteConfig
-from web_scraper.scrapers.base import Scraper
 
 
-class FakeScraper(Scraper):
+class FakeScraper:
     """Minimal scraper that returns a single page."""
 
     provider_name = "fake"
 
     def __init__(self, **kwargs) -> None:  # noqa: ANN003
-        """Accept any kwargs for compatibility with Crawl4AIScraper signature."""
+        """Accept any kwargs for compatibility with PlaywrightScraper signature."""
         pass
 
-    @override
     def crawl(
         self,
         config: SiteConfig,
@@ -134,7 +131,7 @@ def test_cli_crawl_and_chunk_end_to_end(monkeypatch, tmp_path: Path) -> None:
     _write_site_config(base_path)
     corpora_dir = base_path / "corpora"
 
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     crawl_result = runner.invoke(
@@ -273,7 +270,7 @@ def test_cli_crawl_creates_latest_symlink(monkeypatch, tmp_path: Path) -> None:
     base_path = tmp_path
     _write_site_config(base_path)
 
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     result = runner.invoke(

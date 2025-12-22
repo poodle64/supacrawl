@@ -5,7 +5,7 @@ Extends: 70-error-handling-basics (master)
 ISO/IEC 25010:
   Primary: Reliability
 description: Web-scraper-specific error handling patterns - exception hierarchy, correlation IDs, provider error mapping
-globs: **/*.py
+globs: "**/*.py"
 alwaysApply: true
 ---
 

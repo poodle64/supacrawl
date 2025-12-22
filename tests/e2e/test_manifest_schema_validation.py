@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 from web_scraper.models import SiteConfig
 
 
@@ -41,7 +41,7 @@ def test_manifest_validates_against_schema(tmp_path: Path) -> None:
     })
     
     # Run a crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Load manifest
@@ -97,7 +97,7 @@ def test_manifest_schema_rejects_unknown_top_level_fields(tmp_path: Path) -> Non
     })
     
     # Run a crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Load manifest

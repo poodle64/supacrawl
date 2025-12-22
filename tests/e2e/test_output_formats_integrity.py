@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 from tests.helpers.server import setup_static_server
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 from web_scraper.sites.loader import load_site_config
 
 # Fixture paths
@@ -43,7 +43,7 @@ def test_all_formats_written_to_disk(tmp_path: Path) -> None:
     )
     
     # Run crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Verify at least one page was crawled
@@ -97,7 +97,7 @@ def test_manifest_formats_integrity(tmp_path: Path) -> None:
     )
     
     # Run crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Load manifest
@@ -172,7 +172,7 @@ def test_cross_format_naming_consistency(tmp_path: Path) -> None:
     )
     
     # Run crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Load manifest

@@ -10,7 +10,7 @@ import pytest
 
 from web_scraper.exceptions import ProviderError
 from web_scraper.models import SiteConfig
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 
 
 def _site_config(*_: Any, **__: Any) -> SiteConfig:
@@ -88,7 +88,7 @@ def test_crawl4ai_happy_path(tmp_path: Path) -> None:
     mock_crawler.__aexit__ = AsyncMock(return_value=None)
     mock_crawler.arun = AsyncMock(return_value=[mock_result_1, mock_result_2])
 
-    scraper = Crawl4AIScraper(crawler=mock_crawler)
+    scraper = PlaywrightScraper(crawler=mock_crawler)
     pages, snapshot_path = scraper.crawl(_site_config(), corpora_dir=tmp_path)
 
     assert len(pages) == 2
@@ -113,7 +113,7 @@ def test_crawl4ai_playwright_browser_missing(tmp_path: Path) -> None:
     )
     mock_crawler.__aenter__ = AsyncMock(side_effect=playwright_error)
 
-    scraper = Crawl4AIScraper(crawler=mock_crawler)
+    scraper = PlaywrightScraper(crawler=mock_crawler)
 
     with pytest.raises(ProviderError) as exc_info:
         scraper.crawl(_site_config("crawl4ai"), corpora_dir=tmp_path)
@@ -132,7 +132,7 @@ def test_crawl4ai_raises_provider_error_on_sdk_failure(tmp_path: Path) -> None:
     mock_crawler = AsyncMock()
     mock_crawler.__aenter__ = AsyncMock(side_effect=RuntimeError("SDK error"))
 
-    scraper = Crawl4AIScraper(crawler=mock_crawler)
+    scraper = PlaywrightScraper(crawler=mock_crawler)
 
     with pytest.raises(ProviderError) as exc_info:
         scraper.crawl(_site_config("crawl4ai"), corpora_dir=tmp_path)
@@ -180,7 +180,7 @@ def test_crawl4ai_multiple_entrypoints(tmp_path: Path) -> None:
         include_subdomains=False,
     )
 
-    scraper = Crawl4AIScraper(crawler=mock_crawler)
+    scraper = PlaywrightScraper(crawler=mock_crawler)
     pages, _ = scraper.crawl(config, corpora_dir=tmp_path)
 
     assert mock_crawler.arun.call_count == 2

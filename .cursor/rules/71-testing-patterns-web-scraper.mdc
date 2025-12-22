@@ -4,7 +4,7 @@ Scope: Project
 Extends: 71-testing-patterns-basics (master)
 ISO/IEC 25010:
   Primary: Reliability
-description: Web-scraper-specific testing patterns - Crawl4AI scraper testing, site config testing, corpus testing
+description: Web-scraper-specific testing patterns - Playwright scraper testing, site config testing, corpus testing
 globs: "**/test_*.py"
 alwaysApply: true
 ---
@@ -17,11 +17,11 @@ This rule documents project-specific testing practice and relies on master rules
 
 ## Core Principles
 
-All web-scraper code must have comprehensive test coverage with web-scraper-specific patterns for Crawl4AI scraper testing, site configuration testing, and corpus testing.
+All web-scraper code must have comprehensive test coverage with web-scraper-specific patterns for Playwright scraper testing, site configuration testing, and corpus testing.
 
 ## Mandatory Requirements
 
-### Crawl4AI Scraper Testing
+### Playwright Scraper Testing
 
 - ✅ **Must** test scraper `crawl()` method with valid `SiteConfig`
 - ✅ **Must** test scraper error handling (wrap SDK errors in `ProviderError`)
@@ -31,9 +31,9 @@ All web-scraper code must have comprehensive test coverage with web-scraper-spec
 
 **Example:**
 ```python
-def test_crawl4ai_scraper_crawl_success(mock_crawl4ai_client):
-    """Test Crawl4AI scraper successfully crawls site."""
-    scraper = Crawl4AIScraper(crawler=mock_crawl4ai_client)
+def test_playwright_scraper_crawl_success(mock_playwright_client):
+    """Test Playwright scraper successfully crawls site."""
+    scraper = PlaywrightScraper(crawler=mock_playwright_client)
     config = SiteConfig(
         id="test-site",
         name="Test Site",
@@ -137,12 +137,12 @@ def test_list_sites_command(runner, tmp_path):
 
 - ✅ **Must** test end-to-end crawl flow (config → scraper → corpus)
 - ✅ **Must** test chunking flow (snapshot → chunks)
-- ✅ **Must** test CLI commands with Crawl4AI scraper (if possible)
+- ✅ **Must** test CLI commands with Playwright scraper (if possible)
 - ✅ **Must** use test fixtures for common test data
 
 ## Key Directives
 
-- **Scraper testing**: Test Crawl4AI scraper, error handling, retry logic
+- **Scraper testing**: Test Playwright scraper, error handling, retry logic
 - **Config testing**: Test validation, loading, error handling
 - **Corpus testing**: Test snapshot layout, manifest structure, file naming
 - **CLI testing**: Test commands, error handling, output format
@@ -151,6 +151,6 @@ def test_list_sites_command(runner, tmp_path):
 ## References
 
 - `.cursor/rules/master/71-testing-patterns-basics.mdc` - Universal testing requirements
-- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Crawl4AI scraper patterns to test
+- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Playwright scraper patterns to test
 - `.cursor/rules/50-site-config-patterns-web-scraper.mdc` - Configuration patterns to test
 - `docs/70-reliability/testing-web-scraper.md` - Comprehensive testing strategies

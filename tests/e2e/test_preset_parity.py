@@ -14,7 +14,7 @@ from urllib.parse import urljoin
 from tests.helpers.quality_metrics import calculate_all_metrics
 from tests.helpers.server import setup_static_server
 from web_scraper.models import SiteConfig
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 from web_scraper.sites.loader import load_site_config
 
 # Fixture paths
@@ -43,7 +43,7 @@ def _run_crawl_with_preset(
     preset_config = config.model_copy(update={"markdown_quality_preset": preset})
     
     # Run crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(preset_config, corpora_dir=corpora_dir)
     
     # Calculate metrics

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from web_scraper.models import SiteConfig
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 
 
 def test_manifest_contains_metadata(tmp_path: Path) -> None:
@@ -38,7 +38,7 @@ def test_manifest_contains_metadata(tmp_path: Path) -> None:
     })
     
     # Run a crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Load manifest
@@ -99,7 +99,7 @@ def test_site_config_hash_is_stable(tmp_path: Path) -> None:
     })
     
     # Run first crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages1, snapshot_path1 = scraper.crawl(config, corpora_dir=tmp_path / "run1")
     
     # Run second crawl with identical config
@@ -140,7 +140,7 @@ def test_created_at_is_iso8601(tmp_path: Path) -> None:
     })
     
     # Run crawl
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path)
     
     # Load manifest

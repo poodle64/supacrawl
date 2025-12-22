@@ -3,16 +3,40 @@ Rule Type: Compatibility
 Scope: Project
 ISO/IEC 25010:
   Primary: Compatibility
-description: Crawl4AI scraper implementation patterns and error handling requirements
+description: Playwright scraper implementation patterns and error handling requirements
 globs: "**/*.py"
-alwaysApply: true
+alwaysApply: false
+
+agentMapping:
+  skillName: scraper-dev
+  skillDescription: Playwright scraper development with provider patterns, retry logic, and error handling
+  triggers:
+    - scraper
+    - scraping
+    - playwright
+    - provider
+    - crawler
+    - crawl
+    - fetch
+  allowedTools:
+    - Read
+    - Write
+    - Edit
+    - Bash
+    - Grep
+    - Glob
+  model: sonnet
+  includeRules:
+    - 70-error-handling-web-scraper.mdc
+  type: skill
+  priority: 8
 ---
 
-# Crawl4AI Scraper Patterns
+# Playwright Scraper Patterns
 
 ## Core Principles
 
-The Crawl4AI scraper implements the `Scraper` base class interface and follows consistent patterns for error handling and retry logic.
+The Playwright scraper implements the `Scraper` base class interface and follows consistent patterns for error handling and retry logic.
 
 ## Mandatory Requirements
 
@@ -20,14 +44,14 @@ The Crawl4AI scraper implements the `Scraper` base class interface and follows c
 
 - ✅ **Must** inherit from `Scraper` base class
 - ✅ **Must** implement `crawl(config: SiteConfig) -> list[Page]` method
-- ✅ **Must** set `provider_name` class attribute to `"crawl4ai"`
+- ✅ **Must** set `provider_name` class attribute to `"playwright"`
 - ✅ **Must** use `@override` decorator when overriding base class methods
 - ✅ **Must** return `list[Page]` from `crawl()` method
-- ❌ **Must NOT** implement scraping logic directly in web-scraper (use Crawl4AI SDK)
+- ❌ **Must NOT** implement scraping logic directly in web-scraper (use Playwright SDK)
 
 ### Error Handling
 
-- ✅ **Must** catch Crawl4AI SDK exceptions and wrap in `ProviderError`
+- ✅ **Must** catch Playwright SDK exceptions and wrap in `ProviderError`
 - ✅ **Must** include provider name in `ProviderError` context
 - ✅ **Must** include correlation ID in all provider errors
 - ✅ **Must** log provider errors with correlation ID before raising
@@ -43,14 +67,14 @@ except Exception as e:
     log_with_correlation(
         LOGGER,
         logging.ERROR,
-        "Crawl4AI SDK crawl failed: %s",
+        "Playwright SDK crawl failed: %s",
         correlation_id=correlation_id,
         entrypoint=entrypoint,
         provider=self.provider_name,
         error=str(e),
     )
     raise ProviderError(
-        f"Crawl4AI SDK crawl failed for {entrypoint}.",
+        f"Playwright SDK crawl failed for {entrypoint}.",
         provider=self.provider_name,
         correlation_id=correlation_id,
         context={"entrypoint": entrypoint, "error": str(e)},

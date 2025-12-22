@@ -17,7 +17,7 @@ def test_crawl_output_shows_latest_path(monkeypatch, tmp_path: Path) -> None:
     base_path = tmp_path
     _write_site_config(base_path)
     
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
     
     runner = CliRunner()
     result = runner.invoke(
@@ -52,7 +52,7 @@ def test_crawl_output_without_base_path(monkeypatch, tmp_path: Path) -> None:
         encoding="utf-8",
     )
     
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
     # Change to tmp_path so relative paths work
     monkeypatch.chdir(tmp_path)
     
@@ -71,7 +71,7 @@ def test_crawl_with_chunks_shows_chunk_count(monkeypatch, tmp_path: Path) -> Non
     base_path = tmp_path
     _write_site_config(base_path)
     
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
     
     runner = CliRunner()
     result = runner.invoke(
@@ -162,7 +162,7 @@ def test_chunk_command_respects_base_path(monkeypatch, tmp_path: Path) -> None:
     _write_site_config(base_path)
     corpora_dir = base_path / "corpora"
     
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
     
     # First crawl to create a snapshot
     runner = CliRunner()

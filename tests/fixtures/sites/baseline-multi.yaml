@@ -25,6 +25,3 @@ sitemap:
 
 markdown_fixes:
   enabled: false
-
-cleaning:
-  skip_until_heading: true

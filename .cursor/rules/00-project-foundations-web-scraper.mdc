@@ -13,24 +13,24 @@ priority: 1
 
 ## Purpose
 
-Create a production-ready website ingestion pipeline that loads site configurations, runs crawls using Crawl4AI, writes normalised corpora, and optionally chunks content for LLM use.
+Create a production-ready website ingestion pipeline that loads site configurations, runs crawls using Playwright, writes normalised corpora, and optionally chunks content for LLM use.
 
 ## Project Scope
 
 ### What This Project Does
 
 - ✅ Loads YAML-driven site configurations
-- ✅ Uses Crawl4AI SDK for web crawling
+- ✅ Uses Playwright SDK for web crawling
 - ✅ Writes snapshot-based corpus layouts with manifests
 - ✅ Optionally chunks content to JSONL for downstream consumers
 - ✅ Provides CLI interface for site management and crawling
 
 ### What This Project Does NOT Do
 
-- ❌ Does NOT implement scraping logic (uses Crawl4AI SDK)
+- ❌ Does NOT implement scraping logic (uses Playwright SDK)
 - ❌ Does NOT store scraped content in databases (writes to filesystem)
 - ❌ Does NOT provide web UI or API (CLI-only)
-- ❌ Does NOT handle authentication/authorization (Crawl4AI-specific)
+- ❌ Does NOT handle authentication/authorization (Playwright-specific)
 - ❌ Does NOT perform content analysis or transformation (downstream processing)
 
 ## Authority Note
@@ -51,18 +51,18 @@ This rule documents project-specific practice and relies on master rules for req
 ### Architecture
 
 ```
-Site Config (YAML) → Crawl4AI Scraper → Pages → Corpus Writer → Snapshot
+Site Config (YAML) → Playwright Scraper → Pages → Corpus Writer → Snapshot
                                                       ↓
                                                  Chunker → JSONL
 ```
 
-Web-scraper **uses** the Crawl4AI SDK, it does **not implement** scraping logic itself.
+Web-scraper **uses** the Playwright SDK, it does **not implement** scraping logic itself.
 
 ### Core Philosophy
 
 Web-scraper must be designed around **configuration-driven** workflows.
 
-- Crawler: Uses Crawl4AI SDK via `Scraper` base class interface
+- Crawler: Uses Playwright SDK via `Scraper` base class interface
 - Configuration-driven: Site configurations define crawl parameters
 - Snapshot-based: Each crawl creates a timestamped snapshot
 - Idempotent: Re-running same config creates new snapshot (doesn't overwrite)
@@ -71,12 +71,12 @@ Web-scraper must be designed around **configuration-driven** workflows.
 
 ### Design Constraints
 
-- Web-scraper uses Crawl4AI SDK via `Scraper` base class interface
+- Web-scraper uses Playwright SDK via `Scraper` base class interface
 - Web-scraper must use YAML-based site configurations (not code-based)
 - Site configurations must live in `sites/` directory
 - Corpus output must use snapshot-based layout (`corpora/{site_id}/{snapshot_id}/`)
 - Snapshot IDs must be timestamp-based (ISO 8601 format)
-- Crawler uses Crawl4AI SDK with `crawl(config: SiteConfig) -> list[Page]` interface
+- Crawler uses Playwright SDK with `crawl(config: SiteConfig) -> list[Page]` interface
 
 ### Technology Constraints
 
@@ -91,7 +91,7 @@ Web-scraper must be designed around **configuration-driven** workflows.
 
 Every web-scraper run must produce:
 - Site configuration validation (loads and validates YAML)
-- Scraped pages (from Crawl4AI)
+- Scraped pages (from Playwright)
 - Corpus snapshot with manifest (`manifest.json`)
 - Optional chunked output (JSONL format)
 
@@ -104,6 +104,6 @@ Every web-scraper run must produce:
 ## Rule Interpretation Notes
 
 - When forming plans, prioritise configuration-driven design
-- Crawling is handled by Crawl4AI SDK, never implemented directly in web-scraper
+- Crawling is handled by Playwright SDK, never implemented directly in web-scraper
 - Universal restrictions are covered in master 90-code-quality-principles
 - Project-specific behavioural rules are defined in numbered rule files (10+, 20+, 30+, etc.)

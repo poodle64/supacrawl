@@ -1,0 +1,1 @@
+../../../.claude/scripts/sync-rules.py

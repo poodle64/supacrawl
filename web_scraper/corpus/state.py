@@ -187,13 +187,13 @@ def load_state(snapshot_path: Path) -> CrawlState | None:
         CrawlState if found and valid, None otherwise.
     """
     state_file = snapshot_path / STATE_FILE
-    
+
     # Backward compatibility: check old location
     old_state_file = snapshot_path / "crawl_state.json"
     if not state_file.exists() and old_state_file.exists():
         state_file = old_state_file
         LOGGER.debug("Using legacy state file location: %s", old_state_file)
-    
+
     if not state_file.exists():
         return None
 

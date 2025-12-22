@@ -13,7 +13,6 @@ dependencies = [
   "aiofiles>=24.1.0",
   "beautifulsoup4>=4.12.3",
   "click>=8.1.7",
-  "crawl4ai>=0.7.8",
   "httpx>=0.28.1",
   "ollama>=0.1.0",
   "pydantic>=2.9.0",
@@ -39,7 +38,7 @@ web-scraper = "web_scraper.cli:app"
 markers = [
     "unit: Pure logic tests with no I/O, network, or browser",
     "integration: Filesystem-heavy tests, may use local HTTP server and Playwright",
-    "e2e: End-to-end tests with live network, Crawl4AI/Playwright, or external services",
+    "e2e: End-to-end tests with live network and Playwright",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

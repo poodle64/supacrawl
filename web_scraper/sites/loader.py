@@ -9,13 +9,13 @@ from typing import Any
 import yaml
 from pydantic import ValidationError as PydanticValidationError
 
-from web_scraper.models import SiteConfig
 from web_scraper.exceptions import (
     ConfigurationError,
     FileNotFoundError,
     ValidationError,
     generate_correlation_id,
 )
+from web_scraper.models import SiteConfig
 from web_scraper.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)

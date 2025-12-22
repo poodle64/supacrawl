@@ -14,7 +14,7 @@ def test_crawl_with_chunks_produces_chunks_file(monkeypatch, tmp_path: Path) -> 
     """Crawl with --chunks flag should produce chunks.jsonl."""
     _write_site_config(tmp_path)
 
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -33,7 +33,7 @@ def test_crawl_without_chunks_no_chunks_file(monkeypatch, tmp_path: Path) -> Non
     """Crawl without --chunks flag should not produce chunks.jsonl."""
     _write_site_config(tmp_path)
 
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     result = runner.invoke(

@@ -89,22 +89,6 @@
       "type": "object",
       "description": "Aggregated statistics (optional, present when completed)"
     },
-    "boilerplate_hashes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "hash": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer"
-          }
-        },
-        "required": ["hash", "count"]
-      },
-      "description": "Boilerplate content hashes (optional)"
-    },
     "error": {
       "type": "string",
       "description": "Error message if snapshot creation failed (optional)"

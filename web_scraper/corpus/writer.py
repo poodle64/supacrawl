@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -15,11 +16,12 @@ from zoneinfo import ZoneInfo
 import aiofiles
 import yaml
 
-from web_scraper.models import Page, SiteConfig, OutputFormat
 from web_scraper.corpus.layout import new_snapshot_id, snapshot_root
+from web_scraper.corpus.state import CrawlState, load_state, save_state
 from web_scraper.exceptions import generate_correlation_id
-from web_scraper.utils import content_hash
-from web_scraper.corpus.state import CrawlState, save_state, load_state
+from web_scraper.models import OutputFormat, Page, SiteConfig
+
+LOGGER = logging.getLogger(__name__)
 
 # Schema version constant - single source of truth for manifest schema version
 SCHEMA_VERSION = "1.0"
@@ -370,105 +372,6 @@ def _escape_html(text: str) -> str:
     )
 
 
-async def _calculate_file_checksum(file_path: Path) -> str:
-    """
-    Calculate SHA-256 checksum of a file.
-
-    Args:
-        file_path: Path to the file.
-
-    Returns:
-        SHA-256 hash as hex string.
-    """
-    sha256_hash = hashlib.sha256()
-    async with aiofiles.open(file_path, "rb") as f:
-        content = await f.read()
-        sha256_hash.update(content)
-    return sha256_hash.hexdigest()
-
-
-def _strip_links(text: str) -> str:
-    """
-    Remove markdown link targets, keeping anchor text for stable hashing.
-    """
-    import re
-
-    stripped = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    stripped = re.sub(r"\s+", " ", stripped).strip().lower()
-    return stripped
-
-
-def _split_blocks(markdown: str) -> list[str]:
-    """
-    Split markdown into logical blocks (by headings or blank lines).
-    """
-    blocks: list[list[str]] = []
-    current: list[str] = []
-
-    def _push() -> None:
-        nonlocal current
-        if current:
-            blocks.append(current)
-            current = []
-
-    for line in markdown.splitlines():
-        if not line.strip():
-            _push()
-            continue
-        if line.lstrip().startswith("#"):
-            _push()
-            current = [line]
-            _push()
-            continue
-        current.append(line)
-    _push()
-    return ["\n".join(b).strip() for b in blocks if "\n".join(b).strip()]
-
-
-def _block_hash(block: str) -> str:
-    """Stable hash for a text block."""
-    return content_hash(_strip_links(block))
-
-
-def _remove_boilerplate_blocks(
-    markdown: str,
-    boilerplate_hashes: set[str],
-    cap_ratio: float,
-) -> tuple[str, dict[str, Any]]:
-    """
-    Remove blocks whose hashes are in boilerplate set, respecting cap_ratio.
-    """
-    blocks = _split_blocks(markdown)
-    if not boilerplate_hashes or not blocks:
-        return markdown, {"total_blocks": len(blocks), "removed_blocks": 0, "removed_ratio": 0.0, "capped": False}
-
-    kept: list[str] = []
-    total_len = sum(len(b) for b in blocks)
-    removed_len = 0
-    removed_blocks = 0
-
-    for block in blocks:
-        if _block_hash(block) in boilerplate_hashes:
-            removed_len += len(block)
-            removed_blocks += 1
-            continue
-        kept.append(block)
-
-    removed_ratio = removed_len / total_len if total_len else 0.0
-    capped = False
-    if removed_ratio > cap_ratio:
-        # Guardrail: keep original content if removal is too aggressive
-        kept = blocks
-        removed_blocks = 0
-        removed_ratio = 0.0
-        capped = True
-
-    return "\n\n".join(kept).strip(), {
-        "total_blocks": len(blocks),
-        "removed_blocks": removed_blocks,
-        "removed_ratio": round(removed_ratio, 3),
-        "capped": capped,
-    }
 
 
 def _get_git_commit() -> str | None:
@@ -498,12 +401,7 @@ def _get_crawl4ai_version() -> str | None:
     Returns:
         Version string or None if unavailable.
     """
-    try:
-        import crawl4ai  # type: ignore[import-untyped]
-        if hasattr(crawl4ai, "__version__"):
-            return str(crawl4ai.__version__)
-    except (ImportError, AttributeError):
-        pass
+    # Crawl4AI version check removed - now using Playwright-based stack
     return None
 
 
@@ -529,7 +427,7 @@ def _hash_site_config(config: SiteConfig, config_path: Path | None = None) -> st
         # Convert to dict, then to YAML
         config_dict = config.model_dump(mode="json", exclude_none=False)
         content = yaml.dump(config_dict, default_flow_style=False, sort_keys=True).encode("utf-8")
-    
+
     return hashlib.sha256(content).hexdigest()
 
 
@@ -552,7 +450,7 @@ def _build_metadata(
     return {
         "snapshot_id": snapshot_id,
         "site_id": site.id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "git_commit": _get_git_commit(),
         "site_config_hash": _hash_site_config(site, config_path),
         "crawl_engine": "crawl4ai",
@@ -657,20 +555,12 @@ class IncrementalSnapshotWriter:
             self._state = CrawlState()
 
         self.manifest_path = self.snapshot_path / "manifest.json"
-        self.run_log_path = self.snapshot_path / ".meta" / "run.log.jsonl"
-        self.checksums_path = self.snapshot_path / ".meta" / "checksums.sha256"
         self.manifest_pages: list[dict[str, Any]] = []
+        self.pages: list[Page] = []  # Track pages for return value
         self.started = False
         self.correlation_id = generate_correlation_id()
         self.crawl_settings: dict[str, Any] = {}
-        self.original_pages: list[Page] = []
-        self.page_paths: list[tuple[Path, str]] = []  # Store (dir_path, filename) for multi-format writing
         self.used_paths: dict[Path, set[str]] = {}  # Track used paths for collision detection
-        self.page_block_hashes: list[list[str]] = []
-        self.boilerplate_counts: dict[str, int] = {}
-        self.filtered_pages: list[Page] = []
-        self.boilerplate_cap_ratio = 0.4
-        self.file_checksums: list[tuple[str, str]] = []  # (checksum, relative_path)
 
         # Parse formats from config
         self.formats = [OutputFormat.from_string(f) for f in site.formats]
@@ -685,30 +575,87 @@ class IncrementalSnapshotWriter:
         self.started = True
 
     async def add_pages(self, pages: list[Page]) -> None:
-        """Write pages and update manifest incrementally."""
+        """
+        Write pages and update manifest incrementally.
+
+        Detects duplicate content by comparing content_hash values across all pages
+        (both previously written and newly added). Logs warnings when different URLs
+        have identical content, which may indicate:
+        - Pages with naturally identical content (expected)
+        - JavaScript rendering issues (pages not fully loaded)
+        - Error pages or redirects being cached
+
+        Args:
+            pages: List of pages to write to the snapshot.
+        """
         if not self.started:
             await self.start()
 
+        # Track content_hash to URL mapping for duplicate detection
+        # Check both new pages and existing pages in manifest
+        hash_to_url: dict[str, str] = {}
+
+        # First, load existing hashes from manifest
+        for existing_page in self.manifest_pages:
+            existing_hash = existing_page.get("content_hash", "")
+            existing_url = existing_page.get("url", "")
+            if existing_hash:
+                hash_to_url[existing_hash] = existing_url
+
+        # Now check new pages for duplicates
+        duplicate_count = 0
+        for page in pages:
+            if page.content_hash in hash_to_url:
+                first_url = hash_to_url[page.content_hash]
+                if first_url != page.url:  # Don't warn about same URL
+                    LOGGER.warning(
+                        "Duplicate content detected: '%s' has identical content to '%s' "
+                        "(content_hash: %s...)",
+                        page.url,
+                        first_url,
+                        page.content_hash[:16]  # Show first 16 chars of hash
+                    )
+                    duplicate_count += 1
+            else:
+                hash_to_url[page.content_hash] = page.url
+
+        if duplicate_count > 0:
+            LOGGER.warning(
+                "Found %d page(s) with duplicate content. This may indicate: "
+                "(1) Pages with identical content (expected), "
+                "(2) JavaScript rendering issues (pages not fully loaded), "
+                "(3) Error pages or redirects being cached.",
+                duplicate_count
+            )
+
         for page in pages:
             dir_path, filename = _safe_path_structure(page, self.used_paths)
-            self.page_paths.append((dir_path, filename))
-            self.original_pages.append(page)
-            block_hashes = [_block_hash(b) for b in _split_blocks(page.content_markdown)]
-            self.page_block_hashes.append(block_hashes)
+            files: dict[str, Path] = {}
+
+            # Write all requested formats
+            for fmt in self.formats:
+                file_path = await _write_page_format(
+                    page, self.snapshot_path, dir_path, filename, fmt, self.snapshot_id
+                )
+                files[fmt.value] = file_path
+
+            self.manifest_pages.append(
+                _page_manifest_entry(page, files, self.snapshot_path)
+            )
+            self.pages.append(page)  # Track for return
 
             # Update crawl state
             self._state.mark_completed(page.url)
-            save_state(self._state, self.snapshot_path)
 
-        await self._apply_boilerplate_and_write(status="in_progress")
+        save_state(self._state, self.snapshot_path)
+        await self._write_manifest(status="in_progress")
 
     async def complete(self) -> None:
         """Mark manifest as completed and update latest symlink."""
-        await self._apply_boilerplate_and_write(status="completed")
+        await self._write_manifest(status="completed")
         self._state.finish("completed")
         save_state(self._state, self.snapshot_path)
-        await self.log_event({"type": "completed"})
-        
+
         # Update latest symlink to point to this snapshot
         from web_scraper.corpus.symlink import update_latest_symlink
         site_dir = self.snapshot_path.parent
@@ -719,7 +666,6 @@ class IncrementalSnapshotWriter:
         await self._write_manifest(status="aborted", error=error)
         self._state.finish("aborted")
         save_state(self._state, self.snapshot_path)
-        await self.log_event({"type": "aborted", "error": error})
 
     @property
     def state(self) -> CrawlState:
@@ -730,101 +676,59 @@ class IncrementalSnapshotWriter:
         """Check if URL was already completed."""
         return self._state.is_completed(url)
 
-    async def _apply_boilerplate_and_write(self, status: str) -> None:
-        """Recompute boilerplate, rewrite pages, and update manifest/run log."""
-        # Update boilerplate counts
-        self.boilerplate_counts = {}
-        for hashes in self.page_block_hashes:
-            for hsh in hashes:
-                self.boilerplate_counts[hsh] = self.boilerplate_counts.get(hsh, 0) + 1
-        boilerplate_hashes = {h for h, count in self.boilerplate_counts.items() if count >= 2}
-
-        self.filtered_pages = []
-        self.manifest_pages = []
-        self.file_checksums = []
-        boilerplate_events: list[dict[str, Any]] = []
-
-        for index, page in enumerate(self.original_pages):
-            filtered_markdown, stats = _remove_boilerplate_blocks(
-                page.content_markdown, boilerplate_hashes, self.boilerplate_cap_ratio
-            )
-            filtered_page = page.model_copy(
-                update={
-                    "content_markdown": filtered_markdown,
-                    "content_hash": content_hash(filtered_markdown, url=page.url),
-                }
-            )
-            self.filtered_pages.append(filtered_page)
-
-            # Write all requested formats
-            dir_path, filename = self.page_paths[index]
-            files: dict[str, Path] = {}
-            for fmt in self.formats:
-                file_path = await _write_page_format(
-                    filtered_page, self.snapshot_path, dir_path, filename, fmt, self.snapshot_id
-                )
-                files[fmt.value] = file_path
-
-                # Calculate file checksum for checksums file
-                file_checksum = await _calculate_file_checksum(file_path)
-                rel_path = str(file_path.relative_to(self.snapshot_path))
-                self.file_checksums.append((file_checksum, rel_path))
-
-            self.manifest_pages.append(
-                _page_manifest_entry(filtered_page, files, self.snapshot_path)
-            )
-            stats.update({"page_index": index, "url": page.url})
-            boilerplate_events.append(stats)
-
-        await self._write_manifest(status=status)
-        await self._write_checksums()
-        await self.log_event(
-            {
-                "type": "boilerplate_update",
-                "boilerplate_hashes": [
-                    {"hash": h, "count": self.boilerplate_counts[h]}
-                    for h in boilerplate_hashes
-                ],
-                "total_pages": len(self.filtered_pages),
-                "page_stats": boilerplate_events,
-            }
-        )
-
     def _compute_stats(self) -> dict[str, Any]:
-        """Compute aggregate statistics for the snapshot."""
-        total_words = 0
+        """Compute aggregate statistics including duplicate detection."""
+        # Note: We no longer have Page objects stored, so stats are limited
+        # to what we can extract from manifest entries
+        total_pages = len(self.manifest_pages)
         languages: dict[str, int] = {}
         status_codes: dict[str, int] = {}
 
-        for page in self.filtered_pages:
-            # Count words (simple whitespace split)
-            words = len(page.content_markdown.split())
-            total_words += words
+        for page_entry in self.manifest_pages:
+            # Extract language and status_code from manifest if available
+            if "language" in page_entry:
+                lang = page_entry["language"]
+                languages[lang] = languages.get(lang, 0) + 1
+            if "status_code" in page_entry:
+                code = str(page_entry["status_code"])
+                status_codes[code] = status_codes.get(code, 0) + 1
 
-            # Count languages
-            lang = page.extra.get("language", "unknown") if page.extra else "unknown"
-            languages[lang] = languages.get(lang, 0) + 1
+        # Detect content duplicates across all pages
+        hash_to_urls: dict[str, list[str]] = {}
+        for page_entry in self.manifest_pages:
+            content_hash = page_entry.get("content_hash", "")
+            url = page_entry.get("url", "")
+            if content_hash:
+                if content_hash not in hash_to_urls:
+                    hash_to_urls[content_hash] = []
+                hash_to_urls[content_hash].append(url)
 
-            # Count status codes
-            code = str(page.extra.get("status_code", "unknown")) if page.extra else "unknown"
-            status_codes[code] = status_codes.get(code, 0) + 1
+        # Count duplicate groups (groups with 2+ URLs)
+        duplicate_groups = {h: urls for h, urls in hash_to_urls.items() if len(urls) > 1}
+        total_duplicates = sum(len(urls) - 1 for urls in duplicate_groups.values())
 
-        total_pages = len(self.filtered_pages)
-        return {
+        # Build stats dictionary
+        stats: dict[str, Any] = {
             "total_pages": total_pages,
-            "total_words": total_words,
-            "total_tokens_approx": int(total_words * 1.3),  # Rough token estimate
-            "avg_words_per_page": round(total_words / total_pages) if total_pages else 0,
             "languages": languages,
             "status_codes": status_codes,
         }
+
+        # Add duplicate stats if any found
+        if duplicate_groups:
+            stats["duplicate_content"] = {
+                "duplicate_groups": len(duplicate_groups),
+                "total_duplicated_pages": total_duplicates,
+            }
+
+        return stats
 
     async def _write_manifest(self, status: str, error: str | None = None) -> None:
         """Write manifest to disk with current state."""
         self.snapshot_path.mkdir(parents=True, exist_ok=True)
 
-        # Compute stats only for completed status
-        stats = self._compute_stats() if self.filtered_pages else {}
+        # Compute stats
+        stats = self._compute_stats() if self.manifest_pages else {}
 
         manifest = {
             "site_id": self.site.id,
@@ -840,11 +744,6 @@ class IncrementalSnapshotWriter:
             "status": status,
             "crawl_settings": self.crawl_settings,
             "stats": stats,
-            "boilerplate_hashes": [
-                {"hash": h, "count": c}
-                for h, c in self.boilerplate_counts.items()
-                if c >= 2
-            ],
             "metadata": _build_metadata(self.snapshot_id, self.site, self.config_path),
         }
         if error:
@@ -852,35 +751,10 @@ class IncrementalSnapshotWriter:
         async with aiofiles.open(self.manifest_path, "w", encoding="utf-8") as handle:
             await handle.write(json.dumps(manifest, indent=2))
 
-    async def _write_checksums(self) -> None:
-        """Write checksums file with SHA-256 hashes of all output files."""
-        if not self.file_checksums:
-            return
-
-        # Also add manifest checksum
-        manifest_checksum = await _calculate_file_checksum(self.manifest_path)
-        all_checksums = self.file_checksums + [(manifest_checksum, "manifest.json")]
-
-        lines = [f"sha256:{checksum}  {path}" for checksum, path in sorted(all_checksums, key=lambda x: x[1])]
-        content = "\n".join(lines) + "\n"
-
-        async with aiofiles.open(self.checksums_path, "w", encoding="utf-8") as handle:
-            await handle.write(content)
-
     def snapshot_root(self) -> Path:
         """Return snapshot root path."""
         return self.snapshot_path
 
-    def get_filtered_pages(self) -> list[Page]:
-        """Return the latest filtered pages after boilerplate removal."""
-        return self.filtered_pages or self.original_pages
-
-    async def log_event(self, event: dict[str, Any]) -> None:
-        """Append a structured event to the run log."""
-        event = {
-            "timestamp": datetime.now(ZoneInfo("Australia/Brisbane")).isoformat(),
-            **event,
-        }
-        self.run_log_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiofiles.open(self.run_log_path, "a", encoding="utf-8") as handle:
-            await handle.write(json.dumps(event) + "\n")
+    def get_pages(self) -> list[Page]:
+        """Return all pages written to this snapshot."""
+        return self.pages

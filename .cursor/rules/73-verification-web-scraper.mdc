@@ -4,8 +4,8 @@ Scope: Project
 Extends: 73-verification-basics (master)
 ISO/IEC 25010:
   Primary: Reliability
-description: Web-scraper-specific verification patterns - Crawl4AI scraper verification, site config verification, corpus verification
-globs: **/*
+description: Web-scraper-specific verification patterns - Playwright scraper verification, site config verification, corpus verification
+globs: "**/*"
 alwaysApply: true
 ---
 
@@ -22,7 +22,7 @@ Before considering web-scraper changes complete:
 - [ ] All tests pass (`pytest -q`)
 - [ ] Quality checks pass (`ruff check web_scraper`, `mypy web_scraper`)
 - [ ] Site configurations load and validate successfully
-- [ ] Crawl4AI scraper executes successfully (test crawl)
+- [ ] Playwright scraper executes successfully (test crawl)
 - [ ] Corpus snapshots are created with correct layout
 - [ ] Manifest files contain required metadata
 - [ ] CLI commands work correctly (test all commands)
@@ -30,19 +30,19 @@ Before considering web-scraper changes complete:
 
 **Note**: This checklist serves as a reminder only. See `.cursor/rules/master/73-verification-basics.mdc` for universal verification checklist structure. See `.cursor/rules/master/70-error-handling-basics.mdc` for error handling verification requirements. See `.cursor/rules/master/71-testing-patterns-basics.mdc` for test coverage verification requirements.
 
-## Crawl4AI Scraper Verification
+## Playwright Scraper Verification
 
 ### Scraper Execution
 
-- Test Crawl4AI scraper with valid site configuration
+- Test Playwright scraper with valid site configuration
 - Verify scraper returns `list[Page]` with correct structure
 - Verify scraper error handling works (test invalid configs)
 - Verify scraper retry logic works (test transient failures)
 
 ### Scraper Configuration
 
-- Verify Crawl4AI installation (`crawl4ai-doctor`)
-- Verify Playwright browsers are installed (`crawl4ai-setup`)
+- Verify Playwright installation (`playwright-doctor`)
+- Verify Playwright browsers are installed (`playwright-setup`)
 - Verify required environment variables are documented
 - Verify optional environment variables have defaults
 - Test scraper initialization with dependency injection (for testing)
@@ -104,7 +104,7 @@ Before considering web-scraper changes complete:
 Web-scraper verification typically includes:
 
 - **Runbook**: Provide copy-paste commands for conda activation, installing dependencies, running quality checks, testing providers, and verifying corpus output
-- **Scraper testing**: Verify Crawl4AI scraper executes correctly
+- **Scraper testing**: Verify Playwright scraper executes correctly
 - **Configuration testing**: Verify all site configurations load and validate
 - **Corpus testing**: Verify snapshot layout and manifest structure
 - **CLI testing**: Verify all commands work correctly
@@ -115,8 +115,8 @@ Web-scraper verification typically includes:
 
 ### Scraper Issues
 
-- Verify Crawl4AI installation (`crawl4ai-doctor`)
-- Verify Playwright browsers are installed (`crawl4ai-setup`)
+- Verify Playwright installation (`playwright-doctor`)
+- Verify Playwright browsers are installed (`playwright-setup`)
 - Verify scraper initializes correctly
 - Check scraper logs for correlation IDs
 
@@ -136,6 +136,6 @@ Web-scraper verification typically includes:
 
 - `.cursor/rules/master/73-verification-basics.mdc` - Universal verification principles
 - `.cursor/rules/20-development-environment-web-scraper.mdc` - Conda environment and setup
-- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Crawl4AI scraper patterns to verify
+- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Playwright scraper patterns to verify
 - `.cursor/rules/50-site-config-patterns-web-scraper.mdc` - Configuration patterns to verify
 - `.cursor/rules/71-testing-patterns-web-scraper.mdc` - Testing tools and patterns

@@ -131,7 +131,7 @@ def test_crawl_with_url_and_init_creates_config_and_crawls(monkeypatch, tmp_path
     """Crawl with URL and --init should create config and perform crawl."""
     from tests.integration.test_cli import FakeScraper
     
-    monkeypatch.setattr("web_scraper.cli.Crawl4AIScraper", FakeScraper)
+    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
     
     runner = CliRunner()
     result = runner.invoke(

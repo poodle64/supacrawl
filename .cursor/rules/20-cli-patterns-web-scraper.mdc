@@ -5,7 +5,32 @@ ISO/IEC 25010:
   Primary: N/A (Tooling rule)
 description: Click CLI patterns and conventions for web-scraper commands
 globs: "**/*.py"
-alwaysApply: true
+alwaysApply: false
+
+agentMapping:
+  skillName: cli-dev
+  skillDescription: Click CLI development with command patterns, error presentation, and output formatting
+  triggers:
+    - cli
+    - command
+    - click
+    - terminal
+    - command-line
+    - list-sites
+    - show-site
+    - crawl
+  allowedTools:
+    - Read
+    - Write
+    - Edit
+    - Bash
+    - Grep
+    - Glob
+  model: sonnet
+  includeRules:
+    - 70-error-handling-web-scraper.mdc
+  type: skill
+  priority: 8
 ---
 
 # CLI Patterns

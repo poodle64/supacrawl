@@ -32,7 +32,7 @@ This rule extends `.cursor/rules/master/20-development-environment-basics.mdc` w
 
 - ✅ **Must** use `.env` file for local development configuration
 - ✅ **Must** document all required environment variables in README
-- ✅ **May** set `CRAWL4AI_BASE_URL` to override Crawl4AI endpoint (optional, default: `https://crawl4ai.godswood.au`)
+- ✅ **May** set `WEB_SCRAPER_*` environment variables to configure browser behavior (headless mode, locale, timezone, user agent, wait conditions, SPA delay)
 - ❌ **Must NOT** commit `.env` files to version control
 - ❌ **Must NOT** hardcode API keys or URLs in code
 

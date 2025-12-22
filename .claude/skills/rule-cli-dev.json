@@ -1,0 +1,35 @@
+{
+  "name": "rule-cli-dev",
+  "description": "Click CLI development with command patterns, error presentation, and output formatting",
+  "systemPrompt": "Follow the development rules defined in:\n- rules/20-cli-patterns-web-scraper.mdc\n- rules/70-error-handling-web-scraper.mdc",
+  "tools": [
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Grep",
+    "Glob"
+  ],
+  "model": "sonnet",
+  "pathPatterns": "**/*.py",
+  "triggers": [
+    "cli",
+    "command",
+    "click",
+    "terminal",
+    "command-line",
+    "list-sites",
+    "show-site",
+    "crawl"
+  ],
+  "priority": 8,
+  "metadata": {
+    "sourceRules": [
+      "20-cli-patterns-web-scraper.mdc",
+      "70-error-handling-web-scraper.mdc"
+    ],
+    "generatedAt": "2025-12-20T07:45:29.849818+00:00",
+    "ruleType": "Tooling",
+    "isoCategory": "N/A (Tooling rule)"
+  }
+}

@@ -156,11 +156,11 @@ class TestInterruptionHandling:
 
     def test_crawl_interrupted_on_keyboard_interrupt(self, tmp_path: Path) -> None:
         """Test that CrawlInterrupted is raised on KeyboardInterrupt."""
-        from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+        from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
         
         config = _minimal_site_config("http://example.com", max_pages=10)
         
-        scraper = Crawl4AIScraper()
+        scraper = PlaywrightScraper()
         
         # Mock asyncio.run to raise KeyboardInterrupt during crawl
         # We need to consume the coroutine to avoid RuntimeWarning

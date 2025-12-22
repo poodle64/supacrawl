@@ -103,13 +103,13 @@ class RobotsConfigModel(BaseModel):
 class CrawlPolitenessConfig(BaseModel):
     """Configuration for crawl politeness and pacing.
 
-    These settings map directly to Crawl4AI's native controls.
+    These settings control browser automation and request pacing.
     All timing values are in seconds.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    # Maximum concurrent page crawls (Crawl4AI SemaphoreDispatcher.max_session_permit)
+    # Maximum concurrent page crawls
     max_concurrent: int = Field(
         default=5,
         ge=1,
@@ -118,13 +118,12 @@ class CrawlPolitenessConfig(BaseModel):
     )
 
     # Delay between requests in seconds (min, max) for random jitter
-    # Maps to Crawl4AI RateLimiter.base_delay
     delay_between_requests: tuple[float, float] = Field(
         default=(1.0, 2.0),
         description="Delay range (min, max) seconds between requests",
     )
 
-    # Page timeout in seconds (Crawl4AI page_timeout, converted to ms internally)
+    # Page timeout in seconds
     page_timeout: float = Field(
         default=120.0,
         ge=5.0,
@@ -145,7 +144,7 @@ class MarkdownFixesConfigModel(BaseModel):
     """
     Configuration for markdown fix plugins.
 
-    Markdown fixes are workarounds for issues in upstream tools (like Crawl4AI)
+    Markdown fixes are workarounds for issues in upstream markdown conversion
     that miss certain patterns. Each fix can be enabled/disabled individually.
 
     Configure via site YAML file. Default: disabled (must be explicitly enabled).

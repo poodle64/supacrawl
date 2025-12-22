@@ -38,3 +38,16 @@ sites/*.local.yaml
 
 # Parity harness generated output (dev only)
 docs/parity/
+
+# Claude Code configuration
+.claude/CLAUDE.local.md
+.claude/settings.local.json
+.claude/.sessions/
+
+# Claude Code - Track these:
+# .claude/CLAUDE.md
+# .claude/README.md (symlink)
+# .claude/SKILLS-VS-AGENTS.md (symlink)
+# .claude/skills/
+# .claude/scripts/ (symlink)
+# .claude/rules (symlink)

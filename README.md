@@ -2,7 +2,7 @@
 
 **A local-first, CLI-driven website ingestion tool for building LLM-ready corpora.**
 
-Web-scraper is a Python CLI that wraps Crawl4AI to produce snapshot-based, filesystem-first website archives. It's designed for developers who need clean, versioned website content for LLM consumption without relying on SaaS scraping services. Think Firecrawl's output format and quality, but running entirely on your machine with no API keys, rate limits, or external dependencies.
+Web-scraper is a Python CLI that wraps Crawl4AI to produce snapshot-based, filesystem-first website archives. It's designed for developers who need clean, versioned website content for LLM consumption without relying on SaaS scraping services. Produces Firecrawl-compatible markdown output format, running entirely on your machine with no API keys, rate limits, or external dependencies.
 
 ## What This Tool Is
 
@@ -24,7 +24,7 @@ Web-scraper is a Python CLI that wraps Crawl4AI to produce snapshot-based, files
 
 ## Comparison to Firecrawl
 
-Web-scraper produces **similar output** to Firecrawl (markdown, structured manifests, LLM-ready chunks) but with a **different deployment model**:
+Web-scraper produces **Firecrawl-compatible markdown output** (same format: clean markdown, structured manifests, LLM-ready chunks) but with a **different deployment model** (local CLI vs hosted API):
 
 | Feature | web-scraper | Firecrawl |
 |---------|-------------|-----------|
@@ -39,6 +39,22 @@ Web-scraper produces **similar output** to Firecrawl (markdown, structured manif
 **When to use web-scraper**: You need versioned, archival website corpora for LLM training/RAG, you want full control over crawl behaviour, and you're comfortable running local infrastructure.
 
 **When to use Firecrawl**: You need on-demand scraping via API, you want zero infrastructure management, or you're building a production service that requires SLA-backed uptime guarantees.
+
+## Quality Status
+
+**Current State**: ⚠️ **Known Issue - Link Preservation in Tables**
+
+Web-scraper produces excellent markdown output (99.6% similarity to Firecrawl on prose content) but currently has a critical bug where **links in table cells are lost** during markdown conversion. This is a known issue in the underlying Crawl4AI library's markdown generator.
+
+**Example**: On pages with data tables containing links (e.g., IANA domain registries), the link text appears but the URLs are missing.
+
+**Impact**: Affects pages with link-heavy tables. Plain text pages and simple tables work perfectly.
+
+**Status**: Tracked in issue #[TBD] - Working on fix via Crawl4AI upstream or custom post-processor.
+
+**Workaround**: For now, use HTML output format for pages with important table links, or post-process markdown to restore links from HTML.
+
+See `AUDIT_FIRECRAWL_REPLACEMENT.md` for detailed quality analysis and parity testing results.
 
 ## Core Workflow
 
@@ -388,10 +404,17 @@ All code in this project follows these standards:
 
 ## Resources
 
+### Documentation
 - **CLI Usage**: [CLI Usage Guide](docs/40-usage/cli-usage-web-scraper.md)
 - **Site Configuration**: [Creating Site Configurations](docs/40-usage/creating-site-configs-web-scraper.md)
 - **Architecture**: [Corpus Layout](docs/30-architecture/corpus-layout-web-scraper.md), [Site Configuration](docs/30-architecture/site-configuration-web-scraper.md)
 - **Reliability**: [Error Handling](docs/70-reliability/error-handling-web-scraper.md), [Retry Logic](docs/70-reliability/retry-logic-web-scraper.md), [Testing](docs/70-reliability/testing-web-scraper.md)
+
+### Quality & Roadmap
+- **Quality Audit**: [AUDIT_FIRECRAWL_REPLACEMENT.md](AUDIT_FIRECRAWL_REPLACEMENT.md) - Detailed parity analysis vs Firecrawl
+- **Roadmap**: [ROADMAP.md](ROADMAP.md) - Path to full output compatibility
 - **Development Rules**: [.cursor/rules/](.cursor/rules/)
+
+### External
 - **Crawl4AI Documentation**: https://docs.crawl4ai.com/
 - **Ollama Documentation**: https://ollama.com/

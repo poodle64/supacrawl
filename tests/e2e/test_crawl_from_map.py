@@ -14,7 +14,7 @@ from urllib.parse import urljoin
 
 from web_scraper.map import map_site
 from web_scraper.map_io import load_map_entries, select_crawl_urls
-from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
+from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
 from web_scraper.sites.loader import load_site_config
 
 # Fixture paths
@@ -129,7 +129,7 @@ def test_crawl_from_map_jsonl_crawls_only_included_urls_network_free(tmp_path: P
     )
     
     # Run crawl with target_urls
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path, target_urls=target_urls)
     
     # Verify pages were crawled
@@ -202,7 +202,7 @@ def test_crawl_from_map_is_deterministic_order(tmp_path: Path) -> None:
     assert target_urls == sorted(target_urls), "URLs should be sorted"
     
     # Crawl using target_urls (first run)
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages1, snapshot_path1 = scraper.crawl(config, corpora_dir=tmp_path / "run1", target_urls=target_urls)
     
     # Verify pages are in deterministic order (check manifest)
@@ -252,7 +252,7 @@ def test_crawl_without_map_unchanged(tmp_path: Path) -> None:
     )
     
     # Run crawl without map (default behavior, target_urls=None)
-    scraper = Crawl4AIScraper()
+    scraper = PlaywrightScraper()
     pages, snapshot_path = scraper.crawl(config, corpora_dir=tmp_path, target_urls=None)
     
     # Verify at least one page was crawled
