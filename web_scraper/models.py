@@ -363,3 +363,34 @@ class MapResult(BaseModel):
     success: bool
     links: list[MapLink]
     error: str | None = None
+
+
+class ScrapeMetadata(BaseModel):
+    """Metadata extracted from a page (Firecrawl-compatible)."""
+
+    title: str | None = None
+    description: str | None = None
+    language: str | None = None
+    og_title: str | None = None
+    og_description: str | None = None
+    og_image: str | None = None
+    source_url: str | None = None
+    status_code: int | None = None
+
+
+class ScrapeData(BaseModel):
+    """Scraped content from a page (Firecrawl-compatible)."""
+
+    markdown: str | None = None
+    html: str | None = None
+    raw_html: str | None = None
+    metadata: ScrapeMetadata
+    links: list[str] | None = None
+
+
+class ScrapeResult(BaseModel):
+    """Result of a scrape operation (Firecrawl-compatible)."""
+
+    success: bool
+    data: ScrapeData | None = None
+    error: str | None = None

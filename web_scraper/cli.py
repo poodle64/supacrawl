@@ -144,6 +144,97 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     click.echo(f"Markdown fixes: {fixes_status}")
 
 
+@app.command("scrape-url", help="Scrape a single URL (Firecrawl-compatible API).")
+@click.argument("url")
+@click.option(
+    "--format",
+    "-f",
+    "formats",
+    multiple=True,
+    type=click.Choice(["markdown", "html", "rawHtml", "links"], case_sensitive=False),
+    default=["markdown"],
+    show_default=True,
+    help="Output formats to include",
+)
+@click.option(
+    "--only-main-content/--no-only-main-content",
+    default=True,
+    show_default=True,
+    help="Extract main content area only",
+)
+@click.option(
+    "--wait-for",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Additional wait time in ms after page load",
+)
+@click.option(
+    "--timeout",
+    type=int,
+    default=30000,
+    show_default=True,
+    help="Page load timeout in ms",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Output file (JSON). If omitted, prints markdown to stdout.",
+)
+def scrape_url(
+    url: str,
+    formats: tuple[str, ...],
+    only_main_content: bool,
+    wait_for: int,
+    timeout: int,
+    output: Path | None,
+) -> None:
+    """Scrape a single URL and extract content (Firecrawl-compatible).
+
+    Examples:
+        web-scraper scrape-url https://example.com
+        web-scraper scrape-url https://example.com --format markdown --format html
+        web-scraper scrape-url https://example.com --output page.json
+    """
+    import asyncio
+    import json
+
+    from web_scraper.scrape_service import ScrapeService
+
+    async def run():
+        service = ScrapeService()
+        result = await service.scrape(
+            url=url,
+            formats=list(formats),  # type: ignore[arg-type]
+            only_main_content=only_main_content,
+            wait_for=wait_for,
+            timeout=timeout,
+        )
+        return result
+
+    result = asyncio.run(run())
+
+    # Handle errors
+    if not result.success:
+        click.echo(f"Error: {result.error}", err=True)
+        raise SystemExit(1)
+
+    # Output handling
+    if output:
+        with open(output, "w") as f:
+            json.dump(result.model_dump(), f, indent=2)
+        click.echo(f"Wrote scrape result to {output}")
+    else:
+        # Print markdown to stdout
+        if result.data and result.data.markdown:
+            click.echo(result.data.markdown)
+        else:
+            click.echo("No markdown content available", err=True)
+            raise SystemExit(1)
+
+
 @app.command("map-url", help="Map URLs from a website (Firecrawl-compatible API).")
 @click.argument("url")
 @click.option(
