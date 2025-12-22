@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
-import logging
 
 import click
 
 from web_scraper.config import default_corpora_dir, default_sites_dir
-from web_scraper.content.fixes.index import get_fix_index
+from web_scraper.content.fixes import get_fix_index
 from web_scraper.corpus.compress import compress_snapshot, extract_archive
+from web_scraper.exceptions import WebScrapeError
 from web_scraper.prep.chunker import chunk_snapshot
 from web_scraper.scrapers.crawl4ai import Crawl4AIScraper
 from web_scraper.sites.loader import list_site_configs, load_site_config
-from web_scraper.exceptions import WebScrapeError
 
 
 def _load_env_file(env_path: Path | None = None) -> None:
@@ -27,7 +27,7 @@ def _load_env_file(env_path: Path | None = None) -> None:
     """
     if env_path is None:
         env_path = Path.cwd() / ".env"
-    
+
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -144,6 +144,99 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     click.echo(f"Markdown fixes: {fixes_status}")
 
 
+@app.command("map-url", help="Map URLs from a website (Firecrawl-compatible API).")
+@click.argument("url")
+@click.option(
+    "--limit",
+    type=int,
+    default=200,
+    show_default=True,
+    help="Maximum number of URLs to discover.",
+)
+@click.option(
+    "--depth",
+    type=int,
+    default=3,
+    show_default=True,
+    help="Maximum BFS crawl depth.",
+)
+@click.option(
+    "--sitemap",
+    type=click.Choice(["include", "skip", "only"], case_sensitive=False),
+    default="include",
+    show_default=True,
+    help="Sitemap handling: include (default), skip, or only.",
+)
+@click.option(
+    "--include-subdomains",
+    is_flag=True,
+    default=False,
+    help="Include subdomain URLs.",
+)
+@click.option(
+    "--search",
+    type=str,
+    default=None,
+    help="Filter URLs containing this text.",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Output file (JSON). If omitted, prints URLs to stdout.",
+)
+def map_url(
+    url: str,
+    limit: int,
+    depth: int,
+    sitemap: str,
+    include_subdomains: bool,
+    search: str | None,
+    output: Path | None,
+) -> None:
+    """Map a website to discover all URLs (Firecrawl-compatible).
+
+    Examples:
+        web-scraper map-url https://example.com
+        web-scraper map-url https://example.com --limit 50 --output urls.json
+        web-scraper map-url https://example.com --search about --sitemap skip
+    """
+    import asyncio
+    import json
+
+    from web_scraper.map_service import MapService
+
+    async def run():
+        service = MapService()
+        result = await service.map(
+            url=url,
+            limit=limit,
+            max_depth=depth,
+            sitemap=sitemap,  # type: ignore[arg-type]
+            include_subdomains=include_subdomains,
+            search=search,
+        )
+        return result
+
+    result = asyncio.run(run())
+
+    # Handle errors
+    if not result.success:
+        click.echo(f"Error: {result.error}", err=True)
+        raise SystemExit(1)
+
+    # Output handling
+    if output:
+        with open(output, "w") as f:
+            json.dump(result.model_dump(), f, indent=2)
+        click.echo(f"Wrote {len(result.links)} URLs to {output}")
+    else:
+        # Print URLs to stdout (one per line)
+        for link in result.links:
+            click.echo(link.url)
+
+
 @app.command("map", help="Map site URLs that would be crawled (Firecrawl-style discovery).")
 @click.argument("site_name")
 @click.option(
@@ -187,6 +280,12 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     default=False,
     help="Return only entrypoints, no discovery.",
 )
+@click.option(
+    "--browser",
+    is_flag=True,
+    default=False,
+    help="Use browser rendering for link discovery (required for SPAs with JS-rendered links).",
+)
 def map_site(
     site_name: str,
     base_path: Path | None,
@@ -196,6 +295,7 @@ def map_site(
     use_sitemap: bool | None,
     use_robots: bool | None,
     include_entrypoints_only: bool,
+    browser: bool,
 ) -> None:
     """
     Map a site to discover all URLs that would be crawled.
@@ -212,6 +312,7 @@ def map_site(
         use_sitemap: Override sitemap discovery.
         use_robots: Override robots.txt enforcement.
         include_entrypoints_only: Return only entrypoints.
+        browser: Use Playwright for browser-rendered link discovery.
     """
     import json
 
@@ -236,6 +337,7 @@ def map_site(
                 include_entrypoints_only=include_entrypoints_only,
                 use_sitemap=use_sitemap,
                 use_robots=use_robots,
+                use_browser=browser,
             )
         )
     except Exception as exc:
@@ -337,6 +439,13 @@ def map_site(
     default=None,
     help="Create site config from URL before crawling.",
 )
+@click.option(
+    "--provider",
+    type=click.Choice(["crawl4ai", "playwright"], case_sensitive=False),
+    default="crawl4ai",
+    show_default=True,
+    help="Scraping provider: crawl4ai (default) or playwright (for SPAs with routing issues).",
+)
 def crawl(
     site_name: str,
     base_path: Path | None,
@@ -352,6 +461,7 @@ def crawl(
     max_chars: int,
     dry_run: bool,
     init: str | None,
+    provider: str,
 ) -> None:
     """
     Crawl a site and write a snapshot.
@@ -371,6 +481,7 @@ def crawl(
         max_chars: Maximum characters per chunk.
         dry_run: Show URLs that would be crawled without fetching content.
         init: Site name for URL quick-start (use with URL as site_name argument).
+        provider: Scraping provider to use (crawl4ai or playwright).
 
     Raises:
         click.ClickException: If the site configuration is not found or invalid.
@@ -393,13 +504,13 @@ def crawl(
             )
             click.echo("Example: web-scraper crawl https://example.com --init my-site", err=True)
             raise SystemExit(1)
-        
+
         # Create site config from URL
         from web_scraper.init import scaffold_site_config
-        
+
         url = site_name
         actual_site_name = init
-        
+
         try:
             config_path = scaffold_site_config(
                 site_name=actual_site_name,
@@ -415,7 +526,7 @@ def crawl(
         except Exception as exc:
             click.echo(f"Error creating config: {exc}", err=True)
             raise SystemExit(1) from exc
-        
+
         # Now use the created config
         site_name = actual_site_name
 
@@ -430,8 +541,9 @@ def crawl(
     # Handle dry-run mode
     if dry_run:
         import asyncio
+
         from web_scraper.map import map_site as map_site_func
-        
+
         try:
             url_entries = asyncio.run(
                 map_site_func(config, max_urls=config.max_pages)
@@ -533,7 +645,7 @@ def crawl(
                     f"Resuming {config.name} ({completed_pages} completed, "
                     f"{pending_pages} pending)..."
                 )
-    
+
     if fresh:
         # Check if there was an incomplete snapshot we're ignoring
         assert config.id is not None, "config.id must be set after validation"
@@ -545,8 +657,30 @@ def crawl(
     elif not resume_snapshot:
         click.echo(f"Starting crawl for {config.name}...")
 
-    # Create scraper (pacing is controlled by Crawl4AI internally)
-    scraper = Crawl4AIScraper()
+    # Create scraper based on provider selection
+    # Playwright provider requires target_urls (no link discovery)
+    if provider.lower() == "playwright":
+        from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
+
+        # Playwright requires explicit URL list - use from_map or entrypoints
+        if target_urls is None:
+            # Use entrypoints as target URLs for Playwright
+            target_urls = list(config.entrypoints)
+            if verbose:
+                click.echo(
+                    f"Playwright provider: using {len(target_urls)} entrypoints as target URLs"
+                )
+                click.echo(
+                    "Note: Playwright does not discover links. Use --from-map for multi-page crawls."
+                )
+
+        scraper = PlaywrightScraper()
+        if verbose:
+            click.echo("Using Playwright provider (SPA-compatible)")
+    else:
+        scraper = Crawl4AIScraper()
+        if verbose:
+            click.echo("Using Crawl4AI provider")
 
     try:
         pages, snapshot_path = scraper.crawl(
@@ -555,23 +689,24 @@ def crawl(
             resume_snapshot=resume_snapshot,
             target_urls=target_urls,
         )
-        
+
         # Generate chunks if requested
         chunk_count = 0
         if chunks:
             import asyncio
+
             from web_scraper.prep.chunker import chunk_snapshot
             chunks_path = asyncio.run(chunk_snapshot(snapshot_path, max_chars=max_chars))
             # Count chunks
             chunk_count = sum(1 for _ in chunks_path.read_text().splitlines())
-        
+
         # Output summary
         assert config.id is not None, "config.id must be set after validation"
         if chunks:
             click.echo(f"Crawled {len(pages)} pages, generated {chunk_count} chunks")
         else:
             click.echo(f"Crawled {len(pages)} pages")
-        
+
         # Show output path - use relative path if base_path not provided, else show from base
         if base_path is None:
             click.echo(f"Output: corpora/{config.id}/latest/")
@@ -609,15 +744,16 @@ def list_snapshots(site_name: str, base_path: Path | None) -> None:
         base_path: Optional base directory containing corpora/ folder.
     """
     import json
+
     from web_scraper.corpus.symlink import LATEST_SYMLINK_NAME
-    
+
     corpora_dir = default_corpora_dir(base_path)
     site_dir = corpora_dir / site_name
-    
+
     if not site_dir.exists():
         click.echo(f"No snapshots found for site: {site_name}")
         return
-    
+
     snapshots = []
     for item in site_dir.iterdir():
         # Skip the 'latest' symlink
@@ -625,24 +761,24 @@ def list_snapshots(site_name: str, base_path: Path | None) -> None:
             continue
         if not item.is_dir():
             continue
-        
+
         manifest_path = item / "manifest.json"
         if not manifest_path.exists():
             continue
-        
+
         try:
             manifest = json.loads(manifest_path.read_text())
             status = manifest.get("status", "unknown")
             total_pages = manifest.get("total_pages", 0)
             created_at = manifest.get("created_at", "unknown")
-            
+
             # Check for chunks
             chunks_path = item / "chunks.jsonl"
             if chunks_path.exists():
                 chunk_count = sum(1 for _ in chunks_path.read_text().splitlines())
             else:
                 chunk_count = None
-            
+
             snapshots.append({
                 "id": item.name,
                 "status": status,
@@ -652,14 +788,14 @@ def list_snapshots(site_name: str, base_path: Path | None) -> None:
             })
         except Exception:
             continue
-    
+
     # Sort by snapshot ID descending (most recent first)
     snapshots.sort(key=lambda s: s["id"], reverse=True)
-    
+
     if not snapshots:
         click.echo(f"No snapshots found for site: {site_name}")
         return
-    
+
     # Print table
     for snap in snapshots:
         chunks_str = f"{snap['chunks']:>4}" if snap['chunks'] is not None else "   -"
@@ -692,9 +828,9 @@ def init(site_name: str, url: str | None, base_path: Path | None) -> None:
         base_path: Optional base directory.
     """
     from web_scraper.init import scaffold_site_config
-    
+
     sites_dir = default_sites_dir(base_path)
-    
+
     try:
         config_path = scaffold_site_config(
             site_name=site_name,
@@ -995,9 +1131,6 @@ def list_fixes() -> None:
     Fixes are controlled via site configuration YAML files.
     """
     try:
-        # Import fixes to ensure they're registered
-        from web_scraper.content.fixes import missing_link_text  # noqa: F401
-
         index = get_fix_index()
         if not index:
             click.echo("No markdown fixes registered.")
@@ -1010,8 +1143,9 @@ def list_fixes() -> None:
         for i, fix in enumerate(index, 1):
             click.echo(f"{i}. {fix['name']}")
             click.echo(f"   Description: {fix['description']}")
-            click.echo(f"   Issue Pattern: {fix['issue_pattern']}")
             click.echo(f"   Upstream Issue: {fix['upstream_issue']}")
+            if fix.get('min_crawl4ai_version'):
+                click.echo(f"   Auto-disable at Crawl4AI: {fix['min_crawl4ai_version']}")
             click.echo()
 
         click.echo("Configuration:")

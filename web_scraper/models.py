@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -24,7 +24,7 @@ class OutputFormat(str, Enum):
     JSON = "json"
 
     @classmethod
-    def from_string(cls, value: str) -> "OutputFormat":
+    def from_string(cls, value: str) -> OutputFormat:
         """Parse format from string, case-insensitive."""
         value_lower = value.lower().strip()
         # Handle common aliases
@@ -56,57 +56,6 @@ def _brisbane_now() -> datetime:
         Current datetime in Australia/Brisbane timezone.
     """
     return datetime.now(ZoneInfo("Australia/Brisbane"))
-
-
-class CleaningConfig(BaseModel):
-    """Configuration for content cleaning rules.
-
-    These patterns are used to filter out trackers, navigation,
-    and boilerplate content from scraped markdown.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # URL substrings that indicate tracking/analytics (filter out images/links containing these)
-    tracker_patterns: list[str] = Field(
-        default_factory=lambda: [
-            "googleads.g.doubleclick.net",
-            "doubleclick.net",
-            "google-analytics.com",
-            "facebook.com/tr",
-            "bat.bing.com",
-        ]
-    )
-
-    # Prefixes to strip from lines (e.g., markdown image/link patterns)
-    strip_prefixes: list[str] = Field(
-        default_factory=lambda: ["![]((", "[![]("]
-    )
-
-    # Text markers that indicate end of main content (stop processing after)
-    stop_markers: list[str] = Field(
-        default_factory=lambda: [
-            "Build with Meta",
-            "Terms and policies",
-            "Privacy Policy",
-            "Cookie Policy",
-            "© 2024",
-            "© 2025",
-        ]
-    )
-
-    # Text markers that indicate navigation blocks (filter out)
-    nav_markers: list[str] = Field(
-        default_factory=lambda: [
-            "On This Page",
-            "Table of Contents",
-            "Related Articles",
-            "Share This",
-        ]
-    )
-
-    # Whether to skip content until first heading
-    skip_until_heading: bool = True
 
 
 class SitemapConfigModel(BaseModel):
@@ -228,23 +177,18 @@ class SiteConfig(BaseModel):
     formats: list[str]
     only_main_content: bool
     include_subdomains: bool
-    cleaning: CleaningConfig = Field(default_factory=CleaningConfig)
     sitemap: SitemapConfigModel = Field(default_factory=SitemapConfigModel)
     robots: RobotsConfigModel = Field(default_factory=RobotsConfigModel)
     politeness: CrawlPolitenessConfig = Field(default_factory=CrawlPolitenessConfig)
     markdown_fixes: MarkdownFixesConfigModel = Field(
         default_factory=MarkdownFixesConfigModel
     )
-    markdown_quality_preset: Literal["enhanced", "pure_crawl4ai"] = Field(
-        default="enhanced",
-        description="Markdown quality preset: 'enhanced' applies all post-processing, 'pure_crawl4ai' uses Crawl4AI output as-is",
-    )
 
     def model_post_init(self, __context: Any) -> None:
         """Post-initialization to derive or validate id."""
         # Get expected_id from context (set by loader)
         expected_id = __context.get("expected_id") if __context else None
-        
+
         # If id is missing or None, derive it from expected_id
         if self.id is None:
             if expected_id is None:
@@ -269,7 +213,7 @@ class SiteConfig(BaseModel):
                 correlation_id=correlation_id,
                 context={"expected_id": expected_id, "actual_id": self.id},
             )
-        
+
         # After post_init, id is guaranteed to be a string (for type checkers)
         assert self.id is not None, "id must be set after validation"
 
@@ -403,3 +347,19 @@ class Page(BaseModel):
         # Clean up whitespace
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
+
+
+class MapLink(BaseModel):
+    """A discovered URL with metadata (Firecrawl-compatible)."""
+
+    url: str
+    title: str | None = None
+    description: str | None = None
+
+
+class MapResult(BaseModel):
+    """Result of a map operation (Firecrawl-compatible)."""
+
+    success: bool
+    links: list[MapLink]
+    error: str | None = None

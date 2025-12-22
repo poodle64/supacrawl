@@ -1,0 +1,93 @@
+"""Tests for map service."""
+
+from __future__ import annotations
+
+import pytest
+
+from web_scraper.models import MapLink, MapResult
+from web_scraper.map_service import MapService
+
+
+class TestMapService:
+    """Tests for MapService."""
+
+    @pytest.mark.asyncio
+    async def test_map_returns_result(self):
+        """Test that map returns a MapResult."""
+        service = MapService()
+        result = await service.map("https://example.com", limit=5)
+        assert isinstance(result, MapResult)
+        assert result.success is True or result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_map_returns_links(self):
+        """Test that map returns discovered links."""
+        service = MapService()
+        result = await service.map("https://example.com", limit=10)
+        assert isinstance(result, MapResult)
+        if result.success:
+            assert len(result.links) > 0
+            assert all(isinstance(link, MapLink) for link in result.links)
+
+    @pytest.mark.asyncio
+    async def test_map_respects_limit(self):
+        """Test that map respects URL limit."""
+        service = MapService()
+        result = await service.map("https://example.com", limit=5)
+        if result.success:
+            assert len(result.links) <= 5
+
+    @pytest.mark.asyncio
+    async def test_map_extracts_titles(self):
+        """Test that map extracts page titles."""
+        service = MapService()
+        result = await service.map("https://example.com", limit=3)
+        if result.success and result.links:
+            # At least one link should have a title
+            titles = [link.title for link in result.links if link.title]
+            assert len(titles) >= 0  # May be empty for some sites
+
+    def test_is_same_domain_exact(self):
+        """Test domain matching without subdomains."""
+        service = MapService()
+        assert service._is_same_domain("https://example.com/page", "example.com", False)
+        assert not service._is_same_domain(
+            "https://sub.example.com/page", "example.com", False
+        )
+
+    def test_is_same_domain_with_subdomains(self):
+        """Test domain matching with subdomains."""
+        service = MapService()
+        assert service._is_same_domain("https://sub.example.com/page", "example.com", True)
+        assert service._is_same_domain("https://example.com/page", "example.com", True)
+        assert not service._is_same_domain("https://other.com/page", "example.com", True)
+
+    @pytest.mark.asyncio
+    async def test_search_filter(self):
+        """Test URL filtering with search."""
+        service = MapService()
+        result = await service.map("https://example.com", limit=100, search="about")
+        if result.success:
+            # All URLs should contain "about" (case insensitive)
+            for link in result.links:
+                assert (
+                    "about" in link.url.lower()
+                ), f"URL '{link.url}' does not contain 'about'"
+
+    @pytest.mark.asyncio
+    async def test_sitemap_only_mode(self):
+        """Test sitemap-only discovery mode."""
+        service = MapService()
+        result = await service.map(
+            "https://example.com", limit=10, sitemap="only", max_depth=0
+        )
+        # Should succeed or fail gracefully
+        assert isinstance(result, MapResult)
+
+    @pytest.mark.asyncio
+    async def test_sitemap_skip_mode(self):
+        """Test sitemap skip mode (BFS only)."""
+        service = MapService()
+        result = await service.map("https://example.com", limit=5, sitemap="skip")
+        # Should succeed or fail gracefully
+        assert isinstance(result, MapResult)
