@@ -317,6 +317,98 @@ def scrape_url(
             raise SystemExit(1)
 
 
+@app.command("batch-scrape", help="Scrape multiple URLs concurrently (Firecrawl-compatible API).")
+@click.argument("urls_file", type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--concurrency",
+    "-c",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Maximum concurrent requests",
+)
+@click.option(
+    "--only-main-content/--no-only-main-content",
+    default=True,
+    show_default=True,
+    help="Extract main content area only",
+)
+@click.option(
+    "--timeout",
+    type=int,
+    default=30000,
+    show_default=True,
+    help="Per-page timeout in ms",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Output directory for results (optional)",
+)
+def batch_scrape(
+    urls_file: Path,
+    concurrency: int,
+    only_main_content: bool,
+    timeout: int,
+    output: Path | None,
+) -> None:
+    """Scrape multiple URLs from a file concurrently (Firecrawl-compatible).
+
+    URLs should be one per line in the input file. Lines starting with # are ignored.
+
+    Examples:
+        web-scraper batch-scrape urls.txt --concurrency 10
+        web-scraper batch-scrape urls.txt --output results/
+    """
+    import asyncio
+    import hashlib
+    from urllib.parse import urlparse
+
+    from web_scraper.batch_service import BatchService
+
+    # Read URLs from file
+    with open(urls_file) as f:
+        urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+    click.echo(f"Loaded {len(urls)} URLs from {urls_file}")
+
+    async def run():
+        service = BatchService()
+        async for event in service.batch_scrape(
+            urls=urls,
+            concurrency=concurrency,
+            only_main_content=only_main_content,
+            timeout=timeout,
+        ):
+            if event.type == "item" and event.item:
+                status = "✓" if event.item.success else "✗"
+                click.echo(f"[{event.completed}/{event.total}] {status} {event.url}")
+
+                # Save to output directory if requested
+                if output and event.item.success and event.item.data:
+                    output.mkdir(parents=True, exist_ok=True)
+
+                    parsed = urlparse(event.url)
+                    path = parsed.path.strip("/").replace("/", "_") or "index"
+                    url_hash = hashlib.sha256(event.url.encode()).hexdigest()[:8]
+                    filename = f"{path}_{url_hash}.md"
+
+                    with open(output / filename, "w") as f:
+                        f.write("---\n")
+                        f.write(f"source_url: {event.url}\n")
+                        if event.item.data.metadata and event.item.data.metadata.title:
+                            f.write(f"title: {event.item.data.metadata.title}\n")
+                        f.write("---\n\n")
+                        f.write(event.item.data.markdown or "")
+
+            elif event.type == "complete":
+                click.echo(f"\nComplete: {event.completed}/{event.total}", err=True)
+
+    asyncio.run(run())
+
+
 @app.command("map-url", help="Map URLs from a website (Firecrawl-compatible API).")
 @click.argument("url")
 @click.option(
