@@ -144,6 +144,88 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     click.echo(f"Markdown fixes: {fixes_status}")
 
 
+@app.command("crawl-url", help="Crawl a website (Firecrawl-compatible API).")
+@click.argument("url")
+@click.option(
+    "--limit",
+    type=int,
+    default=100,
+    show_default=True,
+    help="Maximum pages to crawl",
+)
+@click.option(
+    "--depth",
+    type=int,
+    default=3,
+    show_default=True,
+    help="Maximum crawl depth",
+)
+@click.option(
+    "--include",
+    multiple=True,
+    help="URL patterns to include (glob patterns)",
+)
+@click.option(
+    "--exclude",
+    multiple=True,
+    help="URL patterns to exclude (glob patterns)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    required=True,
+    help="Output directory for scraped content",
+)
+@click.option(
+    "--resume",
+    is_flag=True,
+    default=False,
+    help="Resume from previous crawl",
+)
+def crawl_url(
+    url: str,
+    limit: int,
+    depth: int,
+    include: tuple[str, ...],
+    exclude: tuple[str, ...],
+    output: Path,
+    resume: bool,
+) -> None:
+    """Crawl a website and save all pages (Firecrawl-compatible).
+
+    Examples:
+        web-scraper crawl-url https://example.com --limit 50 --output corpus/
+        web-scraper crawl-url https://example.com --output corpus/ --resume
+        web-scraper crawl-url https://example.com --include "*/docs/*" --output corpus/
+    """
+    import asyncio
+
+    from web_scraper.crawl_service import CrawlService
+
+    async def run():
+        service = CrawlService()
+        async for event in service.crawl(
+            url=url,
+            limit=limit,
+            max_depth=depth,
+            include_patterns=list(include) if include else None,
+            exclude_patterns=list(exclude) if exclude else None,
+            output_dir=output,
+            resume=resume,
+        ):
+            if event.type == "progress":
+                click.echo(f"Progress: {event.completed}/{event.total}", err=True)
+            elif event.type == "page":
+                click.echo(f"Scraped: {event.url}")
+            elif event.type == "error":
+                click.echo(f"Error: {event.url}: {event.error}", err=True)
+            elif event.type == "complete":
+                click.echo(f"\nComplete: {event.completed}/{event.total} pages", err=True)
+
+    asyncio.run(run())
+
+
 @app.command("scrape-url", help="Scrape a single URL (Firecrawl-compatible API).")
 @click.argument("url")
 @click.option(

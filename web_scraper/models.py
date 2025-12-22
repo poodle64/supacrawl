@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -394,3 +394,34 @@ class ScrapeResult(BaseModel):
     success: bool
     data: ScrapeData | None = None
     error: str | None = None
+
+
+class CrawlStatus(str, Enum):
+    """Status of a crawl job (Firecrawl-compatible)."""
+
+    SCRAPING = "scraping"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class CrawlEvent(BaseModel):
+    """Event emitted during crawl (Firecrawl-compatible)."""
+
+    type: Literal["progress", "page", "complete", "error"]
+    url: str | None = None
+    data: ScrapeData | None = None
+    completed: int = 0
+    total: int = 0
+    error: str | None = None
+
+
+class CrawlResult(BaseModel):
+    """Final result of a crawl job (Firecrawl-compatible)."""
+
+    success: bool
+    status: CrawlStatus
+    completed: int
+    total: int
+    data: list[ScrapeData]
+    errors: list[str] | None = None
