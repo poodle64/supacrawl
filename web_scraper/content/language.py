@@ -26,6 +26,34 @@ ENGLISH_STOPWORDS = {
 }
 
 
+def _is_table_paragraph(text: str) -> bool:
+    """
+    Check if paragraph appears to be a markdown table.
+
+    Tables should be preserved regardless of language score since they
+    contain technical content that may not have many English stopwords.
+
+    Args:
+        text: Paragraph text to check.
+
+    Returns:
+        True if text appears to be a markdown table.
+    """
+    lines = text.strip().splitlines()
+    if len(lines) < 2:
+        return False
+
+    # Check for pipe-delimited rows and separator row
+    pipe_lines = sum(1 for line in lines if line.strip().startswith("|"))
+    separator_lines = sum(
+        1
+        for line in lines
+        if re.match(r"^\|[\s\-:|]+\|$", line.strip())
+    )
+
+    return pipe_lines >= 2 and separator_lines >= 1
+
+
 def detect_language(
     markdown: str, config: ExtractionConfig | None = None
 ) -> dict[str, Any]:
@@ -79,11 +107,13 @@ def detect_language(
     filtered_content = markdown
 
     if language != "en":
-        # Always preserve heading paragraphs (they're structure, not content)
+        # Always preserve heading paragraphs and tables (they're structure/content)
         kept_paragraphs = [
             p
             for p, s in zip(paragraphs, scores)
-            if s >= min_ratio or any(line.strip() in p for line in heading_lines)
+            if s >= min_ratio
+            or any(line.strip() in p for line in heading_lines)
+            or _is_table_paragraph(p)
         ]
         if kept_paragraphs:
             filtered_content = "\n\n".join(kept_paragraphs)

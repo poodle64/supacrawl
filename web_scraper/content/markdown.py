@@ -75,6 +75,11 @@ def sanitize_markdown(markdown: str, config: ExtractionConfig | None = None) -> 
                 cleaned_blocks.append(block.strip())
                 continue
 
+        # Preserve table blocks (they may have high link density but are content)
+        if _is_table_block(stripped_block):
+            cleaned_blocks.append(block.strip())
+            continue
+
         density = _link_density(block)
         word_count = len(block.split())
         if word_count < cfg.min_block_word_count and density > cfg.nav_block_link_density:
@@ -116,6 +121,33 @@ def _is_nav_marker(block: str) -> bool:
     """
     lowered = block.lower()
     return any(marker in lowered for marker in NAV_MARKERS)
+
+
+def _is_table_block(block: str) -> bool:
+    """
+    Check if block is a markdown table.
+
+    Tables should be preserved even if they have high link density,
+    since API documentation often has parameter tables with many links.
+
+    Args:
+        block: Text block to check.
+
+    Returns:
+        True if block appears to be a markdown table.
+    """
+    lines = block.strip().splitlines()
+    if len(lines) < 2:
+        return False
+
+    # Check for table structure: | col | col | and separator row |---|---|
+    pipe_lines = sum(1 for line in lines if line.strip().startswith("|"))
+    separator_lines = sum(
+        1 for line in lines if re.match(r"^\|[\s\-:|]+\|$", line.strip())
+    )
+
+    # A table needs at least 2 pipe-delimited lines and 1 separator
+    return pipe_lines >= 2 and separator_lines >= 1
 
 
 def _collapse_blank_lines(lines: list[str]) -> list[str]:
