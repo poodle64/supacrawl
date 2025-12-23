@@ -492,6 +492,7 @@ class PlaywrightScraper:
         async with async_playwright() as p:
             # Launch browser once, create fresh contexts per URL
             browser = await p.chromium.launch(headless=headless)
+            total = len(urls_to_crawl)
 
             try:
                 for i, url in enumerate(urls_to_crawl):
@@ -502,6 +503,20 @@ class PlaywrightScraper:
                     # Skip if already seen
                     if url in seen_urls:
                         continue
+
+                    # Show progress
+                    completed = len(pages)
+                    if total > 0:
+                        pct = int((completed / total) * 100)
+                        bar_width = 25
+                        filled = int(bar_width * completed / total) if total > 0 else 0
+                        bar = "=" * filled + ">" + " " * (bar_width - filled - 1)
+                        # Use print with flush for immediate output
+                        print(
+                            f"\r[{bar}] {completed}/{total} pages ({pct}%)",
+                            end="",
+                            flush=True,
+                        )
 
                     # Scrape URL
                     page_obj = await _scrape_url_with_playwright(
@@ -530,10 +545,21 @@ class PlaywrightScraper:
                         pages.append(page_obj)
                         await writer.add_pages([page_obj])
 
+                        # Show page scraped
+                        from urllib.parse import urlparse
+                        path = urlparse(url).path or "/"
+                        print(f"\n  + {path}", flush=True)
+
                     # Delay between requests (except for last URL)
                     if i < len(urls_to_crawl) - 1:
                         delay = delay_min + random.random() * (delay_max - delay_min)
                         await asyncio.sleep(delay)
+
+                # Final progress update
+                print(
+                    f"\r[{'=' * 25}>] {len(pages)}/{total} pages (100%)",
+                    flush=True,
+                )
 
             finally:
                 await browser.close()
