@@ -1,50 +1,48 @@
 # Markdown Fix Plugins
 
-Web-scraper includes a plugin-based system for fixing markdown quality issues that arise from upstream markdown conversion missing certain patterns. Each fix is a separate, independently configurable plugin.
+Web-scraper includes a plugin-based system for fixing markdown quality issues. Each fix is a separate, independently configurable plugin.
+
+## Current Status
+
+> **Note**: With the migration to **markdownify** (replacing Crawl4AI), the existing fixes are **no longer needed**. Markdownify correctly handles the edge cases these fixes were designed to address. See `REMOVE_MARKDOWN_FIXES.md` for details.
+
+The fix framework is retained for potential future site-specific edge cases.
 
 ## Overview
 
 The markdown fix system allows you to:
 - **Enable/disable fixes individually** via site configuration
 - **Review all fixes** to see what workarounds are in place
-- **Easily remove fixes** when upstream tools are updated
 - **Add new fixes** without modifying core code
 
 ## How It Works
 
-1. Each fix is a plugin class that inherits from `MarkdownFix`
-2. Fixes are automatically registered when their modules are imported
-3. All enabled fixes are applied in sequence after markdown extraction
-4. Fixes are **disabled by default** and must be explicitly enabled in site configuration
+1. Each fix is a function registered in `web_scraper/content/fixes.py`
+2. Fixes are applied in sequence after markdown extraction
+3. Fixes are **disabled by default** and must be explicitly enabled in site configuration
 
-## Current Fixes
+## Registered Fixes
 
 ### missing-link-text-in-lists
 
-**Description**: Injects missing link text in list items that start with verbs (e.g., 'is where...' -> '**The [V2 API](url)** is where...')
+**Status**: ✅ No longer needed (markdownify handles this correctly)
 
-**Issue Pattern**: List items starting with verbs (is, are, endpoints) that are missing link text at the beginning
+**Original Issue**: Crawl4AI missed link text in nested `<strong><a>` structures
 
-**Upstream Issue**: Markdown conversion misses link text in nested `<strong><a>` structures
+### table-link-preservation
 
-**Configuration**: Enable via `markdown_fixes.enabled: true` in site YAML (disabled by default)
+**Status**: ✅ No longer needed (markdownify handles this correctly)
 
-**Example**:
-- **Before**: `* is where you will find the bulk of our endpoints.`
-- **After**: `* **The [V2 API](/api/2/overview)** is where you will find the bulk of our endpoints.`
+**Original Issue**: Crawl4AI stripped links from table cells
 
 ## Configuration
 
 ### Enable/Disable Fixes
 
-Fixes are controlled via site configuration YAML files. **Fixes are disabled by default** and must be explicitly enabled.
-
-#### Site Configuration
-
-Add a `markdown_fixes` section to your site YAML:
+Fixes are controlled via site configuration YAML files. **Fixes are disabled by default**.
 
 ```yaml
-# Enable all fixes
+# Enable all fixes (not recommended - they're not needed with markdownify)
 markdown_fixes:
   enabled: true
 
@@ -53,96 +51,39 @@ markdown_fixes:
   enabled: true
   fixes:
     missing-link-text-in-lists: true
-    # Other fixes default to disabled when not listed
-```
-
-**Example** (`sites/sharesight-api.yaml`):
-```yaml
-id: sharesight-api
-name: Sharesight API Documentation
-# ... other config ...
-
-# Enable markdown fixes
-markdown_fixes:
-  enabled: true
-  fixes:
-    missing-link-text-in-lists: true
 ```
 
 **Default Behaviour**: If `markdown_fixes` section is omitted, all fixes are disabled.
 
-**See Template**: For a complete example of all available configuration options, see `sites/template.yaml`.
-
-### List All Fixes
-
-View all registered fixes and their status:
-
-```bash
-python -m web_scraper.content.fixes.index
-```
-
-Or programmatically:
-
-```python
-from web_scraper.content.fixes.index import get_fix_index
-
-for fix in get_fix_index():
-    print(f"{fix['name']}: {fix['enabled']}")
-```
+**Recommendation**: Leave fixes disabled unless you encounter a specific edge case that requires a fix.
 
 ## Adding New Fixes
 
-1. Create a new file in `web_scraper/content/fixes/` (e.g., `my_fix.py`)
-2. Create a class inheriting from `MarkdownFix`
-3. Implement required methods (`name`, `description`, `issue_pattern`, `upstream_issue`, `fix`)
-4. Register the fix: `register_fix(MyFix())`
-5. Import the module in `web_scraper/content/fixes/__init__.py`
+If you encounter a site-specific edge case that markdownify doesn't handle correctly:
 
-Example:
+1. Add a new fix function to `web_scraper/content/fixes.py`
+2. Register it in the `FIXES` list
+3. Document the fix in this file
+4. Enable it in your site config
+
+Example fix function:
 
 ```python
-from web_scraper.content.fixes.base import MarkdownFix
-from web_scraper.content.fixes.registry import register_fix
+def _fix_my_edge_case(markdown: str, html: str) -> str:
+    """Fix description here."""
+    # Fix logic
+    return fixed_markdown
 
-class MyFix(MarkdownFix):
-    @property
-    def name(self) -> str:
-        return "my-fix-name"
-    
-    @property
-    def description(self) -> str:
-        return "What this fix does"
-    
-    @property
-    def issue_pattern(self) -> str:
-        return "Pattern this fixes"
-    
-    @property
-    def upstream_issue(self) -> str:
-        return "Upstream issue description"
-    
-    def fix(self, markdown: str, html: str) -> str:
-        # Fix logic here
-        return markdown
-    
-    @property
-    def enabled(self) -> bool:
-        # Fixes are controlled via site config, not environment variables
-        return True
-
-# Auto-register
-register_fix(MyFix())
+# Add to FIXES list
+FIXES.append(FixSpec(
+    name="my-edge-case",
+    description="What this fix does",
+    upstream_issue="Why this is needed",
+    apply_fn=_fix_my_edge_case,
+))
 ```
-
-## Periodic Review
-
-Periodically review fixes to determine if they're still needed:
-
-1. **Check upstream issues**: Review the upstream tool's changelog/issue tracker
-2. **Test with fixes disabled**: Omit `markdown_fixes` section or set `enabled: false` in site config
-3. **Remove obsolete fixes**: If upstream is fixed, remove the fix plugin
-4. **Update documentation**: Keep this document current
 
 ## Related Documentation
 
-- See `USAGE_GUIDE.md` for general usage information
+- `REMOVE_MARKDOWN_FIXES.md` - Status of legacy fixes and test results
+- `USAGE_GUIDE.md` - General usage information

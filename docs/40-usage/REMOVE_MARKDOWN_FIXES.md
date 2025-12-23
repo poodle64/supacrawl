@@ -1,65 +1,54 @@
-# Removing Markdown Fix Plugins
+# Markdown Fix Plugins - Status
 
-This document explains how to remove markdown fix plugins when upstream tools fix the underlying issues.
+## Current Status: Not Needed
 
-## Overview
+As of the migration to **markdownify** (replacing Crawl4AI), the markdown fix plugins are **no longer needed**. Markdownify correctly handles both edge cases that the fixes were designed to address:
 
-Markdown fix plugins are workarounds for issues in upstream tools. When those tools are updated and fix the issues, the corresponding fix plugins should be removed.
+1. **Nested `<strong><a>` structures** → Markdownify produces `**[Link Text](/url)**` correctly
+2. **Table links** → Markdownify preserves `[Link](/url)` in table cells correctly
 
-## Current Fixes
+### Test Results
+
+```python
+from markdownify import markdownify
+
+# Test: Nested <strong><a> structure
+html = '<li><strong><a href="/api/v2">The V2 API</a></strong> is where...</li>'
+markdownify(html)
+# Output: "* **[The V2 API](/api/v2)** is where..." ✅
+
+# Test: Table with links
+html = '<td><a href="/api/users">List Users</a></td>'
+markdownify(html)
+# Output: "[List Users](/api/users)" ✅
+```
+
+## Recommendation
+
+**Keep fixes disabled** (the default). The fix framework is retained for potential future edge cases but the current fixes are unnecessary with markdownify.
+
+If you have `markdown_fixes.enabled: true` in your site configs, you can safely remove it or set it to `false`.
+
+## Legacy Fixes (No Longer Needed)
 
 ### missing-link-text-in-lists
 
-**Upstream Issue**: Markdown extraction misses link text in nested `<strong><a>` structures
+**Original Issue**: Crawl4AI's markdown extraction missed link text in nested `<strong><a>` structures, producing `* is where...` instead of `* **[Link](url)** is where...`
 
-**When to Remove**: When markdown extraction correctly preserves link text in nested formatting structures
+**Status**: ✅ Fixed by markdownify - no longer needed
 
-**How to Test**: 
-1. Ensure `markdown_fixes.enabled: false` in site config (or omit the section)
-2. Run a crawl: `web-scraper crawl sharesight-api`
-3. Check if markdown correctly includes link text (e.g., `**The [V2 API](url)** is where...`)
-4. If correct, the fix is no longer needed
+### table-link-preservation
 
-## Removal Process
+**Original Issue**: Crawl4AI's content filtering stripped links from table cells, leaving empty cells.
 
-### 1. Delete Fix Module
+**Status**: ✅ Fixed by markdownify - no longer needed
 
-- **File**: `web_scraper/content/fixes/missing_link_text.py`
-- **Action**: Delete this entire file
+## Framework Retention
 
-### 2. Remove from Registry
+The fix framework (`web_scraper/content/fixes.py`) is retained because:
 
-- **File**: `web_scraper/content/fixes/__init__.py`
-- **Action**: Remove the import: `from web_scraper.content.fixes import missing_link_text  # noqa: F401`
+1. Future site-specific edge cases may need fixes
+2. Fixes are disabled by default (no performance impact)
+3. The pattern is useful for extensibility
 
-### 3. Update Documentation
-
-- **File**: `docs/40-usage/markdown-fixes.md`
-- **Action**: Remove the fix from the "Current Fixes" section
-
-- **File**: `docs/40-usage/REMOVE_MARKDOWN_FIXES.md`
-- **Action**: Remove the fix from this document
-
-### 4. Update CLI
-
-- **File**: `web_scraper/cli.py`
-- **Action**: Remove the import in `list_fixes()` command: `from web_scraper.content.fixes import missing_link_text  # noqa: F401`
-
-## Testing After Removal
-
-After removing a fix:
-
-1. **Run test crawl**: `web-scraper crawl <site>`
-2. **Verify markdown quality**: Check that markdown no longer has the issue the fix addressed
-3. **Check logs**: Ensure no errors related to the removed fix
-4. **Update changelog**: Document that the fix was removed because upstream issue was resolved
-
-## Pattern for New Fixes
-
-When adding new fixes, follow this pattern:
-
-1. Create fix module in `web_scraper/content/fixes/`
-2. Document in `docs/40-usage/markdown-fixes.md`
-3. Add removal instructions to this document
-4. Include upstream issue reference
-5. Document in site config template (`sites/template.yaml`)
+To add new fixes in the future, see `docs/40-usage/markdown-fixes.md`.
