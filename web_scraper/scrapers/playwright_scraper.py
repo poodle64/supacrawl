@@ -186,10 +186,9 @@ async def _scrape_url_with_playwright(
         # Normalise URL
         normalised_url = normalise_url(url, html=html, entrypoint=url)
 
-        # Apply markdown post-processing pipeline (sanitize, language detection)
+        # Apply markdown post-processing pipeline (sanitize)
         result = postprocess_markdown(raw_markdown)
         markdown = result.markdown
-        lang_info = result.language
 
         # Get title from browser or first heading in markdown
         title = browser_title
@@ -203,11 +202,7 @@ async def _scrape_url_with_playwright(
                 title = "Untitled"
 
         # Build extra metadata
-        extra = {
-            "language": lang_info.get("language", "unknown"),
-            "language_confidence": lang_info.get("confidence", 0.0),
-            "language_action": lang_info.get("action", "none"),
-        }
+        extra: dict[str, str] = {}
 
         # Build Page object with correct fields
         assert config.id is not None, "config.id must be set after validation"

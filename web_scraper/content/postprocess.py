@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -11,13 +11,9 @@ class MarkdownPostprocessResult:
     """Result of markdown post-processing pipeline.
 
     Attributes:
-        markdown: Processed markdown content after sanitization and language filtering.
-        language: Language detection information dictionary with keys:
-            - language: Detected language code ("en", "mixed", "unknown")
-            - confidence: Score from 0.0 to 1.0
-            - action: What was done ("none", "filtered_paragraphs", "flagged_non_en")
-            - content: Potentially filtered content (same as markdown after processing)
+        markdown: Processed markdown content after sanitization.
+        language: Deprecated, always empty dict. Kept for API compatibility.
     """
 
     markdown: str
-    language: dict[str, Any]
+    language: dict[str, Any] = field(default_factory=dict)
