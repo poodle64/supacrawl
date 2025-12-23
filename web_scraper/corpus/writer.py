@@ -81,7 +81,9 @@ def _url_to_path_structure(url: str) -> tuple[Path, str]:
     path_parts = path.split("/")
     if path_parts:
         last_part = path_parts[-1]
-        last_part = re.sub(r"\.(html?|php|aspx?|jsp)$", "", last_part, flags=re.IGNORECASE)
+        last_part = re.sub(
+            r"\.(html?|php|aspx?|jsp)$", "", last_part, flags=re.IGNORECASE
+        )
         path_parts[-1] = last_part
 
     # Sanitise each path segment
@@ -372,12 +374,10 @@ def _escape_html(text: str) -> str:
     )
 
 
-
-
 def _get_git_commit() -> str | None:
     """
     Get the current git commit hash.
-    
+
     Returns:
         Git commit hash (short, 7 characters) or None if unavailable.
     """
@@ -390,32 +390,43 @@ def _get_git_commit() -> str | None:
             timeout=5,
         )
         return result.stdout.strip() or None
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         return None
 
 
-def _get_crawl4ai_version() -> str | None:
+def _get_scraper_version() -> str | None:
     """
-    Get Crawl4AI version if available.
-    
+    Get scraper version if available.
+
     Returns:
         Version string or None if unavailable.
     """
-    # Crawl4AI version check removed - now using Playwright-based stack
+    # Returns playwright version from the installed package
+    try:
+        import playwright
+
+        if hasattr(playwright, "__version__"):
+            return str(playwright.__version__)
+    except (ImportError, AttributeError):
+        pass
     return None
 
 
 def _hash_site_config(config: SiteConfig, config_path: Path | None = None) -> str:
     """
     Generate a deterministic SHA-256 hash of the site configuration.
-    
+
     If config_path is provided, hashes the raw file content.
     Otherwise, serializes the SiteConfig to YAML and hashes that.
-    
+
     Args:
         config: Site configuration.
         config_path: Optional path to the original config file.
-        
+
     Returns:
         SHA-256 hash as hexadecimal string.
     """
@@ -426,7 +437,9 @@ def _hash_site_config(config: SiteConfig, config_path: Path | None = None) -> st
         # Fallback: serialize config to YAML and hash
         # Convert to dict, then to YAML
         config_dict = config.model_dump(mode="json", exclude_none=False)
-        content = yaml.dump(config_dict, default_flow_style=False, sort_keys=True).encode("utf-8")
+        content = yaml.dump(
+            config_dict, default_flow_style=False, sort_keys=True
+        ).encode("utf-8")
 
     return hashlib.sha256(content).hexdigest()
 
@@ -438,12 +451,12 @@ def _build_metadata(
 ) -> dict[str, Any]:
     """
     Build metadata object for manifest.
-    
+
     Args:
         snapshot_id: Snapshot identifier.
         site: Site configuration.
         config_path: Optional path to the original config file.
-        
+
     Returns:
         Metadata dictionary.
     """
@@ -453,14 +466,17 @@ def _build_metadata(
         "created_at": datetime.now(UTC).isoformat(),
         "git_commit": _get_git_commit(),
         "site_config_hash": _hash_site_config(site, config_path),
-        "crawl_engine": "crawl4ai",
-        "crawl_engine_version": _get_crawl4ai_version(),
+        "crawl_engine": "playwright",
+        "crawl_engine_version": _get_scraper_version(),
         "schema_version": SCHEMA_VERSION,
     }
 
 
 async def write_snapshot(
-    site: SiteConfig, pages: list[Page], corpora_root: Path, config_path: Path | None = None
+    site: SiteConfig,
+    pages: list[Page],
+    corpora_root: Path,
+    config_path: Path | None = None,
 ) -> Path:
     """
     Create a snapshot for the given site and pages.
@@ -499,16 +515,14 @@ async def write_snapshot(
             )
             files[fmt.value] = file_path
 
-        manifest_pages.append(
-            _page_manifest_entry(page, files, snapshot_path)
-        )
+        manifest_pages.append(_page_manifest_entry(page, files, snapshot_path))
 
     manifest = {
         "site_id": site.id,
         "site_name": site.name,
         "snapshot_id": snapshot_id,
         "created_at": datetime.now(ZoneInfo("Australia/Brisbane")).isoformat(),
-        "provider": "crawl4ai",
+        "provider": "playwright",
         "entrypoints": site.entrypoints,
         "total_pages": len(pages),
         "formats": site.formats,
@@ -560,7 +574,9 @@ class IncrementalSnapshotWriter:
         self.started = False
         self.correlation_id = generate_correlation_id()
         self.crawl_settings: dict[str, Any] = {}
-        self.used_paths: dict[Path, set[str]] = {}  # Track used paths for collision detection
+        self.used_paths: dict[Path, set[str]] = (
+            {}
+        )  # Track used paths for collision detection
 
         # Parse formats from config
         self.formats = [OutputFormat.from_string(f) for f in site.formats]
@@ -613,7 +629,7 @@ class IncrementalSnapshotWriter:
                         "(content_hash: %s...)",
                         page.url,
                         first_url,
-                        page.content_hash[:16]  # Show first 16 chars of hash
+                        page.content_hash[:16],  # Show first 16 chars of hash
                     )
                     duplicate_count += 1
             else:
@@ -625,7 +641,7 @@ class IncrementalSnapshotWriter:
                 "(1) Pages with identical content (expected), "
                 "(2) JavaScript rendering issues (pages not fully loaded), "
                 "(3) Error pages or redirects being cached.",
-                duplicate_count
+                duplicate_count,
             )
 
         for page in pages:
@@ -658,6 +674,7 @@ class IncrementalSnapshotWriter:
 
         # Update latest symlink to point to this snapshot
         from web_scraper.corpus.symlink import update_latest_symlink
+
         site_dir = self.snapshot_path.parent
         update_latest_symlink(site_dir, self.snapshot_id)
 
@@ -704,7 +721,9 @@ class IncrementalSnapshotWriter:
                 hash_to_urls[content_hash].append(url)
 
         # Count duplicate groups (groups with 2+ URLs)
-        duplicate_groups = {h: urls for h, urls in hash_to_urls.items() if len(urls) > 1}
+        duplicate_groups = {
+            h: urls for h, urls in hash_to_urls.items() if len(urls) > 1
+        }
         total_duplicates = sum(len(urls) - 1 for urls in duplicate_groups.values())
 
         # Build stats dictionary
@@ -735,7 +754,7 @@ class IncrementalSnapshotWriter:
             "site_name": self.site.name,
             "snapshot_id": self.snapshot_id,
             "created_at": datetime.now(ZoneInfo("Australia/Brisbane")).isoformat(),
-            "provider": "crawl4ai",
+            "provider": "playwright",
             "entrypoints": self.site.entrypoints,
             "total_pages": len(self.manifest_pages),
             "formats": self.site.formats,

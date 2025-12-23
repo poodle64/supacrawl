@@ -24,7 +24,7 @@ See `.claude/rules/` for constraints and requirements. See `docs/` for implement
 ## Technology Stack
 
 - **Backend**: Python 3.12, Click (CLI), Pydantic, asyncio
-- **Scraping**: Crawl4AI, Playwright, httpx
+- **Scraping**: Playwright, httpx, BeautifulSoup, markdownify
 - **LLM**: Ollama (local models)
 - **Storage**: Filesystem-based (corpora/ directory)
 

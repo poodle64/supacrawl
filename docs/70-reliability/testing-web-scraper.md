@@ -8,7 +8,7 @@ Web-scraper uses pytest for testing with patterns for:
 
 - **Unit Tests**: Test individual components in isolation
 - **Integration Tests**: Test component interactions
-- **Scraper Tests**: Test Crawl4AI scraper and error handling
+- **Scraper Tests**: Test scraper services and error handling
 - **CLI Tests**: Test command-line interface
 
 ## Test Categories
@@ -17,7 +17,7 @@ Tests are organised into directories with automatic marker assignment:
 
 - **`tests/unit/`**: Pure logic tests, no I/O or browser (marker: `unit`)
 - **`tests/integration/`**: Filesystem operations, mocks, local HTTP server (marker: `integration`)
-- **`tests/e2e/`**: Real Crawl4AI/Playwright, slow (marker: `e2e`)
+- **`tests/e2e/`**: Real Playwright browser tests, slow (marker: `e2e`)
 
 Run specific categories:
 
@@ -34,11 +34,11 @@ pytest -q
 
 ### Live Network Tests
 
-Two e2e baseline quality tests require live internet access to external websites. These tests are automatically skipped unless the `CRAWL4AI_TEST_ENABLED=1` environment variable is set:
+Two e2e baseline quality tests require live internet access to external websites. These tests are automatically skipped unless the `WEB_SCRAPER_TEST_ENABLED=1` environment variable is set:
 
 ```bash
 # Run all tests including live network tests
-CRAWL4AI_TEST_ENABLED=1 pytest -q
+WEB_SCRAPER_TEST_ENABLED=1 pytest -q
 
 # Skip live network tests (default)
 pytest -q
@@ -48,15 +48,15 @@ All other tests are fully offline-safe and use local fixtures only.
 
 ## Unit Testing Patterns
 
-### Testing Provider Classes
+### Testing Service Classes
 
-Test provider initialization and error handling:
+Test service initialization and error handling:
 
 ```python
-def test_crawl4ai_scraper_initialization():
-    """Test Crawl4AI scraper initialization."""
-    scraper = Crawl4AIScraper()
-    assert scraper.provider_name == "crawl4ai"
+def test_scrape_service_initialization():
+    """Test scrape service initialization."""
+    service = ScrapeService()
+    assert service is not None
 ```
 
 ### Testing Site Configuration Loading
@@ -70,7 +70,6 @@ def test_load_site_config_valid(tmp_path):
     config_file.write_text("""
 id: test-site
 name: Test Site
-provider: crawl4ai
 entrypoints:
   - https://example.com
 include:
@@ -84,7 +83,6 @@ include_subdomains: false
 """)
     config = load_site_config(config_file)
     assert config.id == "test-site"
-    assert config.provider == "crawl4ai"
 ```
 
 ### Testing Validation
@@ -98,7 +96,6 @@ def test_site_config_empty_entrypoints():
         SiteConfig(
             id="test-site",
             name="Test Site",
-            provider="crawl4ai",
             entrypoints=[],  # Empty entrypoints
             include=["https://example.com/**"],
             exclude=[],
@@ -130,8 +127,8 @@ def test_crawl_flow(tmp_path, mock_provider_client):
     
     # Execute
     config = load_site_config(config_file)
-    scraper = Crawl4AIScraper(crawler=mock_provider_client)
-    pages = scraper.crawl(config)
+    scrape_service = ScrapeService()
+    pages = await scrape_service.scrape_urls(config.entrypoints)
     snapshot_id = write_snapshot(corpora_dir, config, pages)
     
     # Verify
@@ -162,79 +159,70 @@ def test_write_snapshot_creates_manifest(tmp_path):
     assert len(manifest["pages"]) == len(pages)
 ```
 
-## Provider Testing Patterns
+## Service Testing Patterns
 
-### Mocking Provider Clients
+### Mocking Browser Clients
 
 Use dependency injection for testability:
 
 ```python
 @pytest.fixture
-def mock_crawl4ai_client():
-    """Mock Crawl4AI client for testing."""
-    client = AsyncMock()
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=None)
-    client.arun = AsyncMock(return_value=[
-        Mock(url="https://example.com", title="Example", markdown="...", success=True)
-    ])
-    return client
+def mock_browser_context():
+    """Mock browser context for testing."""
+    context = AsyncMock()
+    page = AsyncMock()
+    page.content = AsyncMock(return_value="<html><body>Test</body></html>")
+    page.goto = AsyncMock()
+    context.new_page = AsyncMock(return_value=page)
+    return context
 
 
-def test_crawl4ai_scraper_crawl_success(mock_crawl4ai_client):
-    """Test Crawl4AI scraper successfully crawls site."""
-    scraper = Crawl4AIScraper(crawler=mock_crawl4ai_client)
-    config = SiteConfig(...)
-    pages = scraper.crawl(config)
-    assert len(pages) > 0
-    assert all(isinstance(page, Page) for page in pages)
+async def test_scrape_service_success(mock_browser_context):
+    """Test scrape service successfully scrapes page."""
+    service = ScrapeService(browser_context=mock_browser_context)
+    result = await service.scrape("https://example.com")
+    assert result.success
+    assert result.content is not None
 ```
 
-### Testing Provider Error Handling
+### Testing Service Error Handling
 
-Test provider error wrapping:
+Test error wrapping:
 
 ```python
-def test_crawl4ai_scraper_error_handling(mock_crawl4ai_client_error):
-    """Test Crawl4AI scraper error handling."""
-    mock_crawl4ai_client_error.__aenter__ = AsyncMock(side_effect=RuntimeError("API error"))
-    
-    scraper = Crawl4AIScraper(crawler=mock_crawl4ai_client_error)
-    config = SiteConfig(...)
-    
-    with pytest.raises(ProviderError) as exc_info:
-        scraper.crawl(config)
-    
-    assert exc_info.value.provider == "crawl4ai"
+async def test_scrape_service_error_handling():
+    """Test scrape service error handling."""
+    service = ScrapeService()
+
+    with pytest.raises(ScraperError) as exc_info:
+        await service.scrape("invalid://url")
+
     assert exc_info.value.correlation_id is not None
     assert "original_error" in exc_info.value.context
 ```
 
-### Testing Provider Retry Logic
+### Testing Retry Logic
 
 Test retry behavior:
 
 ```python
-def test_crawl4ai_scraper_retry_logic(mock_crawl4ai_client_retry):
-    """Test Crawl4AI scraper retry logic."""
+async def test_scrape_service_retry_logic(mock_browser_retry):
+    """Test scrape service retry logic."""
     # First two calls fail, third succeeds
     call_count = 0
-    def side_effect(*args, **kwargs):
+    async def side_effect(*args, **kwargs):
         nonlocal call_count
         call_count += 1
         if call_count < 3:
-            raise RuntimeError("Transient error")
-        return [Mock(url="https://example.com", title="Example", markdown="...", success=True)]
-    
-    mock_crawl4ai_client_retry.__aenter__ = AsyncMock(return_value=mock_crawl4ai_client_retry)
-    mock_crawl4ai_client_retry.__aexit__ = AsyncMock(return_value=None)
-    mock_crawl4ai_client_retry.arun = AsyncMock(side_effect=side_effect)
-    
-    scraper = Crawl4AIScraper(crawler=mock_crawl4ai_client_retry)
-    config = SiteConfig(...)
-    pages = scraper.crawl(config)
-    
-    assert len(pages) > 0
+            raise TimeoutError("Transient error")
+        return "<html><body>Success</body></html>"
+
+    mock_browser_retry.new_page().goto = AsyncMock(side_effect=side_effect)
+
+    service = ScrapeService(browser_context=mock_browser_retry)
+    result = await service.scrape("https://example.com")
+
+    assert result.success
     assert call_count == 3
 ```
 
@@ -287,7 +275,6 @@ def sample_site_config():
     return SiteConfig(
         id="test-site",
         name="Test Site",
-        provider="crawl4ai",
         entrypoints=["https://example.com"],
         include=["https://example.com/**"],
         exclude=[],

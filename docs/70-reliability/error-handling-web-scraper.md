@@ -253,10 +253,10 @@ Logs include correlation IDs in structured format:
 ```json
 {
   "level": "error",
-  "message": "Provider crawl4ai failed: ...",
+  "message": "Scraper failed: ...",
   "correlation_id": "abc12345",
   "context": {
-    "provider": "crawl4ai",
+    "url": "https://example.com",
     "error": "..."
   }
 }

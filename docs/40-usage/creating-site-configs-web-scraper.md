@@ -61,7 +61,6 @@ Start with minimal required fields:
 ```yaml
 id: example-site
 name: Example Site
-provider: crawl4ai
 entrypoints:
   - https://example.com
 include:
@@ -100,7 +99,7 @@ exclude:
   - https://example.com/private/**
 ```
 
-Pattern syntax: Crawl4AI supports regex patterns (check Crawl4AI docs)
+Pattern syntax: Glob patterns with `**` for recursive matching
 
 ### Step 6: Set Limits
 
@@ -122,7 +121,7 @@ formats:
   - markdown    # Markdown content (if supported by provider)
 ```
 
-**Note**: Available formats depend on Crawl4AI capabilities.
+**Note**: Available formats are `html`, `markdown`, `text`, and `json`.
 
 ### Step 8: Configure Content Extraction
 
@@ -149,7 +148,7 @@ markdown_fixes:
     missing-link-text-in-lists: true
 ```
 
-**When to use**: Enable fixes when you need workarounds for issues in upstream tools (like Crawl4AI). See `docs/40-usage/markdown-fixes.md` for details.
+**When to use**: Enable fixes when you need workarounds for issues in upstream markdown conversion. See `docs/40-usage/markdown-fixes.md` for details.
 
 **Default**: All fixes are **disabled by default**. Omit this section to disable all fixes.
 
@@ -162,7 +161,6 @@ markdown_fixes:
 ```yaml
 id: my-blog
 name: My Blog
-provider: crawl4ai
 entrypoints:
   - https://myblog.com
 include:
@@ -181,7 +179,6 @@ include_subdomains: false
 ```yaml
 id: docs-site
 name: Documentation Site
-provider: crawl4ai
 entrypoints:
   - https://docs.example.com
 include:
@@ -201,7 +198,6 @@ include_subdomains: false
 ```yaml
 id: multi-subdomain-site
 name: Multi-Subdomain Site
-provider: crawl4ai
 entrypoints:
   - https://example.com
 include:
@@ -290,10 +286,10 @@ ls corpora/example-site/
 
 ### Crawler Errors
 
-**Error:** `Failed to crawl site using Crawl4AI`
+**Error:** `Failed to crawl site`
 
 **Solution:**
-- Check Crawl4AI installation (`crawl4ai-doctor`)
+- Check Playwright installation (`playwright install chromium`)
 - Review error messages in logs
 
 ## References

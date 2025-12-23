@@ -1,6 +1,5 @@
 # Environment
 .env
-.env.*
 .venv
 venv
 
@@ -29,12 +28,29 @@ htmlcov/
 # Test output files
 test_*_results.json
 
+# Debug scripts (keep in root for convenience, don't commit)
+debug_*.py
+test_*.py
+!tests/
+
+# Working docs (ephemeral, don't commit)
+AUDIT_*.md
+BUG_REPORT_*.md
+DOCUMENTATION_*.md
+ROADMAP_*.md
+SPA_*.md
+
+# Debug artifacts
+audit_artifacts/
+
 # Project data
 corpora/*
 !corpora/.gitkeep
 
 # Local site configs
 sites/*.local.yaml
+sites/debug*.yaml
+sites/audit*.yaml
 
 # Parity harness generated output (dev only)
 docs/parity/

@@ -166,10 +166,10 @@ def test_baseline_quality_assert(baseline_metrics: dict[str, Any], site_id: str,
     
     # Skip live network tests in offline CI (unless explicitly enabled)
     if site_id in ("baseline-simple", "baseline-multi"):
-        if os.getenv("CI") and not os.getenv("CRAWL4AI_TEST_ENABLED"):
+        if os.getenv("CI") and not os.getenv("WEB_SCRAPER_TEST_ENABLED"):
             pytest.skip(
                 f"Skipping live network test for {site_id} in CI. "
-                "Set CRAWL4AI_TEST_ENABLED=1 to enable."
+                "Set WEB_SCRAPER_TEST_ENABLED=1 to enable."
             )
     
     # Handle static site with local server

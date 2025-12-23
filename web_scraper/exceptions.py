@@ -141,7 +141,7 @@ class ProviderError(WebScrapeError):
 
         Args:
             message: Error message.
-            provider: Optional provider name that caused the error (e.g., "crawl4ai").
+            provider: Optional provider name that caused the error (e.g., "playwright").
             correlation_id: Optional correlation ID. If None, generates a new one.
             context: Optional context dictionary for debugging.
         """

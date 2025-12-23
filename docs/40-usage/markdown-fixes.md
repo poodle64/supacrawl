@@ -1,6 +1,6 @@
 # Markdown Fix Plugins
 
-Web-scraper includes a plugin-based system for fixing markdown quality issues that arise from upstream tools (like Crawl4AI) missing certain patterns. Each fix is a separate, independently configurable plugin.
+Web-scraper includes a plugin-based system for fixing markdown quality issues that arise from upstream markdown conversion missing certain patterns. Each fix is a separate, independently configurable plugin.
 
 ## Overview
 
@@ -25,7 +25,7 @@ The markdown fix system allows you to:
 
 **Issue Pattern**: List items starting with verbs (is, are, endpoints) that are missing link text at the beginning
 
-**Upstream Issue**: Crawl4AI markdown extraction misses link text in nested `<strong><a>` structures
+**Upstream Issue**: Markdown conversion misses link text in nested `<strong><a>` structures
 
 **Configuration**: Enable via `markdown_fixes.enabled: true` in site YAML (disabled by default)
 

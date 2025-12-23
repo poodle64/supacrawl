@@ -116,28 +116,9 @@ except RateLimitError as e:
 
 ## Provider-Specific Patterns
 
-### Crawl4AI Provider
+### Playwright Browser Automation
 
-Crawl4AI uses async crawling with Playwright:
-
-```python
-_retryable_statuses = {"queued", "running", "pending"}
-_max_attempts = 3
-_poll_interval = 2
-_crawl_timeout = 600  # 10 minutes
-
-start_time = time.time()
-while time.time() - start_time < _crawl_timeout:
-    status = provider_client.get_status(job_id)
-    if status not in _retryable_statuses:
-        return provider_client.get_results(job_id)
-    time.sleep(_poll_interval)
-raise ProviderError("Crawl timed out")
-```
-
-### Crawl4AI Provider
-
-Crawl4AI uses HTTP requests with exponential backoff:
+The scraper uses Playwright for browser automation with retry logic:
 
 ```python
 _max_attempts = 3
@@ -145,16 +126,39 @@ _base_backoff = 0.5
 
 for attempt in range(_max_attempts):
     try:
-        response = httpx.post(url, json=payload, timeout=30.0)
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page()
+            await page.goto(url, timeout=30000)
+            content = await page.content()
+            return content
+    except (TimeoutError, Error) as e:
+        if attempt == _max_attempts - 1:
+            raise ScraperError(...) from e
+        backoff = _base_backoff * (2 ** attempt) + uniform(0, 0.1)
+        await asyncio.sleep(backoff)
+```
+
+### HTTP Fetcher
+
+For static content, httpx is used with exponential backoff:
+
+```python
+_max_attempts = 3
+_base_backoff = 0.5
+
+for attempt in range(_max_attempts):
+    try:
+        response = httpx.get(url, timeout=30.0)
         response.raise_for_status()
-        return response.json()
+        return response.text
     except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
         if attempt == _max_attempts - 1:
-            raise ProviderError(...) from e
+            raise ScraperError(...) from e
         if isinstance(e, httpx.HTTPStatusError):
             if e.response.status_code < 500:
                 # Don't retry 4xx errors
-                raise ProviderError(...) from e
+                raise ScraperError(...) from e
         backoff = _base_backoff * (2 ** attempt) + uniform(0, 0.1)
         time.sleep(backoff)
 ```

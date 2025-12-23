@@ -1,6 +1,6 @@
 # Removing Markdown Fix Plugins
 
-This document explains how to remove markdown fix plugins when upstream tools (like Crawl4AI) fix the underlying issues.
+This document explains how to remove markdown fix plugins when upstream tools fix the underlying issues.
 
 ## Overview
 
@@ -10,9 +10,9 @@ Markdown fix plugins are workarounds for issues in upstream tools. When those to
 
 ### missing-link-text-in-lists
 
-**Upstream Issue**: Crawl4AI markdown extraction misses link text in nested `<strong><a>` structures
+**Upstream Issue**: Markdown extraction misses link text in nested `<strong><a>` structures
 
-**When to Remove**: When Crawl4AI's markdown extraction correctly preserves link text in nested formatting structures
+**When to Remove**: When markdown extraction correctly preserves link text in nested formatting structures
 
 **How to Test**: 
 1. Ensure `markdown_fixes.enabled: false` in site config (or omit the section)

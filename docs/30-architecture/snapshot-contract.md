@@ -44,7 +44,7 @@ The `manifest.json` file is the authoritative description of a snapshot. It cont
 - `site_name` (string): Human-readable site name
 - `snapshot_id` (string): Unique snapshot identifier
 - `created_at` (string): ISO-8601 timestamp when snapshot was created
-- `provider` (string): Crawler provider name (e.g., `"crawl4ai"`)
+- `provider` (string): Crawler provider name (e.g., `"playwright"`)
 - `entrypoints` (array[string]): List of entrypoint URLs used for crawling
 - `total_pages` (integer): Total number of pages in snapshot
 - `formats` (array[string]): List of output formats produced (`"markdown"`, `"html"`, `"text"`, `"json"`)
@@ -94,7 +94,7 @@ The `metadata` object provides provenance and reproducibility information:
 - `created_at` (string): UTC ISO-8601 timestamp when snapshot was created
 - `git_commit` (string | null): Git commit hash (7 characters) or null if unavailable
 - `site_config_hash` (string): SHA-256 hash of site configuration (64 hex characters)
-- `crawl_engine` (string): Crawler engine name (e.g., `"crawl4ai"`)
+- `crawl_engine` (string): Crawler engine name (e.g., `"playwright"`)
 - `crawl_engine_version` (string | null): Crawler engine version or null if unavailable
 - `schema_version` (string): Manifest schema version (e.g., `"1.0"`)
 

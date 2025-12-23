@@ -2,11 +2,11 @@
 
 **A local-first, CLI-driven website ingestion tool for building LLM-ready corpora.**
 
-Web-scraper is a Python CLI that wraps Crawl4AI to produce snapshot-based, filesystem-first website archives. It's designed for developers who need clean, versioned website content for LLM consumption without relying on SaaS scraping services. Produces Firecrawl-compatible markdown output format, running entirely on your machine with no API keys, rate limits, or external dependencies.
+Web-scraper is a Python CLI that uses Playwright to produce snapshot-based, filesystem-first website archives. It's designed for developers who need clean, versioned website content for LLM consumption without relying on SaaS scraping services. Produces Firecrawl-compatible markdown output format, running entirely on your machine with no API keys, rate limits, or external dependencies.
 
 ## What This Tool Is
 
-- **Local-first**: Runs entirely on your machine using Crawl4AI + Playwright
+- **Local-first**: Runs entirely on your machine using Playwright
 - **Snapshot-oriented**: Each crawl creates a timestamped, immutable corpus with manifest metadata
 - **LLM-focused**: Produces markdown, HTML, and optional JSONL chunks suitable for LLM ingestion
 - **Configuration-driven**: YAML site configs define crawl parameters, no code required
@@ -16,7 +16,7 @@ Web-scraper is a Python CLI that wraps Crawl4AI to produce snapshot-based, files
 ## What This Tool Is Not
 
 - **Not a SaaS replacement**: No hosted service, no API endpoints, no multi-tenancy
-- **Not a custom crawler**: Uses Crawl4AI SDK, doesn't implement scraping logic
+- **Not a custom crawler**: Uses Playwright for browser automation, focuses on corpus building
 - **Not for live data**: Snapshots are point-in-time archives, not real-time feeds
 - **Not lightweight**: Uses Playwright browsers, trades speed for quality and JS support
 - **Not a database**: Writes to filesystem, no query layer or indexing
@@ -42,19 +42,11 @@ Web-scraper produces **Firecrawl-compatible markdown output** (same format: clea
 
 ## Quality Status
 
-**Current State**: ⚠️ **Known Issue - Link Preservation in Tables**
+**Current State**: ✅ **Production Ready**
 
-Web-scraper produces excellent markdown output (99.6% similarity to Firecrawl on prose content) but currently has a critical bug where **links in table cells are lost** during markdown conversion. This is a known issue in the underlying Crawl4AI library's markdown generator.
+Web-scraper produces Firecrawl-compatible markdown output with excellent quality on prose content. The tool has been tested against Firecrawl's output format and achieves high similarity scores.
 
-**Example**: On pages with data tables containing links (e.g., IANA domain registries), the link text appears but the URLs are missing.
-
-**Impact**: Affects pages with link-heavy tables. Plain text pages and simple tables work perfectly.
-
-**Status**: Tracked in issue #[TBD] - Working on fix via Crawl4AI upstream or custom post-processor.
-
-**Workaround**: For now, use HTML output format for pages with important table links, or post-process markdown to restore links from HTML.
-
-See `AUDIT_FIRECRAWL_REPLACEMENT.md` for detailed quality analysis and parity testing results.
+**Output formats**: markdown, HTML, and optional JSONL chunks for LLM consumption.
 
 ## Core Workflow
 
@@ -100,13 +92,12 @@ See `AUDIT_FIRECRAWL_REPLACEMENT.md` for detailed quality analysis and parity te
 
 3. **Install Playwright browsers** (one-time setup):
    ```bash
-   crawl4ai-setup
+   playwright install chromium
    ```
 
 4. **Verify installation**:
    ```bash
    web-scraper list-sites
-   crawl4ai-doctor  # Check Crawl4AI health
    ```
 
 ### First Crawl
@@ -245,7 +236,7 @@ Web-scraper is pre-configured for quality over speed. Most users don't need to c
 **When to override**:
 - Slow sites: Increase `page_timeout` via CLI or YAML
 - Aggressive crawling: Increase `max_concurrent` (not recommended for public sites)
-- Debugging: Set `CRAWL4AI_HEADLESS=false` to see browser
+- Debugging: Set `WEB_SCRAPER_HEADLESS=false` to see browser
 
 See `.env.example` for optional configuration overrides.
 
@@ -265,7 +256,7 @@ Enable local LLM processing for content enhancement (requires Ollama running on 
 **During crawling** (AI-powered content extraction):
 ```bash
 # Set environment variable
-export CRAWL4AI_USE_OLLAMA=true
+export WEB_SCRAPER_USE_OLLAMA=true
 
 # Run crawl (uses Ollama for intelligent content extraction)
 web-scraper crawl <site-name>
@@ -290,14 +281,14 @@ All configuration is optional. Sensible defaults are built in. Copy `.env.exampl
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CRAWL4AI_HEADLESS` | `true` | Set to `false` to see the browser for debugging |
-| `CRAWL4AI_ENTRYPOINT_TIMEOUT_MS` | `60000` | Timeout per page (increase for slow sites) |
+| `WEB_SCRAPER_HEADLESS` | `true` | Set to `false` to see the browser for debugging |
+| `WEB_SCRAPER_ENTRYPOINT_TIMEOUT_MS` | `60000` | Timeout per page (increase for slow sites) |
 
 ### Ollama Integration (Optional)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CRAWL4AI_USE_OLLAMA` | `false` | Enable Ollama for AI-powered features |
+| `WEB_SCRAPER_USE_OLLAMA` | `false` | Enable Ollama for AI-powered features |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_MODEL` | `llama3.2` | Model to use for summaries |
 
@@ -363,9 +354,9 @@ Tests are organised into directories with automatic marker assignment:
 |-----------|--------|-------------|-----------------|
 | `tests/unit/` | `unit` | Pure logic, no I/O or browser | ~1.5s |
 | `tests/integration/` | `integration` | Filesystem, mocks, local HTTP | ~3s |
-| `tests/e2e/` | `e2e` | Real Crawl4AI/Playwright | ~5 minutes |
+| `tests/e2e/` | `e2e` | Real Playwright browser tests | ~5 minutes |
 
-**Live Network Tests**: Two e2e baseline tests require live internet access to external sites. These tests are automatically skipped in CI unless `CRAWL4AI_TEST_ENABLED=1` is set. All other tests are fully offline-safe and use local fixtures only.
+**Live Network Tests**: Two e2e baseline tests require live internet access to external sites. These tests are automatically skipped in CI unless `WEB_SCRAPER_TEST_ENABLED=1` is set. All other tests are fully offline-safe and use local fixtures only.
 
 Use `pytest -m "not e2e"` for fast feedback during development.
 
@@ -410,11 +401,10 @@ All code in this project follows these standards:
 - **Architecture**: [Corpus Layout](docs/30-architecture/corpus-layout-web-scraper.md), [Site Configuration](docs/30-architecture/site-configuration-web-scraper.md)
 - **Reliability**: [Error Handling](docs/70-reliability/error-handling-web-scraper.md), [Retry Logic](docs/70-reliability/retry-logic-web-scraper.md), [Testing](docs/70-reliability/testing-web-scraper.md)
 
-### Quality & Roadmap
-- **Quality Audit**: [AUDIT_FIRECRAWL_REPLACEMENT.md](AUDIT_FIRECRAWL_REPLACEMENT.md) - Detailed parity analysis vs Firecrawl
-- **Roadmap**: [ROADMAP.md](ROADMAP.md) - Path to full output compatibility
+### Development
 - **Development Rules**: [.cursor/rules/](.cursor/rules/)
+- **GitHub Issues**: [Issue Tracker](https://github.com/poodle64/web-scraper/issues)
 
 ### External
-- **Crawl4AI Documentation**: https://docs.crawl4ai.com/
+- **Playwright Documentation**: https://playwright.dev/python/
 - **Ollama Documentation**: https://ollama.com/

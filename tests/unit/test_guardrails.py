@@ -11,11 +11,10 @@ import pytest
 TESTS_ROOT = Path(__file__).parent.parent
 UNIT_TESTS_DIR = TESTS_ROOT / "unit"
 
-# Files that are explicitly allowed to import Crawl4AI (integration/e2e tests)
+# Files that are explicitly allowed to import Playwright (integration/e2e tests)
 # These are in tests/integration/ or tests/e2e/ directories
 ALLOWED_PLAYWRIGHT_IMPORTS = {
-    # e2e tests (use real Crawl4AI/Playwright)
-    "e2e/test_crawl4ai_quality.py",
+    # e2e tests (use real Playwright)
     "e2e/test_baseline_quality.py",
     "e2e/test_preset_parity.py",
     "e2e/test_crawl_from_map.py",
@@ -29,7 +28,6 @@ ALLOWED_PLAYWRIGHT_IMPORTS = {
 
 # Forbidden imports for unit tests
 FORBIDDEN_IMPORTS = {
-    "crawl4ai",
     "playwright",
 }
 
@@ -54,11 +52,11 @@ def _get_imports(filepath: Path) -> set[str]:
 
 
 @pytest.mark.unit
-def test_unit_tests_do_not_import_crawl4ai_directly() -> None:
+def test_unit_tests_do_not_import_playwright_directly() -> None:
     """
-    Verify that test files in unit/ do not import crawl4ai or playwright.
-    
-    Unit tests should not depend on Crawl4AI or Playwright directly.
+    Verify that test files in unit/ do not import playwright.
+
+    Unit tests should not depend on Playwright directly.
     If a test needs these, it should be in integration/ or e2e/.
     """
     violations: list[str] = []
@@ -80,7 +78,7 @@ def test_unit_tests_do_not_import_crawl4ai_directly() -> None:
 
     if violations:
         msg = (
-            "Unit tests should not import crawl4ai or playwright directly.\n"
+            "Unit tests should not import playwright directly.\n"
             "Either:\n"
             "  1. Move the test to integration/ or e2e/ directory\n"
             "  2. Use mocks instead of real imports\n"
@@ -94,7 +92,7 @@ def test_unit_tests_do_not_import_crawl4ai_directly() -> None:
 def test_allowed_imports_files_exist() -> None:
     """Verify that all files in the allowlist actually exist."""
     for filepath in ALLOWED_PLAYWRIGHT_IMPORTS:
-        # filepath is relative to TESTS_ROOT (e.g., "e2e/test_crawl4ai_quality.py")
+        # filepath is relative to TESTS_ROOT (e.g., "e2e/test_baseline_quality.py")
         full_path = TESTS_ROOT / filepath
         if not full_path.exists():
             pytest.fail(

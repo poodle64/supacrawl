@@ -13,7 +13,6 @@
 - **`40-usage/creating-site-configs-web-scraper.md`** - How to create and configure site YAML files
 - **`40-usage/markdown-fixes.md`** - Markdown fix plugin system documentation
 - **`40-usage/REMOVE_MARKDOWN_FIXES.md`** - Guide for removing markdown fixes when upstream issues are resolved
-- **`40-usage/crawl4ai-quality-best-practices.md`** - Crawl4AI-specific quality tuning and best practices
 
 ## Reliability
 

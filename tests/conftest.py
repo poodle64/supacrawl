@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 
@@ -45,3 +47,31 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         else:
             # Default to unit for any stray tests
             item.add_marker(pytest.mark.unit)
+
+
+# E2E test fixtures
+
+
+@pytest.fixture
+def test_urls() -> list[str]:
+    """Common test URLs for E2E tests."""
+    return [
+        "https://example.com",
+        "https://example.org",
+    ]
+
+
+@pytest.fixture
+def urls_file(tmp_path: Path, test_urls: list[str]) -> Path:
+    """Create temporary URLs file for E2E tests.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+        test_urls: List of test URLs.
+
+    Returns:
+        Path to created URLs file.
+    """
+    urls_file = tmp_path / "urls.txt"
+    urls_file.write_text("\n".join(test_urls), encoding="utf-8")
+    return urls_file

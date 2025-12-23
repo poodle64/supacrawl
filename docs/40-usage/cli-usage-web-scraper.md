@@ -56,7 +56,6 @@ web-scraper show-site SITE_NAME [--base-path PATH]
 $ web-scraper show-site example-site
 Site: example-site
 Name: Example Site
-Provider: crawl4ai
 Entrypoints:
   - https://example.com
 Max Pages: 100
@@ -327,12 +326,12 @@ Error: At least one entrypoint is required. [correlation_id=abc12345]
 
 **Solution:** Check site configuration YAML, ensure all required fields are present.
 
-**Provider Error:**
+**Scraper Error:**
 ```
-Error: Failed to crawl site using crawl4ai [correlation_id=abc12345]
+Error: Failed to crawl site [correlation_id=abc12345]
 ```
 
-**Solution:** Check Crawl4AI installation (`crawl4ai-doctor`), review provider logs.
+**Solution:** Check Playwright installation (`playwright install chromium`), review error logs.
 
 **Missing Snapshot:**
 ```
@@ -373,9 +372,9 @@ Chunks written: corpora/example-site/2025-01-15_1430/chunks.jsonl
 
 ## Environment Variables
 
-### Crawl4AI Provider
+### Playwright Configuration
 
-- `CRAWL4AI_BASE_URL` - Optional base URL override (default: `https://crawl4ai.godswood.au`)
+See `.env.example` for available browser configuration options.
 
 ## Best Practices
 

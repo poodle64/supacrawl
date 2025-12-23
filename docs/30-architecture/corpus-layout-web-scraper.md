@@ -107,7 +107,7 @@ Manifests are stored at `corpora/{site_id}/{snapshot_id}/manifest.json`
 {
   "site_id": "example-site",
   "site_name": "Example Site",
-  "provider": "crawl4ai",
+  "provider": "playwright",
   "snapshot_id": "2025-01-15_1430",
   "created_at": "2025-01-15T14:30:22+10:00",
   "entrypoints": [
@@ -138,7 +138,7 @@ Manifests are stored at `corpora/{site_id}/{snapshot_id}/manifest.json`
 
 - **`site_id`**: Site identifier from `SiteConfig.id`
 - **`site_name`**: Human-readable site name from `SiteConfig.name`
-- **`provider`**: Scraper provider used (`crawl4ai`)
+- **`provider`**: Scraper provider used (`playwright`)
 - **`snapshot_id`**: Snapshot identifier (timestamp)
 - **`created_at`**: ISO 8601 timestamp of snapshot creation
 - **`entrypoints`**: List of crawl entrypoints
