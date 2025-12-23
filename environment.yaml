@@ -14,7 +14,7 @@ dependencies:
     # Core Runtime Dependencies
     - aiofiles>=24.1.0
     - click>=8.1.7
-    - crawl4ai>=0.7.8
+    - markdownify>=0.13.1
     - httpx>=0.28.1
     - ollama>=0.1.0
     - pydantic>=2.9.0

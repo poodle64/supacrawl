@@ -15,7 +15,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
-        "e2e: End-to-end tests with live network, Crawl4AI/Playwright, or external services",
+        "e2e: End-to-end tests with live network, Playwright, or external services",
     )
 
 

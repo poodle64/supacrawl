@@ -13,7 +13,7 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 - Initial project scaffold with core functionality
 - Site configuration loader with YAML support
-- Crawl4AI scraper implementation
+- Playwright-based scraper implementation
 - Corpus snapshot writer with manifest generation
 - Content chunking utilities for LLM-ready output
 - CLI interface with commands: list-sites, show-site, crawl, chunk

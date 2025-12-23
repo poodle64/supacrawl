@@ -38,7 +38,7 @@
     },
     "provider": {
       "type": "string",
-      "description": "Crawler provider name (e.g., 'crawl4ai')"
+      "description": "Crawler provider name (e.g., 'playwright')"
     },
     "entrypoints": {
       "type": "array",
@@ -184,7 +184,7 @@
         },
         "crawl_engine": {
           "type": "string",
-          "enum": ["crawl4ai"],
+          "enum": ["playwright"],
           "description": "Crawler engine name"
         },
         "crawl_engine_version": {

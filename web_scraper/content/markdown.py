@@ -2,10 +2,6 @@
 
 This module provides sanitize_markdown() for cleaning markdown content by
 removing navigation blocks and link-heavy boilerplate.
-
-Note: html_to_markdown() was removed in PR4 as it was no longer used in the
-production crawl path. The crawl path relies exclusively on Crawl4AI's built-in
-markdown generation.
 """
 
 from __future__ import annotations

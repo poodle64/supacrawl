@@ -1,11 +1,5 @@
 # Claude Code Agents
 
-## Important: Agent Format Clarification
-
-**Claude Code does NOT use JSON agent configuration files.**
-
-The previous `.claude/agents/*.json` files were archived to `_archived/` because they used a custom format that Claude Code doesn't recognise.
-
 ## How Claude Code Agents Work
 
 Claude Code uses the **Task tool** with `subagent_type` parameter for spawning specialised agents. These are built-in agent types, not custom configurations.
@@ -37,10 +31,6 @@ Task tool with subagent_type='Plan' for architecture planning
 For domain-specific knowledge (scraper patterns, corpus layout, CLI patterns), use **Skills** with embedded rule content, not agents. Skills are auto-generated from cursor rules with `agentMapping` frontmatter.
 
 See `.cursor/rules/AGENT-MAPPING-SCHEMA.md` for how to add domain knowledge to skills.
-
-## Archived Agents
-
-The `_archived/` folder contains previous JSON agent configs that were created before understanding Claude Code's actual architecture. They're kept for reference but are not functional.
 
 ## Future Considerations
 

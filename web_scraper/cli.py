@@ -15,7 +15,6 @@ from web_scraper.corpus.compress import compress_snapshot, extract_archive
 from web_scraper.exceptions import WebScrapeError
 from web_scraper.prep.chunker import chunk_snapshot
 
-# Crawl4AI removed - now using Playwright-based stack
 from web_scraper.sites.loader import list_site_configs, load_site_config
 
 

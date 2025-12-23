@@ -58,7 +58,7 @@ def postprocess_markdown(
     3. Language detection and filtering
 
     Args:
-        markdown: Raw markdown content from Crawl4AI.
+        markdown: Raw markdown content.
         raw_html: Optional raw HTML (required for fixes).
         config: Optional SiteConfig (required for fixes).
         correlation_id: Optional correlation ID (required for fixes).

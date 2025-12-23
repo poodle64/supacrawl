@@ -1,15 +1,13 @@
-"""Direct Playwright scraper for SPA sites where Crawl4AI fails.
+"""Playwright-based scraper for web content extraction.
 
-This module provides a fallback scraping mechanism that uses raw Playwright
-instead of Crawl4AI's wrapper. It's specifically designed to handle React/Vue
-SPAs with client-side routing, where Crawl4AI's session reuse causes content
-duplication issues.
+This module provides the core scraping mechanism using Playwright for
+browser automation. It handles SPA sites with client-side routing.
 
-Key differences from Crawl4AI:
-1. Creates completely fresh browser instance per URL (not just context)
-2. Uses direct page.goto() navigation without session management
-3. Waits for network idle and DOM stability before capturing
-4. No deep crawl strategy - just fetches the exact URLs provided
+Features:
+1. Fresh browser context per crawl session
+2. Waits for network idle and DOM stability before capturing
+3. Handles JavaScript-rendered content
+4. Configurable politeness settings (delays, concurrency)
 """
 
 from __future__ import annotations
@@ -355,11 +353,10 @@ def _html_to_markdown(
 
 
 class PlaywrightScraper:
-    """Direct Playwright scraper for SPA sites.
+    """Playwright-based scraper for web content extraction.
 
-    This scraper bypasses Crawl4AI and uses raw Playwright for navigation.
-    It's designed as a fallback when Crawl4AI's session management causes
-    content duplication in React/Vue SPAs.
+    Uses Playwright for browser automation to handle JavaScript-rendered
+    content including SPAs with client-side routing.
 
     Usage:
         scraper = PlaywrightScraper()

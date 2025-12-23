@@ -58,7 +58,6 @@ async def _scrape_baseline_static(url: str, output_dir: Path) -> dict[str, Any]:
         output_dir,
         resume_snapshot=None,
     )
-    # snapshot_writer.crawl_settings removed (was Crawl4AI-specific)
     
     try:
         pages = await scraper._crawl_async(config, correlation_id, snapshot_writer, None, None)
@@ -120,7 +119,6 @@ async def _scrape_enhanced(url: str, output_dir: Path) -> dict[str, Any]:
         output_dir,
         resume_snapshot=None,
     )
-    # snapshot_writer.crawl_settings removed (was Crawl4AI-specific)
     
     try:
         pages = await scraper._crawl_async(config, correlation_id, snapshot_writer, None, None)
