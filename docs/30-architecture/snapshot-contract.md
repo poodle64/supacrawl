@@ -112,7 +112,7 @@ All formats are written to format-specific directories under the snapshot root.
 The `metadata.schema_version` field indicates the manifest schema version. This enables:
 
 - **Forward compatibility**: Consumers can detect schema versions they support
-- **Validation**: Machine-readable schema validation (see `schemas/snapshot-manifest.schema.json`)
+- **Validation**: Machine-readable schema validation (see `web_scraper/schemas/snapshot-manifest.schema.json`)
 - **Evolution**: Future schema changes can be versioned
 
 **Current version:** `1.0`

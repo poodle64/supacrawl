@@ -22,4 +22,4 @@
 
 ## Schemas
 
-- **`schemas/snapshot-manifest.schema.json`** - JSON schema for snapshot manifest validation
+- **`web_scraper/schemas/snapshot-manifest.schema.json`** - JSON schema for snapshot manifest validation

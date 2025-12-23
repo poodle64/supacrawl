@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/poodle64/web-scraper/schemas/snapshot-manifest.schema.json",
+  "$id": "https://github.com/poodle64/web-scraper/web_scraper/schemas/snapshot-manifest.schema.json",
   "title": "Web Scraper Snapshot Manifest",
   "description": "Schema for snapshot manifest.json files produced by web-scraper",
   "type": "object",

@@ -5,7 +5,6 @@ This package provides focused modules for:
 - Main content extraction using DOM scoring
 - Markdown sanitisation
 - Language detection
-- Content statistics
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from web_scraper.content.fixes import apply_fixes
 from web_scraper.content.language import detect_language
 from web_scraper.content.markdown import sanitize_markdown
 from web_scraper.content.postprocess import MarkdownPostprocessResult
-from web_scraper.content.stats import content_stats
 from web_scraper.content.url import (
     extract_canonical_url,
     normalise_url,
@@ -39,8 +37,6 @@ __all__ = [
     "sanitize_markdown",
     # Language detection
     "detect_language",
-    # Statistics
-    "content_stats",
     # Post-processing pipeline
     "postprocess_markdown",
     "MarkdownPostprocessResult",
