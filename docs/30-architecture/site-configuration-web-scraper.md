@@ -28,7 +28,9 @@ class SiteConfig(BaseModel):
     formats: list[str]
     only_main_content: bool
     include_subdomains: bool
-    markdown_fixes: MarkdownFixesConfigModel  # Optional: control markdown fix plugins
+    sitemap: SitemapConfigModel       # Optional: sitemap-based URL discovery
+    robots: RobotsConfigModel         # Optional: robots.txt compliance
+    politeness: CrawlPolitenessConfig # Optional: crawl pacing
 ```
 
 ### Required Fields

@@ -76,19 +76,6 @@ Each run writes a manifest and markdown pages under `corpora/<site_id>/<snapshot
 
 When `only_main_content: true` in site configuration, the scraper extracts main content only (cleaned content with boilerplate removed). When `only_main_content: false`, it uses full page content. The extraction process removes navigation, headers, footers, and other boilerplate while preserving main content (headings, code blocks, tables, examples).
 
-## Markdown Fix Plugins
-
-Web-scraper includes a plugin-based system for fixing markdown quality issues that arise from upstream markdown conversion missing certain patterns. Each fix is a separate, independently configurable plugin.
-
-**List all fixes**: `web-scraper list-fixes`
-
-**Enable/disable fixes**: Configure in site YAML (see `sites/template.yaml` for example)
-
-**Current fixes**:
-- `missing-link-text-in-lists`: Fixes missing link text in nested `<strong><a>` structures
-
-See `docs/40-usage/markdown-fixes.md` for complete documentation on the fix plugin system, including how to add new fixes and periodically review if they're still needed.
-
 ## Troubleshooting
 
 - Run `playwright install chromium` to verify Playwright browsers are installed.

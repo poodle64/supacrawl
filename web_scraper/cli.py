@@ -10,7 +10,6 @@ from pathlib import Path
 import click
 
 from web_scraper.config import default_corpora_dir, default_sites_dir
-from web_scraper.content.fixes import get_fix_index
 from web_scraper.corpus.compress import compress_snapshot, extract_archive
 from web_scraper.exceptions import WebScrapeError
 from web_scraper.prep.chunker import chunk_snapshot
@@ -134,14 +133,6 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     if config.sitemap.urls:
         click.echo(f"Sitemap URLs: {', '.join(config.sitemap.urls)}")
     click.echo(f"Robots.txt: {config.robots.enforcement} ({config.robots.user_agent})")
-    fixes_status = "enabled" if config.markdown_fixes.enabled else "disabled"
-    if config.markdown_fixes.fixes:
-        disabled_fixes = [
-            name for name, enabled in config.markdown_fixes.fixes.items() if not enabled
-        ]
-        if disabled_fixes:
-            fixes_status += f" (disabled: {', '.join(disabled_fixes)})"
-    click.echo(f"Markdown fixes: {fixes_status}")
 
 
 @app.command("crawl-url", help="Crawl a website (Firecrawl-compatible API).")
@@ -1381,142 +1372,6 @@ def extract(archive_path: Path, target_dir: Path | None) -> None:
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(1) from exc
-
-
-@app.command(
-    "parity", hidden=True, help="[Dev] Run Firecrawl parity comparison harness."
-)
-@click.option(
-    "--output-dir",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-    default=Path("docs/parity"),
-    help="Directory for parity report output (default: docs/parity).",
-)
-@click.option(
-    "--no-cache",
-    is_flag=True,
-    default=False,
-    help="Force re-fetch (ignore cache).",
-)
-@click.option(
-    "--cache-only",
-    is_flag=True,
-    default=False,
-    help="Only use cache, fail if missing.",
-)
-@click.option(
-    "--urls-file",
-    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Optional file with URLs to test (one per line, overrides default).",
-)
-@click.option(
-    "--max-urls",
-    type=int,
-    default=None,
-    help="Maximum number of URLs to process.",
-)
-def parity(
-    output_dir: Path,
-    no_cache: bool,
-    cache_only: bool,
-    urls_file: Path | None,
-    max_urls: int | None,
-) -> None:
-    """
-    Run Firecrawl parity comparison to evaluate fixes subsystem.
-
-    This is a development command for comparing web-scraper output against Firecrawl.
-    It is hidden from the main help output.
-
-    Compares web-scraper output (baseline-static vs enhanced) against Firecrawl
-    to make evidence-based decision on whether fixes subsystem should be kept.
-
-    Requires FIRECRAWL_API_KEY environment variable for Firecrawl comparisons.
-    """
-    from tools.parity.cache import load_urls_from_file
-    from tools.parity.harness import run_parity_comparison
-    from tools.parity.report import generate_json_report, generate_markdown_report
-
-    try:
-        # Load URLs if file provided
-        urls = None
-        if urls_file:
-            urls = load_urls_from_file(urls_file)
-            click.echo(f"Loaded {len(urls)} URLs from {urls_file}")
-
-        click.echo("Running Firecrawl parity comparison...")
-        results = asyncio.run(
-            run_parity_comparison(
-                output_dir,
-                urls=urls,
-                max_urls=max_urls,
-                no_cache=no_cache,
-                cache_only=cache_only,
-            )
-        )
-
-        # Generate reports
-        json_path = output_dir / "parity-report.json"
-        markdown_path = output_dir / "parity-report.md"
-
-        generate_json_report(results, json_path)
-        generate_markdown_report(results, markdown_path)
-
-        click.echo("Parity comparison complete!")
-        click.echo(f"JSON report: {json_path}")
-        click.echo(f"Markdown report: {markdown_path}")
-        click.echo("")
-        click.echo(f"Firecrawl provider: {results.get('firecrawl_provider', 'none')}")
-        click.echo(f"Recommendation: {results['decision']['recommendation']}")
-        click.echo(f"Reason: {results['decision']['reason']}")
-    except Exception as exc:
-        click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(1) from exc
-
-
-@app.command(
-    "list-fixes", hidden=True, help="[Dev] List all registered markdown fix plugins."
-)
-def list_fixes() -> None:
-    """
-    List all registered markdown fix plugins.
-
-    This is a development command for inspecting available fixes.
-    It is hidden from the main help output.
-
-    Shows each fix's name, description, issue pattern, and upstream issue.
-    Fixes are controlled via site configuration YAML files.
-    """
-    try:
-        index = get_fix_index()
-        if not index:
-            click.echo("No markdown fixes registered.")
-            return
-
-        click.echo("Markdown Fix Plugins")
-        click.echo("=" * 80)
-        click.echo()
-
-        for i, fix in enumerate(index, 1):
-            click.echo(f"{i}. {fix['name']}")
-            click.echo(f"   Description: {fix['description']}")
-            click.echo(f"   Upstream Issue: {fix['upstream_issue']}")
-            click.echo()
-
-        click.echo("Configuration:")
-        click.echo("  Fixes are disabled by default and must be enabled in site YAML:")
-        click.echo("  markdown_fixes:")
-        click.echo("    enabled: true")
-        click.echo("    fixes:")
-        click.echo("      missing-link-text-in-lists: true")
-        click.echo()
-        click.echo(
-            "See docs/40-usage/markdown-fixes.md and sites/template.yaml for more information."
-        )
-    except Exception as e:
-        click.echo(f"Error listing fixes: {e}", err=True)
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":

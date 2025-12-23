@@ -20,6 +20,3 @@ include_subdomains: false
 
 sitemap:
   enabled: false
-
-markdown_fixes:
-  enabled: false

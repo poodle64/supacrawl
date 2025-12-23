@@ -132,25 +132,20 @@ only_main_content: true      # Extract main content only (removes navigation, he
 include_subdomains: false   # Include subdomains in crawl
 ```
 
-### Step 9: Configure Markdown Fixes (Optional)
+### Step 9: Configure Sitemap Discovery (Optional)
 
-Control markdown fix plugins that address issues in upstream tools:
+Enable sitemap-based URL discovery:
 
 ```yaml
-# Enable all markdown fixes
-markdown_fixes:
+sitemap:
   enabled: true
-
-# Or enable specific fixes only
-markdown_fixes:
-  enabled: true
-  fixes:
-    missing-link-text-in-lists: true
+  # Explicit sitemap URLs (overrides auto-discovery)
+  urls: []
+  # Only crawl URLs from sitemaps (no link following)
+  only: false
+  # Only include URLs modified after this date (ISO format: YYYY-MM-DD)
+  filter_by_lastmod: null
 ```
-
-**When to use**: Enable fixes when you need workarounds for issues in upstream markdown conversion. See `docs/40-usage/markdown-fixes.md` for details.
-
-**Default**: All fixes are **disabled by default**. Omit this section to disable all fixes.
 
 **See Template**: For a complete example of all available configuration options, see `sites/template.yaml`.
 

@@ -186,13 +186,8 @@ async def _scrape_url_with_playwright(
         # Normalise URL
         normalised_url = normalise_url(url, html=html, entrypoint=url)
 
-        # Apply markdown post-processing pipeline (fixes, sanitize, language detection)
-        result = postprocess_markdown(
-            raw_markdown,
-            raw_html=html,
-            config=config,
-            correlation_id=correlation_id,
-        )
+        # Apply markdown post-processing pipeline (sanitize, language detection)
+        result = postprocess_markdown(raw_markdown)
         markdown = result.markdown
         lang_info = result.language
 

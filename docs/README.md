@@ -11,8 +11,6 @@
 - **`40-usage/cli-usage-web-scraper.md`** - Complete CLI command reference (config-based and URL-based commands)
 - **`40-usage/USAGE_GUIDE.md`** - Operator-focused guide: defaults, environment variables, troubleshooting
 - **`40-usage/creating-site-configs-web-scraper.md`** - How to create and configure site YAML files
-- **`40-usage/markdown-fixes.md`** - Markdown fix plugin system documentation
-- **`40-usage/REMOVE_MARKDOWN_FIXES.md`** - Guide for removing markdown fixes when upstream issues are resolved
 
 ## Reliability
 

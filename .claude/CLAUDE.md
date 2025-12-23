@@ -13,7 +13,7 @@ See `.claude/rules/` for constraints and requirements. See `docs/` for implement
 - **Quality Target**: 95%+ similarity to Firecrawl on all page types
 - **Unique Features**: Snapshot versioning, auto-resume, local execution
 
-**Current Status**: 99.6% similarity on prose, 1 critical bug (table link preservation) - see `ROADMAP.md`
+**Current Status**: Firecrawl-compatible output using Playwright + markdownify
 
 ## Development Environment
 
@@ -33,7 +33,6 @@ See `.claude/rules/` for constraints and requirements. See `docs/` for implement
 - Do NOT create summary markdown documents
 - Do NOT create deprecated or legacy code
 - **Quality First**: Maintain 95%+ parity with Firecrawl output
-- **Known Issue**: Table link preservation bug - see ROADMAP.md for fix plan
 
 ## Task Tracking
 
@@ -65,6 +64,4 @@ See `.claude/rules/README.md` for complete reference and `.claude/rules/master/`
 - **Documentation**: `docs/` - Implementation patterns and guides
 - **Master Rules**: `.claude/rules/master/` - Universal principles (via symlink)
 - **Master Docs**: `docs/master/` - Conceptual explanations (via symlink)
-- **Quality Audit**: `AUDIT_FIRECRAWL_REPLACEMENT.md` - Parity analysis and findings
-- **Roadmap**: `ROADMAP.md` - Path to full Firecrawl output compatibility
 

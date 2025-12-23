@@ -11,7 +11,7 @@ class MarkdownPostprocessResult:
     """Result of markdown post-processing pipeline.
 
     Attributes:
-        markdown: Processed markdown content after fixes, sanitization, and language filtering.
+        markdown: Processed markdown content after sanitization and language filtering.
         language: Language detection information dictionary with keys:
             - language: Detected language code ("en", "mixed", "unknown")
             - confidence: Score from 0.0 to 1.0

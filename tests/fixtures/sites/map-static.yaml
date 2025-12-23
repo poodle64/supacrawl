@@ -26,6 +26,3 @@ robots:
   respect: true
   enforcement: strict
   user_agent: WebScraperBot/1.0
-
-markdown_fixes:
-  enabled: false

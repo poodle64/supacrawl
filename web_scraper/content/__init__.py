@@ -9,13 +9,10 @@ This package provides focused modules for:
 
 from __future__ import annotations
 
-from typing import Any
-
 from web_scraper.content.extraction import (
     extract_main_content,
     extract_main_content_html,
 )
-from web_scraper.content.fixes import apply_fixes
 from web_scraper.content.language import detect_language
 from web_scraper.content.markdown import sanitize_markdown
 from web_scraper.content.postprocess import MarkdownPostprocessResult
@@ -45,45 +42,27 @@ __all__ = [
 
 def postprocess_markdown(
     markdown: str,
-    raw_html: str | None = None,
-    config: Any = None,
-    correlation_id: str | None = None,
 ) -> MarkdownPostprocessResult:
     """
     Apply markdown post-processing pipeline in the correct order.
 
     Processing order:
-    1. Apply markdown fix plugins (if raw_html provided)
-    2. Sanitize markdown (remove nav blocks, link-heavy content)
-    3. Language detection and filtering
+    1. Sanitize markdown (remove nav blocks, link-heavy content)
+    2. Language detection and filtering
 
     Args:
         markdown: Raw markdown content.
-        raw_html: Optional raw HTML (required for fixes).
-        config: Optional SiteConfig (required for fixes).
-        correlation_id: Optional correlation ID (required for fixes).
 
     Returns:
         MarkdownPostprocessResult with processed markdown and language info.
     """
-    # Step 1: Apply markdown fix plugins (if raw_html exists)
-    if raw_html and config:
-        if correlation_id is None:
-            from web_scraper.exceptions import generate_correlation_id
-
-            correlation_id = generate_correlation_id()
-        markdown = apply_fixes(
-            str(markdown), raw_html, correlation_id=correlation_id, config=config
-        )
-
-    # Step 2: Sanitize markdown
+    # Step 1: Sanitize markdown
     markdown = sanitize_markdown(markdown)
 
-    # Step 3: Language detection
+    # Step 2: Language detection
     lang_info = detect_language(markdown)
     # Type-narrow: detect_language returns dict[str, Any], but "content" is always str
     content_value = lang_info.get("content", markdown)
     markdown = content_value if isinstance(content_value, str) else markdown
 
     return MarkdownPostprocessResult(markdown=markdown, language=lang_info)
-

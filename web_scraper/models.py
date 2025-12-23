@@ -140,26 +140,6 @@ class CrawlPolitenessConfig(BaseModel):
     )
 
 
-class MarkdownFixesConfigModel(BaseModel):
-    """
-    Configuration for markdown fix plugins.
-
-    Markdown fixes are workarounds for issues in upstream markdown conversion
-    that miss certain patterns. Each fix can be enabled/disabled individually.
-
-    Configure via site YAML file. Default: disabled (must be explicitly enabled).
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Whether to enable all markdown fixes (default: false)
-    enabled: bool = False
-
-    # Per-fix configuration (fix name -> enabled)
-    # Example: {"missing-link-text-in-lists": true}
-    fixes: dict[str, bool] = Field(default_factory=dict)
-
-
 class SiteConfig(BaseModel):
     """Model representing a site configuration."""
 
@@ -179,9 +159,6 @@ class SiteConfig(BaseModel):
     sitemap: SitemapConfigModel = Field(default_factory=SitemapConfigModel)
     robots: RobotsConfigModel = Field(default_factory=RobotsConfigModel)
     politeness: CrawlPolitenessConfig = Field(default_factory=CrawlPolitenessConfig)
-    markdown_fixes: MarkdownFixesConfigModel = Field(
-        default_factory=MarkdownFixesConfigModel
-    )
 
     def model_post_init(self, __context: Any) -> None:
         """Post-initialization to derive or validate id."""

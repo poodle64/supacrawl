@@ -20,8 +20,3 @@ include_subdomains: false
 # Enable sitemap discovery to find all pages
 sitemap:
   enabled: true
-
-markdown_fixes:
-  enabled: true
-  fixes:
-    missing-link-text-in-lists: true

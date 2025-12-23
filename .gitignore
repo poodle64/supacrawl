@@ -52,9 +52,6 @@ sites/*.local.yaml
 sites/debug*.yaml
 sites/audit*.yaml
 
-# Parity harness generated output (dev only)
-docs/parity/
-
 # Claude Code configuration
 .claude/CLAUDE.local.md
 .claude/settings.local.json
