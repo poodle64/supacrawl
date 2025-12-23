@@ -86,8 +86,9 @@ politeness:
   max_retries: 3
 
 # OPTIONAL: Markdown fixes configuration
-# Markdown fixes are workarounds for issues in upstream tools (like Crawl4AI)
-# that miss certain patterns. Each fix can be enabled/disabled individually.
+# Markdown fixes are workarounds for edge cases in HTML-to-markdown conversion.
+# These were originally created for Crawl4AI bugs and may no longer be needed
+# with the current markdownify-based converter. Test with fixes disabled first.
 # Default: enabled: false (must be explicitly enabled)
 markdown_fixes:
   # Whether to enable all markdown fixes
