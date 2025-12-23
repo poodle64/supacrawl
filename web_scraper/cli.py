@@ -174,6 +174,16 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     default=False,
     help="Resume from previous crawl",
 )
+@click.option(
+    "--format",
+    "-f",
+    "formats",
+    multiple=True,
+    type=click.Choice(["markdown", "html", "json"], case_sensitive=False),
+    default=["markdown"],
+    show_default=True,
+    help="Output formats to save",
+)
 def crawl_url(
     url: str,
     limit: int,
@@ -182,13 +192,14 @@ def crawl_url(
     exclude: tuple[str, ...],
     output: Path,
     resume: bool,
+    formats: tuple[str, ...],
 ) -> None:
     """Crawl a website and save all pages (Firecrawl-compatible).
 
     Examples:
         web-scraper crawl-url https://example.com --limit 50 --output corpus/
+        web-scraper crawl-url https://example.com --output corpus/ --format markdown --format html
         web-scraper crawl-url https://example.com --output corpus/ --resume
-        web-scraper crawl-url https://example.com --include "*/docs/*" --output corpus/
     """
     import asyncio
 
@@ -209,6 +220,7 @@ def crawl_url(
             exclude_patterns=list(exclude) if exclude else None,
             output_dir=output,
             resume=resume,
+            formats=list(formats),
         ):
             if event.type == "progress":
                 # Show progress bar

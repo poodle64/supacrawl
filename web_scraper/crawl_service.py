@@ -44,6 +44,7 @@ class CrawlService:
         exclude_patterns: list[str] | None = None,
         output_dir: Path | None = None,
         resume: bool = False,
+        formats: list[str] | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -55,10 +56,12 @@ class CrawlService:
             exclude_patterns: URL patterns to exclude
             output_dir: Directory to save scraped content
             resume: Resume from previous crawl state
+            formats: Output formats to save (default: ["markdown"])
 
         Yields:
             CrawlEvent for each page and progress update
         """
+        self._formats = formats or ["markdown"]
         try:
             # Initialize browser and services
             async with BrowserManager() as browser:
@@ -115,7 +118,19 @@ class CrawlService:
 
                 for url_to_scrape in urls_to_scrape:
                     try:
-                        result = await self._scrape_service.scrape(url_to_scrape)
+                        # Map output formats to scrape formats
+                        scrape_formats = []
+                        if "markdown" in self._formats or "json" in self._formats:
+                            scrape_formats.append("markdown")
+                        if "html" in self._formats or "json" in self._formats:
+                            scrape_formats.append("html")
+                        if not scrape_formats:
+                            scrape_formats = ["markdown"]
+
+                        result = await self._scrape_service.scrape(
+                            url_to_scrape,
+                            formats=scrape_formats,  # type: ignore[arg-type]
+                        )
 
                         if result.success and result.data:
                             # Save to output directory
@@ -215,19 +230,21 @@ class CrawlService:
         """
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate filename from URL
+        # Generate base filename from URL
         parsed = urlparse(url)
         path = parsed.path.strip("/").replace("/", "_") or "index"
-        filename = f"{path}.md"
 
-        # Handle duplicates with hash suffix
-        if (output_dir / filename).exists():
+        # Check for duplicates and add hash suffix if needed
+        base_path = path
+        if (output_dir / f"{path}.md").exists() or (output_dir / f"{path}.html").exists():
             url_hash = hashlib.sha256(url.encode()).hexdigest()[:8]
-            filename = f"{path}_{url_hash}.md"
+            base_path = f"{path}_{url_hash}"
 
-        # Save markdown
-        if data.markdown:
-            with open(output_dir / filename, "w") as f:
+        # Save requested formats
+        formats = getattr(self, "_formats", ["markdown"])
+
+        if "markdown" in formats and data.markdown:
+            with open(output_dir / f"{base_path}.md", "w") as f:
                 # Add frontmatter
                 f.write("---\n")
                 f.write(f"source_url: {url}\n")
@@ -235,6 +252,27 @@ class CrawlService:
                     f.write(f"title: {data.metadata.title}\n")
                 f.write("---\n\n")
                 f.write(data.markdown)
+
+        if "html" in formats and data.html:
+            with open(output_dir / f"{base_path}.html", "w") as f:
+                f.write(data.html)
+
+        if "json" in formats:
+            with open(output_dir / f"{base_path}.json", "w") as f:
+                json.dump(
+                    {
+                        "url": url,
+                        "markdown": data.markdown,
+                        "html": data.html,
+                        "metadata": {
+                            "title": data.metadata.title if data.metadata else None,
+                            "description": data.metadata.description if data.metadata else None,
+                            "source_url": data.metadata.source_url if data.metadata else url,
+                        },
+                    },
+                    f,
+                    indent=2,
+                )
 
         # Update manifest
         manifest_path = output_dir / "manifest.json"
