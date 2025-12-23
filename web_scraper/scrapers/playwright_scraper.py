@@ -19,7 +19,6 @@ import hashlib
 import logging
 import os
 import random
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -84,7 +83,9 @@ async def _wait_for_spa_content(
             if current_hash == last_content_hash:
                 stable_count += 1
                 if stable_count >= required_stable:
-                    LOGGER.debug(f"SPA content stable after {stable_count} checks for {url}")
+                    LOGGER.debug(
+                        f"SPA content stable after {stable_count} checks for {url}"
+                    )
                     return
             else:
                 stable_count = 0
@@ -285,14 +286,23 @@ def _html_to_markdown(
         soup = BeautifulSoup(html, "html.parser")
 
         # Remove script, style, nav, footer, header elements
-        for tag in soup.find_all(["script", "style", "nav", "footer", "header", "noscript"]):
+        for tag in soup.find_all(
+            ["script", "style", "nav", "footer", "header", "noscript"]
+        ):
             tag.decompose()
 
         # Get main content area if only_main_content is set
         content_element = None
         if config.only_main_content:
             # Try various main content selectors
-            for selector in ["main", "article", "[role='main']", ".content", "#content", ".main-content"]:
+            for selector in [
+                "main",
+                "article",
+                "[role='main']",
+                ".content",
+                "#content",
+                ".main-content",
+            ]:
                 content_element = soup.select_one(selector)
                 if content_element:
                     break

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections import deque
 from typing import Literal
@@ -134,7 +133,9 @@ class MapService:
 
         return list(set(urls))  # Deduplicate
 
-    async def _parse_sitemap_xml(self, client: httpx.AsyncClient, xml_content: str) -> list[str]:
+    async def _parse_sitemap_xml(
+        self, client: httpx.AsyncClient, xml_content: str
+    ) -> list[str]:
         """Parse sitemap XML and extract URLs.
 
         Args:
@@ -156,7 +157,9 @@ class MapService:
                         LOGGER.debug(f"Fetching nested sitemap: {loc.text}")
                         resp = await client.get(loc.text.strip())
                         if resp.status_code == 200:
-                            nested_urls = await self._parse_sitemap_xml(client, resp.text)
+                            nested_urls = await self._parse_sitemap_xml(
+                                client, resp.text
+                            )
                             urls.extend(nested_urls)
                     except Exception as e:
                         LOGGER.debug(f"Failed to fetch nested sitemap {loc.text}: {e}")
@@ -222,7 +225,9 @@ class MapService:
 
                 # Add to discovered list
                 discovered.append(url)
-                LOGGER.debug(f"Discovered [{len(discovered)}/{limit}] depth={depth}: {url}")
+                LOGGER.debug(
+                    f"Discovered [{len(discovered)}/{limit}] depth={depth}: {url}"
+                )
 
                 # Extract links if we haven't reached max depth
                 if depth < max_depth:

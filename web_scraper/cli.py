@@ -14,6 +14,7 @@ from web_scraper.content.fixes import get_fix_index
 from web_scraper.corpus.compress import compress_snapshot, extract_archive
 from web_scraper.exceptions import WebScrapeError
 from web_scraper.prep.chunker import chunk_snapshot
+
 # Crawl4AI removed - now using Playwright-based stack
 from web_scraper.sites.loader import list_site_configs, load_site_config
 
@@ -204,7 +205,12 @@ def crawl_url(
     from web_scraper.crawl_service import CrawlService
 
     async def run():
+        from urllib.parse import urlparse
+
         service = CrawlService()
+
+        click.echo(f"Crawling {url}...", err=True)
+
         async for event in service.crawl(
             url=url,
             limit=limit,
@@ -215,13 +221,33 @@ def crawl_url(
             resume=resume,
         ):
             if event.type == "progress":
-                click.echo(f"Progress: {event.completed}/{event.total}", err=True)
+                # Show progress bar
+                if event.total and event.total > 0:
+                    pct = int((event.completed / event.total) * 100)
+                    bar_width = 25
+                    filled = int(bar_width * event.completed / event.total)
+                    bar = "=" * filled + ">" + " " * (bar_width - filled - 1)
+                    click.echo(
+                        f"\r[{bar}] {event.completed}/{event.total} pages ({pct}%)",
+                        nl=False,
+                        err=True,
+                    )
             elif event.type == "page":
-                click.echo(f"Scraped: {event.url}")
+                # Extract path from URL for cleaner output
+                path = urlparse(event.url).path or "/"
+                click.echo(f"\n  + {path}")
             elif event.type == "error":
-                click.echo(f"Error: {event.url}: {event.error}", err=True)
+                path = urlparse(event.url).path if event.url else "unknown"
+                error_msg = event.error or "unknown error"
+                # Extract status code if present
+                if "404" in error_msg:
+                    click.echo(f"\n  x {path} (404)", err=True)
+                else:
+                    click.echo(f"\n  x {path} ({error_msg})", err=True)
             elif event.type == "complete":
-                click.echo(f"\nComplete: {event.completed}/{event.total} pages", err=True)
+                click.echo(
+                    f"\n\nComplete: {event.completed}/{event.total} pages", err=True
+                )
 
     asyncio.run(run())
 
@@ -306,7 +332,8 @@ def scrape_url(
     # Output handling
     if output:
         with open(output, "w") as f:
-            json.dump(result.model_dump(), f, indent=2)
+            # exclude_none=True matches Firecrawl format
+            json.dump(result.model_dump(exclude_none=True), f, indent=2)
         click.echo(f"Wrote scrape result to {output}")
     else:
         # Print markdown to stdout
@@ -317,8 +344,13 @@ def scrape_url(
             raise SystemExit(1)
 
 
-@app.command("batch-scrape", help="Scrape multiple URLs concurrently (Firecrawl-compatible API).")
-@click.argument("urls_file", type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path))
+@app.command(
+    "batch-scrape", help="Scrape multiple URLs concurrently (Firecrawl-compatible API)."
+)
+@click.argument(
+    "urls_file",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+)
 @click.option(
     "--concurrency",
     "-c",
@@ -357,22 +389,60 @@ def batch_scrape(
     """Scrape multiple URLs from a file concurrently (Firecrawl-compatible).
 
     URLs should be one per line in the input file. Lines starting with # are ignored.
+    JSON input (from map output) is also supported.
 
     Examples:
         web-scraper batch-scrape urls.txt --concurrency 10
         web-scraper batch-scrape urls.txt --output results/
+        cat urls.txt | web-scraper batch-scrape - --output results/
+        web-scraper map-url https://example.com --format json | web-scraper batch-scrape - --output results/
     """
     import asyncio
     import hashlib
+    import json
+    import sys
     from urllib.parse import urlparse
 
     from web_scraper.batch_service import BatchService
 
-    # Read URLs from file
-    with open(urls_file) as f:
-        urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    # Read URLs from file or stdin
+    if str(urls_file) == "-":
+        content = sys.stdin.read()
+        source = "stdin"
+    else:
+        if not urls_file.exists():
+            click.echo(f"Error: File not found: {urls_file}", err=True)
+            raise SystemExit(1)
+        with open(urls_file) as f:
+            content = f.read()
+        source = str(urls_file)
 
-    click.echo(f"Loaded {len(urls)} URLs from {urls_file}")
+    # Try to parse as JSON (from map output)
+    urls: list[str] = []
+    try:
+        data = json.loads(content)
+        # Handle Firecrawl map output format: {"links": [{"url": "..."}]}
+        if isinstance(data, dict) and "links" in data:
+            urls = [link.get("url") for link in data["links"] if link.get("url")]
+        # Handle simple list of URLs
+        elif isinstance(data, list):
+            urls = [
+                item if isinstance(item, str) else item.get("url", "") for item in data
+            ]
+            urls = [u for u in urls if u]
+    except json.JSONDecodeError:
+        # Not JSON, treat as plain text (one URL per line)
+        urls = [
+            line.strip()
+            for line in content.splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+
+    if not urls:
+        click.echo("Error: No URLs found in input", err=True)
+        raise SystemExit(1)
+
+    click.echo(f"Loaded {len(urls)} URLs from {source}")
 
     async def run():
         service = BatchService()
@@ -449,7 +519,15 @@ def batch_scrape(
     "-o",
     type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Output file (JSON). If omitted, prints URLs to stdout.",
+    help="Output file path. If omitted, prints to stdout.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "text"], case_sensitive=False),
+    default="text",
+    show_default=True,
+    help="Output format: json (full result) or text (URLs only).",
 )
 def map_url(
     url: str,
@@ -459,13 +537,14 @@ def map_url(
     include_subdomains: bool,
     search: str | None,
     output: Path | None,
+    output_format: str,
 ) -> None:
     """Map a website to discover all URLs (Firecrawl-compatible).
 
     Examples:
         web-scraper map-url https://example.com
-        web-scraper map-url https://example.com --limit 50 --output urls.json
-        web-scraper map-url https://example.com --search about --sitemap skip
+        web-scraper map-url https://example.com --limit 50 --format json
+        web-scraper map-url https://example.com --search about --output urls.json --format json
     """
     import asyncio
     import json
@@ -491,18 +570,28 @@ def map_url(
         click.echo(f"Error: {result.error}", err=True)
         raise SystemExit(1)
 
-    # Output handling
+    # Generate output content based on format
+    if output_format == "json":
+        # exclude_none=True matches Firecrawl format (optional fields omitted when None)
+        content = json.dumps(result.model_dump(exclude_none=True), indent=2)
+    else:
+        # Text format: URLs only, one per line
+        content = "\n".join(link.url for link in result.links)
+
+    # Write to file or stdout
     if output:
         with open(output, "w") as f:
-            json.dump(result.model_dump(), f, indent=2)
+            f.write(content)
+            if not content.endswith("\n"):
+                f.write("\n")
         click.echo(f"Wrote {len(result.links)} URLs to {output}")
     else:
-        # Print URLs to stdout (one per line)
-        for link in result.links:
-            click.echo(link.url)
+        click.echo(content)
 
 
-@app.command("map", help="Map site URLs that would be crawled (Firecrawl-style discovery).")
+@app.command(
+    "map", help="Map site URLs that would be crawled (Firecrawl-style discovery)."
+)
 @click.argument("site_name")
 @click.option(
     "--base-path",
@@ -759,7 +848,10 @@ def crawl(
                 "Error: When using a URL as the first argument, you must provide --init <site_name>",
                 err=True,
             )
-            click.echo("Example: web-scraper crawl https://example.com --init my-site", err=True)
+            click.echo(
+                "Example: web-scraper crawl https://example.com --init my-site",
+                err=True,
+            )
             raise SystemExit(1)
 
         # Create site config from URL
@@ -802,9 +894,7 @@ def crawl(
         from web_scraper.map import map_site as map_site_func
 
         try:
-            url_entries = asyncio.run(
-                map_site_func(config, max_urls=config.max_pages)
-            )
+            url_entries = asyncio.run(map_site_func(config, max_urls=config.max_pages))
             for entry in url_entries:
                 url = entry.get("url", entry) if isinstance(entry, dict) else entry
                 click.echo(url)
@@ -840,6 +930,7 @@ def crawl(
         if format_list:
             # Validate and update config formats
             from web_scraper.models import OutputFormat
+
             try:
                 validated = []
                 for fmt in format_list:
@@ -947,7 +1038,10 @@ def crawl(
             import asyncio
 
             from web_scraper.prep.chunker import chunk_snapshot
-            chunks_path = asyncio.run(chunk_snapshot(snapshot_path, max_chars=max_chars))
+
+            chunks_path = asyncio.run(
+                chunk_snapshot(snapshot_path, max_chars=max_chars)
+            )
             # Count chunks
             chunk_count = sum(1 for _ in chunks_path.read_text().splitlines())
 
@@ -972,8 +1066,12 @@ def crawl(
     except Exception as exc:
         # Check for CrawlInterrupted (graceful shutdown with saved state)
         from web_scraper.exceptions import CrawlInterrupted
+
         if isinstance(exc, CrawlInterrupted):
-            click.echo(f"\nCrawl interrupted. Progress saved: {exc.pages_completed} pages.", err=True)
+            click.echo(
+                f"\nCrawl interrupted. Progress saved: {exc.pages_completed} pages.",
+                err=True,
+            )
             click.echo(f"Resume: web-scraper crawl {site_name}", err=True)
             raise SystemExit(130)
         raise
@@ -1030,13 +1128,15 @@ def list_snapshots(site_name: str, base_path: Path | None) -> None:
             else:
                 chunk_count = None
 
-            snapshots.append({
-                "id": item.name,
-                "status": status,
-                "pages": total_pages,
-                "chunks": chunk_count,
-                "created_at": created_at,
-            })
+            snapshots.append(
+                {
+                    "id": item.name,
+                    "status": status,
+                    "pages": total_pages,
+                    "chunks": chunk_count,
+                    "created_at": created_at,
+                }
+            )
         except Exception:
             continue
 
@@ -1049,7 +1149,7 @@ def list_snapshots(site_name: str, base_path: Path | None) -> None:
 
     # Print table
     for snap in snapshots:
-        chunks_str = f"{snap['chunks']:>4}" if snap['chunks'] is not None else "   -"
+        chunks_str = f"{snap['chunks']:>4}" if snap["chunks"] is not None else "   -"
         click.echo(
             f"{snap['id']}  {snap['status']:<10}  {snap['pages']:>4} pages  "
             f"{chunks_str} chunks  {snap['created_at']}"
@@ -1162,9 +1262,7 @@ def chunk(
         raise SystemExit(1)
 
     if ollama_summarize and not use_ollama:
-        click.echo(
-            "Error: --ollama-summarize requires --use-ollama", err=True
-        )
+        click.echo("Error: --ollama-summarize requires --use-ollama", err=True)
         raise SystemExit(1)
 
     try:
@@ -1190,7 +1288,9 @@ def chunk(
             if snapshot_id == "latest":
                 click.echo(f"Output: {base_path}/corpora/{site_id}/latest/chunks.jsonl")
             else:
-                click.echo(f"Output: {base_path}/corpora/{site_id}/{snapshot_id}/chunks.jsonl")
+                click.echo(
+                    f"Output: {base_path}/corpora/{site_id}/{snapshot_id}/chunks.jsonl"
+                )
     except WebScrapeError as exc:
         click.echo(
             f"Error: {exc.message} [correlation_id={exc.correlation_id}]", err=True
@@ -1284,7 +1384,9 @@ def extract(archive_path: Path, target_dir: Path | None) -> None:
         raise SystemExit(1) from exc
 
 
-@app.command("parity", hidden=True, help="[Dev] Run Firecrawl parity comparison harness.")
+@app.command(
+    "parity", hidden=True, help="[Dev] Run Firecrawl parity comparison harness."
+)
 @click.option(
     "--output-dir",
     type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
@@ -1347,7 +1449,11 @@ def parity(
         click.echo("Running Firecrawl parity comparison...")
         results = asyncio.run(
             run_parity_comparison(
-                output_dir, urls=urls, max_urls=max_urls, no_cache=no_cache, cache_only=cache_only
+                output_dir,
+                urls=urls,
+                max_urls=max_urls,
+                no_cache=no_cache,
+                cache_only=cache_only,
             )
         )
 
@@ -1370,7 +1476,9 @@ def parity(
         raise SystemExit(1) from exc
 
 
-@app.command("list-fixes", hidden=True, help="[Dev] List all registered markdown fix plugins.")
+@app.command(
+    "list-fixes", hidden=True, help="[Dev] List all registered markdown fix plugins."
+)
 def list_fixes() -> None:
     """
     List all registered markdown fix plugins.
@@ -1395,8 +1503,6 @@ def list_fixes() -> None:
             click.echo(f"{i}. {fix['name']}")
             click.echo(f"   Description: {fix['description']}")
             click.echo(f"   Upstream Issue: {fix['upstream_issue']}")
-            if fix.get('min_crawl4ai_version'):
-                click.echo(f"   Auto-disable at Crawl4AI: {fix['min_crawl4ai_version']}")
             click.echo()
 
         click.echo("Configuration:")
@@ -1406,7 +1512,9 @@ def list_fixes() -> None:
         click.echo("    fixes:")
         click.echo("      missing-link-text-in-lists: true")
         click.echo()
-        click.echo("See docs/40-usage/markdown-fixes.md and sites/template.yaml for more information.")
+        click.echo(
+            "See docs/40-usage/markdown-fixes.md and sites/template.yaml for more information."
+        )
     except Exception as e:
         click.echo(f"Error listing fixes: {e}", err=True)
         raise SystemExit(1)

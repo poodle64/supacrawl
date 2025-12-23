@@ -18,6 +18,7 @@ LOGGER = logging.getLogger(__name__)
 @dataclass
 class PageContent:
     """Result of fetching a page."""
+
     url: str
     html: str
     title: str | None
@@ -27,6 +28,7 @@ class PageContent:
 @dataclass
 class PageMetadata:
     """Metadata extracted from a page."""
+
     title: str | None
     description: str | None
     og_title: str | None
@@ -55,12 +57,16 @@ class BrowserManager:
             timeout_ms: Page load timeout (default from WEB_SCRAPER_TIMEOUT env, or 30000)
             user_agent: User agent string (default from WEB_SCRAPER_USER_AGENT env)
         """
-        self.headless = headless if headless is not None else self._env_bool("WEB_SCRAPER_HEADLESS", True)
+        self.headless = (
+            headless
+            if headless is not None
+            else self._env_bool("WEB_SCRAPER_HEADLESS", True)
+        )
         self.timeout_ms = timeout_ms or int(os.getenv("WEB_SCRAPER_TIMEOUT", "30000"))
         self.user_agent = user_agent or os.getenv(
             "WEB_SCRAPER_USER_AGENT",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         )
         self._browser: Browser | None = None
         self._playwright: Any = None
@@ -106,7 +112,9 @@ class BrowserManager:
             RuntimeError: If browser not initialized or fetch fails
         """
         if not self._browser:
-            raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+            raise RuntimeError(
+                "Browser not initialized. Use 'async with BrowserManager()' context manager."
+            )
 
         context: BrowserContext | None = None
         page: Page | None = None
@@ -126,7 +134,9 @@ class BrowserManager:
 
             # Navigate to URL
             wait_until = os.getenv("WEB_SCRAPER_WAIT_UNTIL", "domcontentloaded")
-            response = await page.goto(url, wait_until=wait_until, timeout=self.timeout_ms)
+            response = await page.goto(
+                url, wait_until=wait_until, timeout=self.timeout_ms
+            )
 
             # Wait for SPA stability if requested
             if wait_for_spa:
@@ -172,7 +182,9 @@ class BrowserManager:
             RuntimeError: If browser not initialized or fetch fails
         """
         if not self._browser:
-            raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+            raise RuntimeError(
+                "Browser not initialized. Use 'async with BrowserManager()' context manager."
+            )
 
         context: BrowserContext | None = None
         page: Page | None = None
@@ -192,12 +204,14 @@ class BrowserManager:
             await page.goto(url, wait_until=wait_until, timeout=self.timeout_ms)
 
             # Extract all links using JavaScript
-            links = await page.evaluate("""
+            links = await page.evaluate(
+                """
                 () => {
                     const anchors = Array.from(document.querySelectorAll('a[href]'));
                     return anchors.map(a => a.href).filter(href => href && href.startsWith('http'));
                 }
-            """)
+            """
+            )
 
             return links
 
@@ -237,7 +251,9 @@ class BrowserManager:
         og_title = og_title_tag.get("content", None) if og_title_tag else None
 
         og_description_tag = soup.find("meta", attrs={"property": "og:description"})
-        og_description = og_description_tag.get("content", None) if og_description_tag else None
+        og_description = (
+            og_description_tag.get("content", None) if og_description_tag else None
+        )
 
         og_image_tag = soup.find("meta", attrs={"property": "og:image"})
         og_image = og_image_tag.get("content", None) if og_image_tag else None
@@ -299,4 +315,4 @@ class BrowserManager:
                 LOGGER.warning(f"Error checking content stability: {e}")
                 break
 
-        LOGGER.debug(f"SPA content wait timed out, proceeding anyway")
+        LOGGER.debug("SPA content wait timed out, proceeding anyway")

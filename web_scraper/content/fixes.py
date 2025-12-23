@@ -40,14 +40,14 @@ class FixSpec:
 
 def _fix_missing_link_text(markdown: str, html: str) -> str:
     """Fix missing link text in nested <strong><a> structures.
-    
+
     Markdown conversion sometimes misses link text in <strong><a>text</a></strong>,
     producing markdown like "* is where..." instead of "* **[Link](url)** is where...".
-    
+
     Args:
         markdown: Markdown content to fix.
         html: HTML content to reference.
-    
+
     Returns:
         Fixed markdown content.
     """
@@ -57,8 +57,9 @@ def _fix_missing_link_text(markdown: str, html: str) -> str:
         needs_fixing = False
         for line in lines:
             stripped = line.strip()
-            if (stripped.startswith(("- ", "* ")) and
-                stripped.lower().startswith(("- is ", "* is ", "- are ", "* are ", "- endpoints ", "* endpoints "))):
+            if stripped.startswith(("- ", "* ")) and stripped.lower().startswith(
+                ("- is ", "* is ", "- are ", "* are ", "- endpoints ", "* endpoints ")
+            ):
                 needs_fixing = True
                 break
 
@@ -88,8 +89,9 @@ def _fix_missing_link_text(markdown: str, html: str) -> str:
                 continue
 
             # Pattern: List item starting with verb, no link at start
-            if (stripped.startswith(("- ", "* ")) and
-                stripped.lower().startswith(("- is ", "* is ", "- are ", "* are ", "- endpoints ", "* endpoints "))):
+            if stripped.startswith(("- ", "* ")) and stripped.lower().startswith(
+                ("- is ", "* is ", "- are ", "* are ", "- endpoints ", "* endpoints ")
+            ):
 
                 item_text = stripped[2:].strip()
                 # Normalize for matching: remove markdown links [text](url) -> text
@@ -219,7 +221,6 @@ def _fix_table_link_preservation(markdown: str, html: str) -> str:
         in_table = False
         table_idx = -1
         row_idx = 0
-        header_processed = False
 
         for line in lines:
             stripped = line.strip()
@@ -230,12 +231,10 @@ def _fix_table_link_preservation(markdown: str, html: str) -> str:
                     in_table = True
                     table_idx += 1
                     row_idx = 0
-                    header_processed = False
 
                 # Skip separator line (---|---|---)
                 if re.match(r"^[\s\|:-]+$", stripped):
                     fixed_lines.append(line)
-                    header_processed = True
                     continue
 
                 # Process table row
@@ -330,7 +329,6 @@ FIXES: list[FixSpec] = [
         name="missing-link-text-in-lists",
         description="Injects missing link text in list items from <strong><a> structures",
         upstream_issue="Markdown extraction misses link text in nested formatting structures",
-        
         apply_fn=_fix_missing_link_text,
     ),
     FixSpec(
@@ -349,13 +347,13 @@ def apply_fixes(
     config: Any | None = None,
 ) -> str:
     """Apply enabled markdown fixes.
-    
+
     Args:
         markdown: Markdown content to fix.
         html: HTML content to reference.
         correlation_id: Optional correlation ID for logging.
         config: Optional SiteConfig with markdown_fixes configuration.
-    
+
     Returns:
         Fixed markdown content.
     """
@@ -377,15 +375,6 @@ def apply_fixes(
     applied_fixes: list[str] = []
 
     for fix in FIXES:
-        # Check version threshold
-        if not _check_crawl4ai_version(fix.min_crawl4ai_version):
-            if correlation_id:
-                LOGGER.debug(
-                    f"[{correlation_id}] Fix '{fix.name}' disabled: "
-                    f"Crawl4AI >= {fix.min_crawl4ai_version}"
-                )
-            continue
-
         # Check per-fix override
         if fix.name in fix_overrides and not fix_overrides[fix.name]:
             if correlation_id:
@@ -416,7 +405,7 @@ def apply_fixes(
 
 def get_fix_index() -> list[dict[str, Any]]:
     """Get an index of all registered fixes with metadata.
-    
+
     Returns:
         List of dictionaries with fix metadata.
     """
@@ -425,8 +414,6 @@ def get_fix_index() -> list[dict[str, Any]]:
             "name": fix.name,
             "description": fix.description,
             "upstream_issue": fix.upstream_issue,
-            "min_crawl4ai_version": fix.min_crawl4ai_version,
         }
         for fix in FIXES
     ]
-

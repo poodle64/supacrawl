@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from bs4 import BeautifulSoup, Tag
 from markdownify import markdownify as md
@@ -20,7 +19,16 @@ class MarkdownConverter:
     """
 
     # Tags to remove completely
-    REMOVE_TAGS = ["script", "style", "nav", "footer", "header", "noscript", "iframe", "svg"]
+    REMOVE_TAGS = [
+        "script",
+        "style",
+        "nav",
+        "footer",
+        "header",
+        "noscript",
+        "iframe",
+        "svg",
+    ]
 
     # Selectors to try for main content (in order)
     MAIN_CONTENT_SELECTORS = [
@@ -77,12 +85,12 @@ class MarkdownConverter:
             # Options match Firecrawl-style output
             markdown = md(
                 html_to_convert,
-                heading_style="atx",      # Use # style headings
-                bullets="-",              # Use - for unordered lists
-                code_language="",         # Don't assume language for code blocks
+                heading_style="atx",  # Use # style headings
+                bullets="-",  # Use - for unordered lists
+                code_language="",  # Don't assume language for code blocks
                 strip=["script", "style", "nav", "footer", "header"],
-                wrap=False,               # Don't wrap lines
-                wrap_width=0,             # No line width limit
+                wrap=False,  # Don't wrap lines
+                wrap_width=0,  # No line width limit
             )
 
             # Clean up whitespace
