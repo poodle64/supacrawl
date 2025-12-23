@@ -1,0 +1,37 @@
+# Benchmark sites for scraper parity testing
+# Mix of: documentation, e-commerce, tables, blogs, technical content
+id: benchmark
+name: Scraper Benchmark Sites
+entrypoint: https://webscraper.io/test-sites
+
+# 10 diverse benchmark URLs
+urls:
+  # 1. Tables test page (webscraper.io)
+  - https://webscraper.io/test-sites/tables
+  # 2. E-commerce product listing (static pagination)
+  - https://webscraper.io/test-sites/e-commerce/static
+  # 3. Hacker News (simple list page)
+  - https://news.ycombinator.com/
+  # 4. Python docs (technical documentation with code)
+  - https://docs.python.org/3/tutorial/classes.html
+  # 5. MDN Web Docs (rich documentation with examples)
+  - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Functions
+  # 6. Wikipedia article (long prose with tables and references)
+  - https://en.wikipedia.org/wiki/Web_scraping
+  # 7. GitHub README (markdown rendering)
+  - https://github.com/anthropics/anthropic-cookbook
+  # 8. Blog post with code (Stripe engineering)
+  - https://stripe.com/blog/online-migrations
+  # 9. API documentation (Stripe API)
+  - https://docs.stripe.com/api/charges
+  # 10. News article (BBC - paywalled content test)
+  - https://www.bbc.com/news/technology
+
+formats:
+  - markdown
+
+politeness:
+  delay_between_requests: 1.0
+  page_timeout: 30.0
+
+only_main_content: true

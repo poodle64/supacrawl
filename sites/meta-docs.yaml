@@ -40,14 +40,18 @@ include:
   - https://developers.facebook.com/docs/graph-api/webhooks/**
   - https://developers.facebook.com/docs/app-management/**
   - https://developers.facebook.com/docs/marketing-api/**
+
 exclude:
   - https://developers.facebook.com/tools/**
   - https://developers.facebook.com/docs/**/changelog**
   - https://developers.facebook.com/docs/**/sdk**
   - https://www.facebook.com/*
   - https://m.facebook.com/*
+
 max_pages: 200
+
 formats:
   - markdown
+
 only_main_content: true
 include_subdomains: false

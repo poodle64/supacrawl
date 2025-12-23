@@ -89,6 +89,7 @@ class ScrapeService:
                 if "markdown" in formats:
                     markdown = self._converter.convert(
                         page_content.html,
+                        base_url=url,
                         only_main_content=only_main_content,
                     )
 
