@@ -8,11 +8,22 @@ The `web-scraper` CLI provides commands for managing site configurations, runnin
 
 ### Available Commands
 
+**Site Configuration-based:**
 - `list-sites` - List available site configurations
 - `show-site` - Show site configuration summary
-- `map` - Map site URLs that would be crawled (Firecrawl-style discovery)
-- `crawl` - Run a crawl for a site
+- `map` - Map site URLs that would be crawled (config-based)
+- `crawl` - Run a crawl for a site (config-based)
+- `list-snapshots` - List snapshots for a site
+- `init` - Create a new site configuration
 - `chunk` - Chunk an existing snapshot
+- `compress` - Compress a snapshot for archival
+- `extract` - Extract a compressed snapshot archive
+
+**URL-based (Firecrawl-compatible):**
+- `scrape-url` - Scrape a single URL
+- `batch-scrape` - Scrape multiple URLs concurrently
+- `crawl-url` - Crawl a website from a starting URL
+- `map-url` - Map URLs from a website
 
 ## Command Reference
 
@@ -213,6 +224,106 @@ Chunks written: corpora/example-site/2025-01-15_1430/chunks.jsonl
 **Output:**
 - Creates chunks file: `corpora/{site_id}/{snapshot_id}/chunks.jsonl`
 
+## URL-Based Commands (Firecrawl-compatible)
+
+These commands work with raw URLs instead of site configuration files, providing Firecrawl-compatible APIs for ad-hoc scraping.
+
+### scrape-url
+
+Scrape a single URL and output content.
+
+**Usage:**
+```bash
+web-scraper scrape-url URL [OPTIONS]
+```
+
+**Arguments:**
+- `URL` - The URL to scrape
+
+**Options:**
+- `--format FORMAT` - Output format: `json` or `markdown` (default: `json`)
+- `--output PATH` - Output file path (default: stdout)
+- `--timeout INT` - Page timeout in seconds (default: 30)
+
+**Example:**
+```bash
+$ web-scraper scrape-url https://example.com --format markdown
+# Outputs markdown content to stdout
+
+$ web-scraper scrape-url https://example.com --output result.json
+# Writes JSON to file
+```
+
+### batch-scrape
+
+Scrape multiple URLs concurrently from a file.
+
+**Usage:**
+```bash
+web-scraper batch-scrape URLS_FILE [OPTIONS]
+```
+
+**Arguments:**
+- `URLS_FILE` - File containing URLs (one per line, or JSON/JSONL format)
+
+**Options:**
+- `--concurrency INT` - Maximum concurrent requests (default: 5)
+- `--output PATH` - Output file path (default: stdout)
+- `--format FORMAT` - Output format: `json` or `jsonl` (default: `jsonl`)
+
+**Example:**
+```bash
+$ echo -e "https://example.com\nhttps://example.org" > urls.txt
+$ web-scraper batch-scrape urls.txt --concurrency 3
+```
+
+### crawl-url
+
+Crawl a website starting from a URL.
+
+**Usage:**
+```bash
+web-scraper crawl-url URL [OPTIONS]
+```
+
+**Arguments:**
+- `URL` - The starting URL for the crawl
+
+**Options:**
+- `--limit INT` - Maximum pages to crawl (default: 100)
+- `--output PATH` - Output directory or file
+- `--format FORMAT` - Output format: `json` or `jsonl` (default: `jsonl`)
+- `--depth INT` - Maximum crawl depth (default: 3)
+
+**Example:**
+```bash
+$ web-scraper crawl-url https://docs.example.com --limit 50
+```
+
+### map-url
+
+Map URLs from a website without scraping content.
+
+**Usage:**
+```bash
+web-scraper map-url URL [OPTIONS]
+```
+
+**Arguments:**
+- `URL` - The starting URL to map
+
+**Options:**
+- `--limit INT` - Maximum URLs to discover (default: 200)
+- `--output PATH` - Output file path (default: stdout)
+- `--format FORMAT` - Output format: `text` or `json` (default: `text`)
+- `--depth INT` - Maximum discovery depth (default: 3)
+- `--sitemap` - Sitemap mode: `include`, `skip`, or `only` (default: `include`)
+- `--include-subdomains` - Include subdomains in mapping
+
+**Example:**
+```bash
+$ web-scraper map-url https://example.com --limit 100 --format json
+```
 
 ## Common Workflows
 
