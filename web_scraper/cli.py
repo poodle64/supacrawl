@@ -279,7 +279,7 @@ def crawl_url(
     "-o",
     type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Output file (JSON). If omitted, prints markdown to stdout.",
+    help="Output file. Use .md for markdown, .json for full result, .html for HTML.",
 )
 def scrape_url(
     url: str,
@@ -293,8 +293,9 @@ def scrape_url(
 
     Examples:
         web-scraper scrape-url https://example.com
-        web-scraper scrape-url https://example.com --format markdown --format html
+        web-scraper scrape-url https://example.com --output page.md
         web-scraper scrape-url https://example.com --output page.json
+        web-scraper scrape-url https://example.com --format markdown --format html
     """
     import asyncio
     import json
@@ -321,10 +322,26 @@ def scrape_url(
 
     # Output handling
     if output:
+        suffix = output.suffix.lower()
         with open(output, "w") as f:
-            # exclude_none=True matches Firecrawl format
-            json.dump(result.model_dump(exclude_none=True), f, indent=2)
-        click.echo(f"Wrote scrape result to {output}")
+            if suffix == ".json":
+                # Full JSON result
+                json.dump(result.model_dump(exclude_none=True), f, indent=2)
+            elif suffix == ".html":
+                # HTML content
+                if result.data and result.data.html:
+                    f.write(result.data.html)
+                else:
+                    click.echo("No HTML content available", err=True)
+                    raise SystemExit(1)
+            else:
+                # Default to markdown (.md or any other extension)
+                if result.data and result.data.markdown:
+                    f.write(result.data.markdown)
+                else:
+                    click.echo("No markdown content available", err=True)
+                    raise SystemExit(1)
+        click.echo(f"Wrote {output}")
     else:
         # Print markdown to stdout
         if result.data and result.data.markdown:
