@@ -1,11 +1,8 @@
 # Benchmark sites for scraper parity testing
 # Mix of: documentation, e-commerce, tables, blogs, technical content
-id: benchmark
 name: Scraper Benchmark Sites
-entrypoint: https://webscraper.io/test-sites
 
-# 10 diverse benchmark URLs
-urls:
+entrypoints:
   # 1. Tables test page (webscraper.io)
   - https://webscraper.io/test-sites/tables
   # 2. E-commerce product listing (static pagination)
@@ -27,11 +24,17 @@ urls:
   # 10. News article (BBC - paywalled content test)
   - https://www.bbc.com/news/technology
 
+include:
+  - "**"
+exclude: []
+max_pages: 10
+include_subdomains: false
+
 formats:
   - markdown
 
 politeness:
-  delay_between_requests: 1.0
+  delay_between_requests: [1.0, 2.0]
   page_timeout: 30.0
 
 only_main_content: true
