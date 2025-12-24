@@ -349,6 +349,10 @@ def scrape_url(
             else:
                 # Default to markdown (.md or any other extension)
                 if result.data and result.data.markdown:
+                    # Add YAML frontmatter with metadata
+                    frontmatter = result.data.metadata.to_frontmatter(url)
+                    f.write(frontmatter)
+                    f.write("\n\n")
                     f.write(result.data.markdown)
                 else:
                     click.echo("No markdown content available", err=True)

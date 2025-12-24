@@ -1,14 +1,12 @@
 """HTML to Markdown converter with Firecrawl output parity.
 
-Extraction methods (in priority order):
-1. LLM-assisted: Uses cheap LLM to identify main content selector (~$0.00005/domain)
-2. Trafilatura: ML-based content extraction (F1=0.958)
-3. Pattern matching: CSS selector heuristics (fallback)
+Uses a pure Playwright + markdownify approach:
+1. Playwright renders the page fully (JavaScript execution)
+2. BeautifulSoup cleans the HTML (removes boilerplate)
+3. markdownify converts to markdown (preserves tables and structure)
 
-The LLM approach is optional and requires Ollama. When enabled, it:
-- Extracts a DOM skeleton (~200 tokens)
-- Asks a cheap model to identify the main content CSS selector
-- Caches the selector per-domain for reuse
+This approach treats each page like an actual browser, ensuring JavaScript-rendered
+content is captured and table structure is preserved.
 """
 
 from __future__ import annotations
@@ -21,20 +19,15 @@ from markdownify import MarkdownConverter as BaseMarkdownConverter
 
 LOGGER = logging.getLogger(__name__)
 
-# Try to import trafilatura (optional but recommended)
-try:
-    import trafilatura
-    TRAFILATURA_AVAILABLE = True
-except ImportError:
-    TRAFILATURA_AVAILABLE = False
-    LOGGER.warning("trafilatura not installed, using fallback content extraction")
-
-# LLM content identifier (lazy loaded)
-_llm_identifier = None
-
 
 class AbsoluteUrlConverter(BaseMarkdownConverter):
-    """Markdownify converter that resolves relative URLs to absolute."""
+    """Markdownify converter that resolves relative URLs to absolute.
+
+    Key features:
+    - Resolves relative URLs to absolute
+    - Preserves table structure with proper markdown formatting
+    - Handles links inside table cells correctly
+    """
 
     def __init__(self, base_url: str | None = None, **kwargs):
         """Initialize with base URL for resolving relative links."""
@@ -50,7 +43,12 @@ class AbsoluteUrlConverter(BaseMarkdownConverter):
         if href and self.base_url and not urlparse(href).netloc:
             href = urljoin(self.base_url, href)
 
-        if not text.strip():
+        # Clean up text - preserve content even if whitespace-only
+        text = text.strip() if text else ""
+        if not text:
+            # Try to get text from nested elements
+            text = el.get_text(strip=True)
+        if not text:
             return ""
 
         if title:
@@ -75,56 +73,67 @@ class AbsoluteUrlConverter(BaseMarkdownConverter):
         return f"![{alt}]({src})"
 
 
-def _get_llm_identifier():
-    """Lazy-load the LLM content identifier."""
-    global _llm_identifier
-    if _llm_identifier is None:
-        try:
-            from web_scraper.llm_content import LLMContentIdentifier
-            _llm_identifier = LLMContentIdentifier()
-        except Exception as e:
-            LOGGER.debug(f"LLM content identifier not available: {e}")
-            _llm_identifier = False  # Mark as unavailable
-    return _llm_identifier if _llm_identifier else None
-
-
 class MarkdownConverter:
     """Convert HTML to Firecrawl-compatible markdown.
 
-    Uses a tiered extraction approach:
-    1. LLM-assisted: Identify content selector via cheap LLM (optional, requires Ollama)
-    2. Trafilatura: ML-based content extraction (F1=0.958)
-    3. Pattern-based: CSS selector heuristics (fallback)
+    Uses a pure Playwright + markdownify approach that preserves table structure
+    and handles JavaScript-rendered content properly.
+
+    The extraction process:
+    1. Clean HTML by removing boilerplate (scripts, styles, nav, footer, etc.)
+    2. Find main content area using CSS selectors
+    3. Convert to markdown using markdownify (preserves tables)
 
     Usage:
         converter = MarkdownConverter()
         markdown = converter.convert(html, base_url="https://example.com")
-
-        # With LLM assistance (requires Ollama running locally)
-        markdown = converter.convert(html, base_url="https://example.com", use_llm=True)
     """
 
-    # Tags to remove completely (for fallback method)
+    # Tags to remove completely
     REMOVE_TAGS = [
         "script",
         "style",
-        "nav",
-        "footer",
-        "header",
         "noscript",
         "iframe",
         "svg",
+        "path",
+        "canvas",
+        "video",
+        "audio",
+        "source",
+        "track",
+        "embed",
+        "object",
+        "param",
+        "template",
     ]
 
-    # CSS selectors for boilerplate removal (fallback method)
-    # NOTE: These are only used if trafilatura fails
+    # Tags to remove only when cleaning for main content
+    BOILERPLATE_TAGS = [
+        "nav",
+        "footer",
+        "header",
+        "aside",
+    ]
+
+    # CSS selectors for boilerplate removal
     BOILERPLATE_SELECTORS = [
+        # Navigation patterns
+        "[role='navigation']",
+        "[role='banner']",
+        "[role='contentinfo']",
+        ".navigation",
+        ".nav-menu",
+        ".navbar",
+        ".menu",
+        ".sidebar",
+        ".toc",
+        ".table-of-contents",
         # Footer patterns
         "[class*='site-footer']",
         "[id*='site-footer']",
         ".footer",
         "#footer",
-        "[role='contentinfo']",
         # Cookie/consent patterns
         "[class*='cookie']",
         "[id*='cookie']",
@@ -140,32 +149,64 @@ class MarkdownConverter:
         "[class*='advertisement']",
         "[class*='ad-wrapper']",
         "[class*='sponsored']",
+        "[class*='promo']",
         # Social widgets
         "[class*='social-share']",
         "[class*='share-buttons']",
-        # Navigation
-        "[role='navigation']",
-        ".pagination",
-        ".pager",
+        "[class*='social-links']",
+        # Tracking pixels and hidden elements
+        "img[width='1']",
+        "img[height='1']",
+        "[style*='display:none']",
+        "[style*='display: none']",
+        "[hidden]",
+        ".hidden",
+        # Related/recommended content
+        "[class*='related-']",
+        "[class*='recommended']",
+        "[class*='also-read']",
+        # Comments sections
+        "[class*='comment']",
+        "#comments",
+        ".disqus",
     ]
 
-    # Main content selectors (fallback method)
+    # Main content selectors (in priority order)
     MAIN_CONTENT_SELECTORS = [
+        # Framework-specific
         "#mw-content-text",  # Wikipedia
         ".mw-parser-output",
-        ".body",  # Sphinx docs
-        ".document",
-        ".rst-content",
-        ".main-page-content",  # MDN
+        ".rst-content",  # ReadTheDocs
+        ".document",  # Sphinx
+        ".markdown-body",  # GitHub
+        ".notion-page-content",  # Notion
+        # Facebook/Meta developer docs
+        "#documentation_body_pagelet",  # Facebook docs main content
+        "._4-u2",  # Facebook docs content wrapper
+        # Semantic elements
+        "main[role='main']",
+        "main#content",
+        "main.content",
         "main",
+        "article.post-content",
+        "article.entry-content",
+        "article.content",
         "article",
         "[role='main']",
+        # Common ID patterns
+        "#main-content",
         "#content",
         "#main",
+        "#article",
+        "#post",
+        # Common class patterns
         ".main-content",
+        ".content",
         ".post-content",
         ".article-content",
         ".entry-content",
+        ".page-content",
+        ".body-content",
     ]
 
     def convert(
@@ -174,21 +215,16 @@ class MarkdownConverter:
         base_url: str | None = None,
         only_main_content: bool = True,
         remove_boilerplate: bool = True,
-        use_llm: bool = False,
     ) -> str:
         """Convert HTML to markdown.
 
-        Uses a tiered extraction approach:
-        1. LLM-assisted (if use_llm=True and Ollama available)
-        2. Trafilatura ML-based extraction
-        3. Pattern-based extraction (fallback)
+        Uses markdownify for conversion, which preserves table structure correctly.
 
         Args:
-            html: Raw HTML content
+            html: Raw HTML content (should be post-JavaScript rendering from Playwright)
             base_url: Base URL for resolving relative links
             only_main_content: Extract main content area only
             remove_boilerplate: Remove nav, footer, ads, etc.
-            use_llm: Use LLM to identify main content selector (requires Ollama)
 
         Returns:
             Clean markdown string
@@ -196,106 +232,9 @@ class MarkdownConverter:
         if not html or not html.strip():
             return ""
 
-        # Try LLM-assisted extraction first (if enabled)
-        if use_llm and only_main_content and base_url:
-            markdown = self._convert_with_llm(html, base_url)
-            if markdown and len(markdown) > 100:
-                LOGGER.debug("Used LLM-assisted content extraction")
-                return markdown
-            LOGGER.debug("LLM extraction returned insufficient content, trying trafilatura")
-
-        # Try trafilatura (ML-based extraction)
-        if TRAFILATURA_AVAILABLE and only_main_content:
-            markdown = self._convert_with_trafilatura(html, base_url)
-            if markdown and len(markdown) > 100:
-                LOGGER.debug("Used trafilatura for content extraction")
-                return markdown
-            LOGGER.debug("Trafilatura returned insufficient content, using fallback")
-
-        # Fallback to pattern-based extraction
         return self._convert_with_patterns(
             html, base_url, only_main_content, remove_boilerplate
         )
-
-    def _convert_with_llm(
-        self, html: str, base_url: str
-    ) -> str:
-        """Extract content using LLM-identified selector.
-
-        Args:
-            html: Raw HTML content
-            base_url: Page URL (used for domain caching)
-
-        Returns:
-            Markdown string or empty if extraction fails
-        """
-        identifier = _get_llm_identifier()
-        if not identifier:
-            return ""
-
-        try:
-            selector = identifier.identify_selector(html, base_url)
-            if not selector:
-                return ""
-
-            soup = BeautifulSoup(html, "html.parser")
-            element = soup.select_one(selector)
-            if not element:
-                return ""
-
-            # Convert the identified content to markdown
-            converter = AbsoluteUrlConverter(
-                base_url=base_url,
-                heading_style="atx",
-                bullets="-",
-                code_language="",
-                strip=["script", "style", "nav", "footer", "header"],
-                wrap=False,
-                wrap_width=0,
-            )
-            markdown = converter.convert(str(element))
-            return self._clean_whitespace(markdown)
-
-        except Exception as e:
-            LOGGER.debug(f"LLM-assisted extraction failed: {e}")
-            return ""
-
-    def _convert_with_trafilatura(
-        self, html: str, base_url: str | None = None
-    ) -> str:
-        """Extract content using trafilatura's ML-based approach.
-
-        Args:
-            html: Raw HTML content
-            base_url: Base URL for resolving relative links
-
-        Returns:
-            Markdown string or empty if extraction fails
-        """
-        try:
-            # Extract content with trafilatura
-            # output_format='markdown' gives us markdown directly
-            # include_links=True preserves hyperlinks
-            # include_images=True preserves images
-            # include_tables=True preserves tables
-            result = trafilatura.extract(
-                html,
-                output_format='markdown',
-                include_links=True,
-                include_images=True,
-                include_tables=True,
-                include_comments=False,
-                no_fallback=False,  # Use fallback algorithms
-                url=base_url,  # For URL resolution
-            )
-
-            if result:
-                return self._clean_whitespace(result)
-            return ""
-
-        except Exception as e:
-            LOGGER.debug(f"Trafilatura extraction failed: {e}")
-            return ""
 
     def _convert_with_patterns(
         self,
@@ -354,10 +293,19 @@ class MarkdownConverter:
 
     def _remove_boilerplate(self, soup: BeautifulSoup) -> None:
         """Remove boilerplate elements in-place."""
+        # Remove always-unwanted tags (scripts, styles, etc.)
         for tag_name in self.REMOVE_TAGS:
             for tag in soup.find_all(tag_name):
                 tag.decompose()
 
+        # Remove structural boilerplate (nav, footer, etc.)
+        for tag_name in self.BOILERPLATE_TAGS:
+            for tag in soup.find_all(tag_name):
+                # Don't remove if it's the main content area
+                if not self._is_main_content(tag):
+                    tag.decompose()
+
+        # Remove elements matching boilerplate CSS selectors
         for selector in self.BOILERPLATE_SELECTORS:
             try:
                 for element in soup.select(selector):
@@ -366,19 +314,22 @@ class MarkdownConverter:
             except Exception:
                 pass
 
-    def _is_main_content(self, element: Tag) -> bool:
+    def _is_main_content(self, element) -> bool:
         """Check if element is likely main content."""
-        if not isinstance(element, Tag):
+        if element is None or not isinstance(element, Tag):
             return False
 
-        el_id = (element.get("id") or "").lower()
-        el_class = " ".join(element.get("class") or []).lower()
-        el_role = (element.get("role") or "").lower()
+        try:
+            el_id = (element.get("id") or "").lower()
+            el_class = " ".join(element.get("class") or []).lower()
+            el_role = (element.get("role") or "").lower()
 
-        main_indicators = ["main", "content", "article", "post", "entry"]
-        combined = f"{el_id} {el_class} {el_role}"
+            main_indicators = ["main", "content", "article", "post", "entry"]
+            combined = f"{el_id} {el_class} {el_role}"
 
-        return any(indicator in combined for indicator in main_indicators)
+            return any(indicator in combined for indicator in main_indicators)
+        except Exception:
+            return False
 
     def _find_main_content(self, soup: BeautifulSoup) -> Tag | None:
         """Find the main content element."""

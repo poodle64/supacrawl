@@ -353,6 +353,47 @@ class ScrapeMetadata(BaseModel):
     source_url: str | None = None
     status_code: int | None = None
 
+    def to_frontmatter(self, url: str | None = None) -> str:
+        """Build YAML frontmatter from metadata.
+
+        Args:
+            url: URL to use (defaults to source_url if not provided)
+
+        Returns:
+            YAML frontmatter string including opening and closing delimiters.
+        """
+        from datetime import timezone
+
+        def escape_yaml(s: str | None) -> str:
+            """Escape string for YAML double-quoted value."""
+            if not s:
+                return ""
+            return s.replace("\\", "\\\\").replace('"', '\\"')
+
+        source = url or self.source_url or ""
+        lines = [
+            "---",
+            f'url: "{escape_yaml(source)}"',
+            f'title: "{escape_yaml(self.title)}"',
+            f"scraped_at: {datetime.now(timezone.utc).isoformat()}",
+        ]
+
+        if self.description:
+            lines.append(f'description: "{escape_yaml(self.description)}"')
+        if self.language:
+            lines.append(f"language: {self.language}")
+        if self.og_title:
+            lines.append(f'og_title: "{escape_yaml(self.og_title)}"')
+        if self.og_description:
+            lines.append(f'og_description: "{escape_yaml(self.og_description)}"')
+        if self.og_image:
+            lines.append(f'og_image: "{self.og_image}"')
+        if self.status_code:
+            lines.append(f"status_code: {self.status_code}")
+
+        lines.append("---")
+        return "\n".join(lines)
+
 
 class ScrapeData(BaseModel):
     """Scraped content from a page (Firecrawl-compatible)."""
