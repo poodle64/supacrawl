@@ -7,8 +7,8 @@ from typing import Literal
 
 from bs4 import BeautifulSoup
 
-from web_scraper.browser import BrowserManager
-from web_scraper.converter import MarkdownConverter
+from web_scraper.services.browser import BrowserManager
+from web_scraper.services.converter import MarkdownConverter
 from web_scraper.models import ScrapeData, ScrapeMetadata, ScrapeResult
 
 LOGGER = logging.getLogger(__name__)
@@ -103,6 +103,9 @@ class ScrapeService:
                 if "links" in formats:
                     links = await browser.extract_links(url)
 
+                # Compute word count from markdown
+                word_count = len(markdown.split()) if markdown else None
+
                 return ScrapeResult(
                     success=True,
                     data=ScrapeData(
@@ -110,13 +113,24 @@ class ScrapeService:
                         html=html,
                         raw_html=raw_html,
                         metadata=ScrapeMetadata(
+                            # Core metadata
                             title=metadata.title,
                             description=metadata.description,
+                            language=metadata.language,
+                            keywords=metadata.keywords,
+                            robots=metadata.robots,
+                            canonical_url=metadata.canonical_url,
+                            # OpenGraph metadata
                             og_title=metadata.og_title,
                             og_description=metadata.og_description,
                             og_image=metadata.og_image,
+                            og_url=metadata.og_url,
+                            og_site_name=metadata.og_site_name,
+                            # Source information
                             source_url=url,
                             status_code=page_content.status_code,
+                            # Content metrics
+                            word_count=word_count,
                         ),
                         links=links,
                     ),

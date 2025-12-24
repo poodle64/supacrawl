@@ -253,15 +253,6 @@ Crawls automatically resume from incomplete snapshots. Resumption skips already-
 
 Enable local LLM processing for content enhancement (requires Ollama running on `localhost:11434`).
 
-**During crawling** (AI-powered content extraction):
-```bash
-# Set environment variable
-export WEB_SCRAPER_USE_OLLAMA=true
-
-# Run crawl (uses Ollama for intelligent content extraction)
-web-scraper crawl <site-name>
-```
-
 **During chunking** (AI-generated summaries):
 ```bash
 web-scraper chunk <site-id> <snapshot-id> --use-ollama --ollama-summarize
@@ -282,13 +273,12 @@ All configuration is optional. Sensible defaults are built in. Copy `.env.exampl
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WEB_SCRAPER_HEADLESS` | `true` | Set to `false` to see the browser for debugging |
-| `WEB_SCRAPER_ENTRYPOINT_TIMEOUT_MS` | `60000` | Timeout per page (increase for slow sites) |
+| `WEB_SCRAPER_TIMEOUT` | `30000` | Timeout per page in milliseconds (increase for slow sites) |
 
 ### Ollama Integration (Optional)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WEB_SCRAPER_USE_OLLAMA` | `false` | Enable Ollama for AI-powered features |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_MODEL` | `llama3.2` | Model to use for summaries |
 

@@ -12,13 +12,11 @@ from web_scraper.cli import app
 
 def test_crawl_output_shows_latest_path(monkeypatch, tmp_path: Path) -> None:
     """Test that crawl output shows corpora/<site_id>/latest/ path."""
-    from tests.integration.test_cli import FakeScraper, _write_site_config
-    
+    from tests.integration.test_cli import _write_site_config
+
     base_path = tmp_path
     _write_site_config(base_path)
-    
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
-    
+
     runner = CliRunner()
     result = runner.invoke(
         app, ["crawl", "example", "--base-path", str(base_path)]
@@ -32,8 +30,6 @@ def test_crawl_output_shows_latest_path(monkeypatch, tmp_path: Path) -> None:
 
 def test_crawl_output_without_base_path(monkeypatch, tmp_path: Path) -> None:
     """Test that crawl without --base-path shows relative corpora/ path."""
-    from tests.integration.test_cli import FakeScraper
-    
     # Create config in current working directory pattern
     sites_dir = tmp_path / "sites"
     sites_dir.mkdir(parents=True)
@@ -51,11 +47,10 @@ def test_crawl_output_without_base_path(monkeypatch, tmp_path: Path) -> None:
         "include_subdomains: false\n",
         encoding="utf-8",
     )
-    
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
+
     # Change to tmp_path so relative paths work
     monkeypatch.chdir(tmp_path)
-    
+
     runner = CliRunner()
     result = runner.invoke(app, ["crawl", "example"])
     
@@ -66,13 +61,11 @@ def test_crawl_output_without_base_path(monkeypatch, tmp_path: Path) -> None:
 
 def test_crawl_with_chunks_shows_chunk_count(monkeypatch, tmp_path: Path) -> None:
     """Test that crawl --chunks shows chunk count in output."""
-    from tests.integration.test_cli import FakeScraper, _write_site_config
-    
+    from tests.integration.test_cli import _write_site_config
+
     base_path = tmp_path
     _write_site_config(base_path)
-    
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
-    
+
     runner = CliRunner()
     result = runner.invoke(
         app, ["crawl", "example", "--chunks", "--base-path", str(base_path)]
@@ -156,14 +149,12 @@ def test_fresh_message_is_concise(tmp_path: Path) -> None:
 
 def test_chunk_command_respects_base_path(monkeypatch, tmp_path: Path) -> None:
     """Test that chunk command output respects --base-path."""
-    from tests.integration.test_cli import FakeScraper, _write_site_config
-    
+    from tests.integration.test_cli import _write_site_config
+
     base_path = tmp_path
     _write_site_config(base_path)
     corpora_dir = base_path / "corpora"
-    
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
-    
+
     # First crawl to create a snapshot
     runner = CliRunner()
     crawl_result = runner.invoke(

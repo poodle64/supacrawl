@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from web_scraper.content.url import normalise_url
+from web_scraper.utils import normalise_url
 
 LOGGER = logging.getLogger(__name__)
 

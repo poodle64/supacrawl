@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from web_scraper.models import MapLink, MapResult
-from web_scraper.map_service import MapService
+from web_scraper.services.map import MapService
 
 
 class TestMapService:

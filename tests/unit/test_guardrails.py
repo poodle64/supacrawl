@@ -13,18 +13,7 @@ UNIT_TESTS_DIR = TESTS_ROOT / "unit"
 
 # Files that are explicitly allowed to import Playwright (integration/e2e tests)
 # These are in tests/integration/ or tests/e2e/ directories
-ALLOWED_PLAYWRIGHT_IMPORTS = {
-    # e2e tests (use real Playwright)
-    "e2e/test_baseline_quality.py",
-    "e2e/test_preset_parity.py",
-    "e2e/test_crawl_from_map.py",
-    "e2e/test_manifest_metadata.py",
-    "e2e/test_manifest_schema_validation.py",
-    "e2e/test_output_formats_integrity.py",
-    # integration tests (use mocks, no real browser)
-    "integration/test_providers.py",
-    "integration/test_politeness.py",
-}
+ALLOWED_PLAYWRIGHT_IMPORTS: set[str] = set()
 
 # Forbidden imports for unit tests
 FORBIDDEN_IMPORTS = {

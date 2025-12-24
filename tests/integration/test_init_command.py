@@ -129,10 +129,6 @@ def test_init_without_url_fails_in_non_interactive_mode(tmp_path: Path) -> None:
 
 def test_crawl_with_url_and_init_creates_config_and_crawls(monkeypatch, tmp_path: Path) -> None:
     """Crawl with URL and --init should create config and perform crawl."""
-    from tests.integration.test_cli import FakeScraper
-    
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
-    
     runner = CliRunner()
     result = runner.invoke(
         app,

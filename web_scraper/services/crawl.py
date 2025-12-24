@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 from urllib.parse import urlparse
 
-from web_scraper.browser import BrowserManager
 from web_scraper.models import CrawlEvent, ScrapeData
-from web_scraper.map_service import MapService
-from web_scraper.scrape_service import ScrapeService
+from web_scraper.services.browser import BrowserManager
+from web_scraper.services.map import MapService
+from web_scraper.services.scrape import ScrapeService
 
 if TYPE_CHECKING:
     from web_scraper.corpus.adapter import OutputAdapter

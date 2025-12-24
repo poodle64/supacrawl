@@ -11,7 +11,7 @@ WebScrapeError (base)
 ├── ValidationError (input validation failures)
 ├── ConfigurationError (config loading/validation failures)
 ├── FileNotFoundError (missing files)
-└── ProviderError (provider operation failures)
+└── ProviderError (scraper/browser operation failures)
 ```
 
 ### Base Exception
@@ -27,7 +27,7 @@ All exceptions inherit from `WebScrapeError`, which includes:
 - **`ValidationError`**: Raised when input validation fails (e.g., empty entrypoints, invalid max_pages)
 - **`ConfigurationError`**: Raised when site configuration loading or validation fails
 - **`FileNotFoundError`**: Raised when required files are missing
-- **`ProviderError`**: Raised when provider operations fail
+- **`ProviderError`**: Raised when scraper/browser operations fail (Playwright errors, timeouts, navigation failures)
 
 ## Correlation IDs
 
@@ -110,29 +110,28 @@ raise ProviderError(
 - Include examples when helpful (e.g., valid entrypoint format)
 - Keep context concise (don't include entire objects)
 
-## Provider Error Mapping
+## Scraper Error Handling
 
-### Wrapping Provider Errors
+### Wrapping Browser/Playwright Errors
 
-Provider-specific errors are wrapped in `ProviderError`:
+Browser and Playwright errors are wrapped in `ProviderError`:
 
 ```python
+from playwright.async_api import Error as PlaywrightError
+
 try:
-    result = provider_client.crawl(...)
-except ProviderSpecificError as e:
+    content = await browser.fetch_page(url)
+except PlaywrightError as e:
     correlation_id = generate_correlation_id()
-    log_with_correlation(
-        LOGGER,
-        "error",
-        f"Provider {self.provider_name} failed: {e}",
-        correlation_id,
-        {"provider": self.provider_name, "error": str(e)},
+    LOGGER.error(
+        "Browser fetch failed: %s",
+        str(e),
+        extra={"correlation_id": correlation_id, "url": url},
     )
     raise ProviderError(
-        f"Failed to crawl site using {self.provider_name}",
-        provider=self.provider_name,
+        f"Failed to fetch {url}",
         correlation_id=correlation_id,
-        context={"original_error": str(e)},
+        context={"url": url, "error": str(e)},
     ) from e
 ```
 

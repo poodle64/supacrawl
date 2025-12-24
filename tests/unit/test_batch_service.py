@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from web_scraper.batch_service import BatchService
+from web_scraper.services.batch import BatchService
 from web_scraper.models import BatchEvent, BatchItem, BatchResult
 
 

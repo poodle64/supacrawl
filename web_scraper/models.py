@@ -342,16 +342,33 @@ class MapResult(BaseModel):
 
 
 class ScrapeMetadata(BaseModel):
-    """Metadata extracted from a page (Firecrawl-compatible)."""
+    """Metadata extracted from a page (Firecrawl-compatible).
 
+    Fields match Firecrawl's metadata response format for compatibility.
+    See: https://docs.firecrawl.dev/features/scrape
+    """
+
+    # Core metadata
     title: str | None = None
     description: str | None = None
     language: str | None = None
+    keywords: str | None = None
+    robots: str | None = None
+    canonical_url: str | None = None
+
+    # OpenGraph metadata
     og_title: str | None = None
     og_description: str | None = None
     og_image: str | None = None
+    og_url: str | None = None
+    og_site_name: str | None = None
+
+    # Source information
     source_url: str | None = None
     status_code: int | None = None
+
+    # Content metrics (computed)
+    word_count: int | None = None
 
     def to_frontmatter(
         self,
@@ -403,19 +420,35 @@ class ScrapeMetadata(BaseModel):
         if provider:
             lines.append(f"provider: {provider}")
 
-        # Add optional metadata
+        # Add optional core metadata
         if self.description:
             lines.append(f'description: "{escape_yaml(self.description)}"')
         if self.language:
             lines.append(f"language: {self.language}")
+        if self.keywords:
+            lines.append(f'keywords: "{escape_yaml(self.keywords)}"')
+        if self.robots:
+            lines.append(f"robots: {self.robots}")
+        if self.canonical_url:
+            lines.append(f'canonical_url: "{self.canonical_url}"')
         if self.status_code:
             lines.append(f"status_code: {self.status_code}")
+
+        # Add OpenGraph metadata
         if self.og_title:
             lines.append(f'og_title: "{escape_yaml(self.og_title)}"')
         if self.og_description:
             lines.append(f'og_description: "{escape_yaml(self.og_description)}"')
         if self.og_image:
             lines.append(f'og_image: "{self.og_image}"')
+        if self.og_url:
+            lines.append(f'og_url: "{self.og_url}"')
+        if self.og_site_name:
+            lines.append(f'og_site_name: "{escape_yaml(self.og_site_name)}"')
+
+        # Add content metrics
+        if self.word_count:
+            lines.append(f"word_count: {self.word_count}")
 
         lines.append("---")
         return "\n".join(lines)
@@ -439,15 +472,6 @@ class ScrapeResult(BaseModel):
     error: str | None = None
 
 
-class CrawlStatus(str, Enum):
-    """Status of a crawl job (Firecrawl-compatible)."""
-
-    SCRAPING = "scraping"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
 class CrawlEvent(BaseModel):
     """Event emitted during crawl (Firecrawl-compatible)."""
 
@@ -457,17 +481,6 @@ class CrawlEvent(BaseModel):
     completed: int = 0
     total: int = 0
     error: str | None = None
-
-
-class CrawlResult(BaseModel):
-    """Final result of a crawl job (Firecrawl-compatible)."""
-
-    success: bool
-    status: CrawlStatus
-    completed: int
-    total: int
-    data: list[ScrapeData]
-    errors: list[str] | None = None
 
 
 class BatchItem(BaseModel):

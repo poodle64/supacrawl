@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from web_scraper.browser import BrowserManager
+from web_scraper.services.browser import BrowserManager
 from web_scraper.models import MapLink, MapResult
 
 LOGGER = logging.getLogger(__name__)

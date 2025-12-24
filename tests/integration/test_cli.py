@@ -8,101 +8,7 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from web_scraper.cli import app
-from web_scraper.corpus.layout import new_snapshot_id, snapshot_root
 from web_scraper.corpus.writer import SCHEMA_VERSION
-from web_scraper.models import Page, SiteConfig
-
-
-class FakeScraper:
-    """Minimal scraper that returns a single page."""
-
-    provider_name = "fake"
-
-    def __init__(self, **kwargs) -> None:  # noqa: ANN003
-        """Accept any kwargs for compatibility with PlaywrightScraper signature."""
-        pass
-
-    def crawl(
-        self,
-        config: SiteConfig,
-        corpora_dir: Path | None = None,
-        resume_snapshot: Path | None = None,
-        target_urls: list[str] | None = None,
-    ) -> tuple[list[Page], Path]:
-        """Fake crawl implementation for testing."""
-        base_dir = corpora_dir or Path.cwd() / "corpora"
-        snapshot_id = new_snapshot_id()
-        snapshot_path = snapshot_root(config.id, base_dir, snapshot_id)
-        snapshot_path.mkdir(parents=True, exist_ok=True)
-
-        # Use target_urls if provided, otherwise use entrypoints
-        urls_to_use = target_urls if target_urls else config.entrypoints
-        first_url = urls_to_use[0] if urls_to_use else config.entrypoints[0]
-
-        pages = [
-            Page(
-                site_id=config.id,
-                url=first_url,
-                title="Home",
-                path="/index",
-                content_markdown="Hello world",
-                content_hash="hash",
-                provider=self.provider_name,
-            )
-        ]
-
-        # Write the page markdown file using new format-based structure
-        # Root URL (https://example.com) -> markdown/index.md
-        markdown_dir = snapshot_path / "markdown"
-        markdown_dir.mkdir(parents=True, exist_ok=True)
-        page_file = markdown_dir / "index.md"
-        page_file.write_text(pages[0].content_markdown, encoding="utf-8")
-
-        # Write manifest
-        import json as json_module
-
-        manifest = {
-            "site_id": config.id,
-            "site_name": config.name,
-            "provider": self.provider_name,
-            "snapshot_id": snapshot_id,
-            "created_at": snapshot_id,
-            "entrypoints": config.entrypoints,
-            "total_pages": len(pages),
-            "formats": config.formats,
-            "pages": [
-                {
-                    "url": p.url,
-                    "title": p.title,
-                    "path": str(page_file.relative_to(snapshot_path)),
-                    "content_hash": p.content_hash,
-                    "formats": {"markdown": str(page_file.relative_to(snapshot_path))},
-                }
-                for p in pages
-            ],
-            "correlation_id": "test",
-            "metadata": {
-                "snapshot_id": snapshot_id,
-                "site_id": config.id,
-                "created_at": "2025-01-01T00:00:00Z",
-                "git_commit": None,
-                "site_config_hash": "a" * 64,
-                "crawl_engine": "crawl4ai",
-                "crawl_engine_version": None,
-                "schema_version": SCHEMA_VERSION,
-            },
-        }
-        manifest_path = snapshot_path / "manifest.json"
-        manifest_path.write_text(
-            json_module.dumps(manifest, indent=2), encoding="utf-8"
-        )
-
-        # Create latest symlink (simulating what writer.complete() does)
-        from web_scraper.corpus.symlink import update_latest_symlink
-        site_dir = snapshot_path.parent
-        update_latest_symlink(site_dir, snapshot_id)
-
-        return pages, snapshot_path
 
 
 def _write_site_config(base_path: Path) -> None:
@@ -130,8 +36,6 @@ def test_cli_crawl_and_chunk_end_to_end(monkeypatch, tmp_path: Path) -> None:
     base_path = tmp_path
     _write_site_config(base_path)
     corpora_dir = base_path / "corpora"
-
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     crawl_result = runner.invoke(
@@ -269,8 +173,6 @@ def test_cli_crawl_creates_latest_symlink(monkeypatch, tmp_path: Path) -> None:
     """Crawl command should create a 'latest' symlink."""
     base_path = tmp_path
     _write_site_config(base_path)
-
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     result = runner.invoke(

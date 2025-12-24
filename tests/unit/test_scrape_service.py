@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from web_scraper.models import ScrapeResult
-from web_scraper.scrape_service import ScrapeService
+from web_scraper.services.scrape import ScrapeService
 
 
 class TestScrapeService:

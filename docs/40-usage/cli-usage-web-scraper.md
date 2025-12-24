@@ -241,9 +241,11 @@ web-scraper scrape-url URL [OPTIONS]
 - `URL` - The URL to scrape
 
 **Options:**
-- `--format FORMAT` - Output format: `json` or `markdown` (default: `json`)
-- `--output PATH` - Output file path (default: stdout)
-- `--timeout INT` - Page timeout in seconds (default: 30)
+- `--format FORMAT` - Output format: `markdown`, `html`, `rawHtml`, or `links` (default: `markdown`, can specify multiple)
+- `--only-main-content/--no-only-main-content` - Extract main content area only (default: true)
+- `--wait-for INT` - Additional wait time in milliseconds after page load (default: 0)
+- `--timeout INT` - Page load timeout in milliseconds (default: 30000)
+- `--output PATH` - Output file path (default: stdout). Use `.md` for markdown, `.json` for full result, `.html` for HTML
 
 **Example:**
 ```bash
@@ -251,7 +253,13 @@ $ web-scraper scrape-url https://example.com --format markdown
 # Outputs markdown content to stdout
 
 $ web-scraper scrape-url https://example.com --output result.json
-# Writes JSON to file
+# Writes JSON result to file
+
+$ web-scraper scrape-url https://example.com --format markdown --format html --output page.md
+# Scrapes both formats, writes markdown to file
+
+$ web-scraper scrape-url https://example.com --no-only-main-content --wait-for 2000
+# Scrapes full page, waits 2 seconds after load
 ```
 
 ### batch-scrape
@@ -268,13 +276,20 @@ web-scraper batch-scrape URLS_FILE [OPTIONS]
 
 **Options:**
 - `--concurrency INT` - Maximum concurrent requests (default: 5)
-- `--output PATH` - Output file path (default: stdout)
-- `--format FORMAT` - Output format: `json` or `jsonl` (default: `jsonl`)
+- `--only-main-content/--no-only-main-content` - Extract main content area only (default: true)
+- `--timeout INT` - Per-page timeout in milliseconds (default: 30000)
+- `--output PATH` - Output directory for results (optional)
 
 **Example:**
 ```bash
 $ echo -e "https://example.com\nhttps://example.org" > urls.txt
 $ web-scraper batch-scrape urls.txt --concurrency 3
+
+$ web-scraper batch-scrape urls.txt --output results/ --timeout 60000
+# Writes each page to results/ as markdown files with 60 second timeout
+
+$ web-scraper map-url https://example.com --format json | web-scraper batch-scrape - --output results/
+# Pipe map output directly to batch-scrape
 ```
 
 ### crawl-url
@@ -313,16 +328,27 @@ web-scraper map-url URL [OPTIONS]
 - `URL` - The starting URL to map
 
 **Options:**
-- `--limit INT` - Maximum URLs to discover (default: 200)
+- `--limit INT` - Maximum number of URLs to discover (default: 200)
+- `--depth INT` - Maximum BFS crawl depth (default: 3)
+- `--sitemap CHOICE` - Sitemap handling: `include` (default), `skip`, or `only`
+- `--include-subdomains` - Include subdomain URLs (flag)
+- `--search TEXT` - Filter URLs containing this text
 - `--output PATH` - Output file path (default: stdout)
-- `--format FORMAT` - Output format: `text` or `json` (default: `text`)
-- `--depth INT` - Maximum discovery depth (default: 3)
-- `--sitemap` - Sitemap mode: `include`, `skip`, or `only` (default: `include`)
-- `--include-subdomains` - Include subdomains in mapping
+- `--format FORMAT` - Output format: `json` (full result) or `text` (URLs only) (default: `text`)
 
 **Example:**
 ```bash
 $ web-scraper map-url https://example.com --limit 100 --format json
+# Output full JSON result with link metadata
+
+$ web-scraper map-url https://example.com --search about --output urls.txt
+# Find all URLs containing "about", output as text list
+
+$ web-scraper map-url https://example.com --sitemap only --format json --output sitemap.json
+# Extract only sitemap URLs in JSON format
+
+$ web-scraper map-url https://docs.example.com --depth 5 --include-subdomains
+# Deep crawl including subdomains
 ```
 
 ## Common Workflows

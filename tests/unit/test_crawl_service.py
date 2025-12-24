@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from web_scraper.crawl_service import CrawlService
+from web_scraper.services.crawl import CrawlService
 from web_scraper.models import CrawlEvent
 
 

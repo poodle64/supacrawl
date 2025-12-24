@@ -7,14 +7,12 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from web_scraper.cli import app
-from tests.integration.test_cli import FakeScraper, _write_site_config
+from tests.integration.test_cli import _write_site_config
 
 
 def test_crawl_with_chunks_produces_chunks_file(monkeypatch, tmp_path: Path) -> None:
     """Crawl with --chunks flag should produce chunks.jsonl."""
     _write_site_config(tmp_path)
-
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -32,8 +30,6 @@ def test_crawl_with_chunks_produces_chunks_file(monkeypatch, tmp_path: Path) -> 
 def test_crawl_without_chunks_no_chunks_file(monkeypatch, tmp_path: Path) -> None:
     """Crawl without --chunks flag should not produce chunks.jsonl."""
     _write_site_config(tmp_path)
-
-    monkeypatch.setattr("web_scraper.cli.PlaywrightScraper", FakeScraper)
 
     runner = CliRunner()
     result = runner.invoke(

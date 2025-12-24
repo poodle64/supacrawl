@@ -6,9 +6,9 @@ import asyncio
 import logging
 from typing import AsyncGenerator
 
-from web_scraper.browser import BrowserManager
 from web_scraper.models import BatchEvent, BatchItem, BatchResult
-from web_scraper.scrape_service import ScrapeService
+from web_scraper.services.browser import BrowserManager
+from web_scraper.services.scrape import ScrapeService
 
 LOGGER = logging.getLogger(__name__)
 

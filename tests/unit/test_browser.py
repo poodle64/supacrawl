@@ -1,7 +1,7 @@
 """Tests for browser manager."""
 
 import pytest
-from web_scraper.browser import BrowserManager, PageContent, PageMetadata
+from web_scraper.services.browser import BrowserManager, PageContent, PageMetadata
 
 
 class TestBrowserManager:

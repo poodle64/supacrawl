@@ -203,7 +203,7 @@ def crawl_url(
     """
     import asyncio
 
-    from web_scraper.crawl_service import CrawlService
+    from web_scraper.services.crawl import CrawlService
 
     async def run():
         from urllib.parse import urlparse
@@ -312,7 +312,7 @@ def scrape_url(
     import asyncio
     import json
 
-    from web_scraper.scrape_service import ScrapeService
+    from web_scraper.services.scrape import ScrapeService
 
     async def run():
         service = ScrapeService()
@@ -426,7 +426,7 @@ def batch_scrape(
     import sys
     from urllib.parse import urlparse
 
-    from web_scraper.batch_service import BatchService
+    from web_scraper.services.batch import BatchService
 
     # Read URLs from file or stdin
     if str(urls_file) == "-":
@@ -572,7 +572,7 @@ def map_url(
     import asyncio
     import json
 
-    from web_scraper.map_service import MapService
+    from web_scraper.services.map import MapService
 
     async def run():
         service = MapService()
@@ -1028,7 +1028,7 @@ def crawl(
 
     # Use CrawlService with CorpusOutputAdapter for unified scraping pipeline
     from web_scraper.corpus.adapter import CorpusOutputAdapter
-    from web_scraper.crawl_service import CrawlService
+    from web_scraper.services.crawl import CrawlService
 
     # Build include/exclude patterns from config
     include_patterns = list(config.include) if config.include else None

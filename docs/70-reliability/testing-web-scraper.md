@@ -55,6 +55,7 @@ Test service initialization and error handling:
 ```python
 def test_scrape_service_initialization():
     """Test scrape service initialization."""
+    from web_scraper.services import ScrapeService
     service = ScrapeService()
     assert service is not None
 ```
@@ -115,22 +116,26 @@ def test_site_config_empty_entrypoints():
 Test complete crawl workflow:
 
 ```python
-def test_crawl_flow(tmp_path, mock_provider_client):
+async def test_crawl_flow(tmp_path):
     """Test end-to-end crawl flow."""
+    from web_scraper.services import ScrapeService
+    from web_scraper.config import load_site_config
+    from web_scraper.corpus.writer import write_snapshot
+
     # Setup
     sites_dir = tmp_path / "sites"
     sites_dir.mkdir()
     config_file = sites_dir / "test-site.yaml"
     config_file.write_text("...")
-    
+
     corpora_dir = tmp_path / "corpora"
-    
+
     # Execute
     config = load_site_config(config_file)
     scrape_service = ScrapeService()
     pages = await scrape_service.scrape_urls(config.entrypoints)
     snapshot_id = write_snapshot(corpora_dir, config, pages)
-    
+
     # Verify
     manifest_path = corpora_dir / config.id / snapshot_id / "manifest.json"
     assert manifest_path.exists()
@@ -145,12 +150,16 @@ Test snapshot creation and manifest structure:
 ```python
 def test_write_snapshot_creates_manifest(tmp_path):
     """Test writing snapshot creates manifest.json."""
+    from web_scraper.config import SiteConfig
+    from web_scraper.models import Page
+    from web_scraper.corpus.writer import write_snapshot
+
     corpora_dir = tmp_path / "corpora"
     config = SiteConfig(...)
     pages = [Page(...), Page(...)]
-    
+
     snapshot_id = write_snapshot(corpora_dir, config, pages)
-    
+
     manifest_path = corpora_dir / config.id / snapshot_id / "manifest.json"
     assert manifest_path.exists()
     manifest = json.loads(manifest_path.read_text())
@@ -179,6 +188,8 @@ def mock_browser_context():
 
 async def test_scrape_service_success(mock_browser_context):
     """Test scrape service successfully scrapes page."""
+    from web_scraper.services import ScrapeService
+
     service = ScrapeService(browser_context=mock_browser_context)
     result = await service.scrape("https://example.com")
     assert result.success
@@ -192,6 +203,9 @@ Test error wrapping:
 ```python
 async def test_scrape_service_error_handling():
     """Test scrape service error handling."""
+    from web_scraper.services import ScrapeService
+    from web_scraper.exceptions import ScraperError
+
     service = ScrapeService()
 
     with pytest.raises(ScraperError) as exc_info:
@@ -208,6 +222,8 @@ Test retry behavior:
 ```python
 async def test_scrape_service_retry_logic(mock_browser_retry):
     """Test scrape service retry logic."""
+    from web_scraper.services import ScrapeService
+
     # First two calls fail, third succeeds
     call_count = 0
     async def side_effect(*args, **kwargs):
@@ -272,6 +288,8 @@ Create reusable test fixtures:
 @pytest.fixture
 def sample_site_config():
     """Sample site configuration for testing."""
+    from web_scraper.config import SiteConfig
+
     return SiteConfig(
         id="test-site",
         name="Test Site",
@@ -288,6 +306,8 @@ def sample_site_config():
 @pytest.fixture
 def sample_pages():
     """Sample pages for testing."""
+    from web_scraper.models import Page
+
     return [
         Page(
             url="https://example.com/page1",

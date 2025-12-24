@@ -27,13 +27,22 @@ class PageContent:
 
 @dataclass
 class PageMetadata:
-    """Metadata extracted from a page."""
+    """Metadata extracted from a page (Firecrawl-compatible)."""
 
+    # Core metadata
     title: str | None
     description: str | None
+    language: str | None
+    keywords: str | None
+    robots: str | None
+    canonical_url: str | None
+
+    # OpenGraph metadata
     og_title: str | None
     og_description: str | None
     og_image: str | None
+    og_url: str | None
+    og_site_name: str | None
 
 
 class BrowserManager:
@@ -228,42 +237,62 @@ class BrowserManager:
                     pass
 
     async def extract_metadata(self, html: str) -> PageMetadata:
-        """Extract metadata from HTML.
+        """Extract metadata from HTML (Firecrawl-compatible fields).
 
         Args:
             html: HTML content
 
         Returns:
-            PageMetadata with title, description, og tags
+            PageMetadata with title, description, og tags, and other metadata
         """
         soup = BeautifulSoup(html, "html.parser")
+
+        def get_meta_content(name: str | None = None, property: str | None = None) -> str | None:
+            """Helper to extract meta tag content."""
+            if name:
+                tag = soup.find("meta", attrs={"name": name})
+            elif property:
+                tag = soup.find("meta", attrs={"property": property})
+            else:
+                return None
+            return tag.get("content", None) if tag else None
 
         # Extract title
         title_tag = soup.find("title")
         title = title_tag.get_text(strip=True) if title_tag else None
 
-        # Extract description
-        description_tag = soup.find("meta", attrs={"name": "description"})
-        description = description_tag.get("content", None) if description_tag else None
+        # Extract core metadata
+        description = get_meta_content(name="description")
+        keywords = get_meta_content(name="keywords")
+        robots = get_meta_content(name="robots")
 
-        # Extract Open Graph tags
-        og_title_tag = soup.find("meta", attrs={"property": "og:title"})
-        og_title = og_title_tag.get("content", None) if og_title_tag else None
+        # Extract language from html tag
+        html_tag = soup.find("html")
+        language = html_tag.get("lang", None) if html_tag else None
 
-        og_description_tag = soup.find("meta", attrs={"property": "og:description"})
-        og_description = (
-            og_description_tag.get("content", None) if og_description_tag else None
-        )
+        # Extract canonical URL
+        canonical_tag = soup.find("link", attrs={"rel": "canonical"})
+        canonical_url = canonical_tag.get("href", None) if canonical_tag else None
 
-        og_image_tag = soup.find("meta", attrs={"property": "og:image"})
-        og_image = og_image_tag.get("content", None) if og_image_tag else None
+        # Extract OpenGraph tags
+        og_title = get_meta_content(property="og:title")
+        og_description = get_meta_content(property="og:description")
+        og_image = get_meta_content(property="og:image")
+        og_url = get_meta_content(property="og:url")
+        og_site_name = get_meta_content(property="og:site_name")
 
         return PageMetadata(
             title=title,
             description=description,
+            language=language,
+            keywords=keywords,
+            robots=robots,
+            canonical_url=canonical_url,
             og_title=og_title,
             og_description=og_description,
             og_image=og_image,
+            og_url=og_url,
+            og_site_name=og_site_name,
         )
 
     async def _wait_for_spa_stability(

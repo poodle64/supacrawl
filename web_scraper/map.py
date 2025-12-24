@@ -17,7 +17,6 @@ import httpx
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-from web_scraper.content.url import normalise_url
 from web_scraper.discovery import (
     discover_sitemaps,
     fetch_robots,
@@ -26,6 +25,7 @@ from web_scraper.discovery import (
     parse_sitemap,
 )
 from web_scraper.models import SiteConfig
+from web_scraper.utils import normalise_url
 
 LOGGER = logging.getLogger(__name__)
 
