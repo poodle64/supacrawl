@@ -197,15 +197,15 @@ async def _write_page(page: Page, file_path: Path, snapshot_id: str = "") -> Non
         snapshot_id: ID of the snapshot (used for frontmatter).
     """
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    frontmatter = _build_yaml_frontmatter(page, snapshot_id)
+    frontmatter = _build_frontmatter_from_page(page, snapshot_id)
     content = f"{frontmatter}\n\n{page.content_markdown}"
     async with aiofiles.open(file_path, "w", encoding="utf-8") as handle:
         await handle.write(content)
 
 
-def _build_yaml_frontmatter(page: Page, snapshot_id: str) -> str:
+def _build_frontmatter_from_page(page: Page, snapshot_id: str) -> str:
     """
-    Build YAML frontmatter for a markdown file.
+    Build YAML frontmatter for a markdown file using unified ScrapeMetadata.
 
     Args:
         page: Page object with metadata.
@@ -214,29 +214,25 @@ def _build_yaml_frontmatter(page: Page, snapshot_id: str) -> str:
     Returns:
         YAML frontmatter string including opening and closing delimiters.
     """
-    # Escape title for YAML (handle quotes and special chars)
-    title = page.title.replace('"', '\\"') if page.title else ""
+    from web_scraper.models import ScrapeMetadata
 
-    lines = [
-        "---",
-        f'url: "{page.url}"',
-        f'title: "{title}"',
-        f"scraped_at: {page.scraped_at.isoformat()}",
-        f"content_hash: sha256:{page.content_hash}",
-        f"site_id: {page.site_id}",
-        f"snapshot_id: {snapshot_id}",
-        f"provider: {page.provider}",
-    ]
+    # Build ScrapeMetadata from Page fields
+    metadata = ScrapeMetadata(
+        title=page.title,
+        source_url=page.url,
+        language=page.extra.get("language") if page.extra else None,
+        status_code=page.extra.get("status_code") if page.extra else None,
+    )
 
-    # Add optional metadata from extra
-    if page.extra:
-        if page.extra.get("status_code"):
-            lines.append(f"status_code: {page.extra['status_code']}")
-        if page.extra.get("language"):
-            lines.append(f"language: {page.extra['language']}")
-
-    lines.append("---")
-    return "\n".join(lines)
+    # Use unified frontmatter generation with corpus fields
+    return metadata.to_frontmatter(
+        url=page.url,
+        site_id=page.site_id,
+        snapshot_id=snapshot_id,
+        content_hash=page.content_hash,
+        provider=page.provider,
+        scraped_at=page.scraped_at,
+    )
 
 
 async def _write_page_format(
@@ -267,7 +263,7 @@ async def _write_page_format(
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     if fmt == OutputFormat.MARKDOWN:
-        frontmatter = _build_yaml_frontmatter(page, snapshot_id)
+        frontmatter = _build_frontmatter_from_page(page, snapshot_id)
         content = f"{frontmatter}\n\n{page.content_markdown}"
     elif fmt == OutputFormat.HTML:
         # Use stored HTML or wrap markdown in basic HTML

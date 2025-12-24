@@ -1002,8 +1002,7 @@ def crawl(
             )
 
     # Auto-resume logic
-    resume_snapshot: Path | None = None
-    completed_pages = 0
+    resume = not fresh
     if not fresh:
         assert config.id is not None, "config.id must be set after validation"
         resume_snapshot = find_resumable_snapshot(corpora_dir, config.id)
@@ -1016,8 +1015,9 @@ def crawl(
                     f"Resuming {config.name} ({completed_pages} completed, "
                     f"{pending_pages} pending)..."
                 )
-
-    if fresh:
+        else:
+            click.echo(f"Starting crawl for {config.name}...")
+    else:
         # Check if there was an incomplete snapshot we're ignoring
         assert config.id is not None, "config.id must be set after validation"
         incomplete = find_resumable_snapshot(corpora_dir, config.id)
@@ -1025,43 +1025,80 @@ def crawl(
             click.echo(f"Starting fresh crawl for {config.name}...")
         else:
             click.echo(f"Starting crawl for {config.name}...")
-    elif not resume_snapshot:
-        click.echo(f"Starting crawl for {config.name}...")
 
-    # Create Playwright scraper
-    # Playwright requires explicit URL list - use from_map or entrypoints
-    from web_scraper.scrapers.playwright_scraper import PlaywrightScraper
+    # Use CrawlService with CorpusOutputAdapter for unified scraping pipeline
+    from web_scraper.corpus.adapter import CorpusOutputAdapter
+    from web_scraper.crawl_service import CrawlService
 
-    if target_urls is None:
-        # Use entrypoints as target URLs for Playwright
-        target_urls = list(config.entrypoints)
-        if verbose:
-            click.echo(
-                f"Playwright provider: using {len(target_urls)} entrypoints as target URLs"
-            )
-            click.echo(
-                "Note: Playwright does not discover links. Use --from-map for multi-page crawls."
-            )
+    # Build include/exclude patterns from config
+    include_patterns = list(config.include) if config.include else None
+    exclude_patterns = list(config.exclude) if config.exclude else None
 
-    scraper = PlaywrightScraper()
-    if verbose:
-        click.echo("Using Playwright provider")
+    # If target_urls provided (from map file), use first URL as starting point
+    start_url = target_urls[0] if target_urls else config.entrypoints[0]
+
+    # Create output adapter for corpus output with manifests
+    output_adapter = CorpusOutputAdapter(
+        site_config=config,
+        corpora_dir=corpora_dir,
+        resume=resume,
+    )
+
+    async def run_crawl():
+        from urllib.parse import urlparse
+
+        service = CrawlService()
+        pages_scraped = 0
+        snapshot_path = None
+
+        async for event in service.crawl(
+            url=start_url,
+            limit=config.max_pages,
+            max_depth=3,  # Default depth for site crawl
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+            output_adapter=output_adapter,
+        ):
+            if event.type == "progress":
+                # Show progress bar
+                if event.total and event.total > 0:
+                    pct = int((event.completed / event.total) * 100)
+                    bar_width = 25
+                    filled = int(bar_width * event.completed / event.total)
+                    bar = "=" * filled + ">" + " " * (bar_width - filled - 1)
+                    click.echo(
+                        f"\r[{bar}] {event.completed}/{event.total} pages ({pct}%)",
+                        nl=False,
+                        err=True,
+                    )
+            elif event.type == "page":
+                # Extract path from URL for cleaner output
+                path = urlparse(event.url).path or "/"
+                if verbose:
+                    click.echo(f"\n  + {path}")
+                pages_scraped = event.completed or pages_scraped
+            elif event.type == "error":
+                if event.url:
+                    path = urlparse(event.url).path
+                    error_msg = event.error or "unknown error"
+                    click.echo(f"\n  x {path} ({error_msg})", err=True)
+                else:
+                    click.echo(f"\nError: {event.error}", err=True)
+            elif event.type == "complete":
+                click.echo(
+                    f"\n\nComplete: {event.completed}/{event.total} pages", err=True
+                )
+                pages_scraped = event.completed or pages_scraped
+                snapshot_path = output_adapter.snapshot_path
+
+        return pages_scraped, snapshot_path
 
     try:
-        pages, snapshot_path = scraper.crawl(
-            config,
-            corpora_dir,
-            resume_snapshot=resume_snapshot,
-            target_urls=target_urls,
-        )
+        pages_count, snapshot_path = asyncio.run(run_crawl())
 
         # Generate chunks if requested
         chunk_count = 0
-        if chunks:
-            import asyncio
-
-            from web_scraper.prep.chunker import chunk_snapshot
-
+        if chunks and snapshot_path:
             chunks_path = asyncio.run(
                 chunk_snapshot(snapshot_path, max_chars=max_chars)
             )
@@ -1071,16 +1108,16 @@ def crawl(
         # Output summary
         assert config.id is not None, "config.id must be set after validation"
         if chunks:
-            click.echo(f"Crawled {len(pages)} pages, generated {chunk_count} chunks")
+            click.echo(f"Crawled {pages_count} pages, generated {chunk_count} chunks")
         else:
-            click.echo(f"Crawled {len(pages)} pages")
+            click.echo(f"Crawled {pages_count} pages")
 
         # Show output path - use relative path if base_path not provided, else show from base
         if base_path is None:
             click.echo(f"Output: corpora/{config.id}/latest/")
         else:
             click.echo(f"Output: {base_path}/corpora/{config.id}/latest/")
-        if verbose:
+        if verbose and snapshot_path:
             click.echo(f"Snapshot ID: {snapshot_path.name}")
     except KeyboardInterrupt:
         # Handle Ctrl+C at CLI level as fallback

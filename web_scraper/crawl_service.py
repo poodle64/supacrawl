@@ -6,13 +6,16 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING, AsyncGenerator
 from urllib.parse import urlparse
 
 from web_scraper.browser import BrowserManager
 from web_scraper.models import CrawlEvent, ScrapeData
 from web_scraper.map_service import MapService
 from web_scraper.scrape_service import ScrapeService
+
+if TYPE_CHECKING:
+    from web_scraper.corpus.adapter import OutputAdapter
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,6 +48,7 @@ class CrawlService:
         output_dir: Path | None = None,
         resume: bool = False,
         formats: list[str] | None = None,
+        output_adapter: OutputAdapter | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -54,24 +58,37 @@ class CrawlService:
             max_depth: Maximum crawl depth
             include_patterns: URL patterns to include
             exclude_patterns: URL patterns to exclude
-            output_dir: Directory to save scraped content
+            output_dir: Directory to save scraped content (simple flat output)
             resume: Resume from previous crawl state
             formats: Output formats to save (default: ["markdown"])
+            output_adapter: Optional OutputAdapter for corpus output with manifests
 
         Yields:
             CrawlEvent for each page and progress update
         """
         self._formats = formats or ["markdown"]
+        self._output_adapter = output_adapter
+
         try:
+            # Start output adapter if provided
+            if output_adapter:
+                await output_adapter.start()
+
             # Initialize browser and services
             async with BrowserManager() as browser:
                 self._browser = browser
                 self._map_service = MapService(browser=browser)
                 self._scrape_service = ScrapeService(browser=browser)
 
-                # Load resume state if requested
-                scraped_urls = set()
-                if resume and output_dir:
+                # Load resume state
+                scraped_urls: set[str] = set()
+                if output_adapter:
+                    # Get resume URLs from adapter (handles corpus resume)
+                    scraped_urls = output_adapter.get_resume_urls()
+                    if scraped_urls:
+                        LOGGER.info(f"Resuming crawl with {len(scraped_urls)} already scraped")
+                elif resume and output_dir:
+                    # Legacy: load from simple manifest
                     scraped_urls = self._load_resume_state(output_dir)
                     LOGGER.info(f"Resuming crawl with {len(scraped_urls)} already scraped")
 
@@ -133,8 +150,10 @@ class CrawlService:
                         )
 
                         if result.success and result.data:
-                            # Save to output directory
-                            if output_dir:
+                            # Save to output adapter (corpus) or directory (simple)
+                            if output_adapter:
+                                await output_adapter.write_page(url_to_scrape, result)
+                            elif output_dir:
                                 self._save_page(output_dir, url_to_scrape, result.data)
 
                             yield CrawlEvent(
@@ -180,8 +199,14 @@ class CrawlService:
                     total=total,
                 )
 
+                # Finalize output adapter
+                if output_adapter:
+                    await output_adapter.complete()
+
         except Exception as e:
             LOGGER.error(f"Crawl failed: {e}", exc_info=True)
+            if output_adapter:
+                await output_adapter.abort(str(e))
             yield CrawlEvent(
                 type="error",
                 error=str(e),

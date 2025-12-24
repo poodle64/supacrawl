@@ -326,7 +326,7 @@ pytest -q
 ### Run Specific Test File
 
 ```bash
-pytest tests/test_scrapers.py -q
+pytest tests/unit/test_guardrails.py -q
 ```
 
 ### Run with Coverage

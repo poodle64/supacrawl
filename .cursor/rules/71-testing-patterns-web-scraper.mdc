@@ -4,7 +4,7 @@ Scope: Project
 Extends: 71-testing-patterns-basics (master)
 ISO/IEC 25010:
   Primary: Reliability
-description: Web-scraper-specific testing patterns - Playwright scraper testing, site config testing, corpus testing
+description: Web-scraper-specific testing patterns - scrape/crawl service testing, site config testing, corpus testing
 globs: "**/test_*.py"
 alwaysApply: true
 ---
@@ -17,37 +17,31 @@ This rule documents project-specific testing practice and relies on master rules
 
 ## Core Principles
 
-All web-scraper code must have comprehensive test coverage with web-scraper-specific patterns for Playwright scraper testing, site configuration testing, and corpus testing.
+All web-scraper code must have comprehensive test coverage with web-scraper-specific patterns for service testing, site configuration testing, and corpus testing.
 
 ## Mandatory Requirements
 
-### Playwright Scraper Testing
+### Scraping Service Testing
 
-- ✅ **Must** test scraper `crawl()` method with valid `SiteConfig`
-- ✅ **Must** test scraper error handling (wrap SDK errors in `ProviderError`)
-- ✅ **Must** test scraper retry logic (5xx errors retry, 4xx errors don't retry)
-- ✅ **Must** test scraper configuration (Playwright browsers, environment variables)
-- ✅ **Must** use dependency injection for testing (mock crawler)
+- ✅ **Must** test `ScrapeService.scrape()` method with valid URLs
+- ✅ **Must** test `CrawlService.crawl()` async generator with valid URLs
+- ✅ **Must** test service error handling (network errors, timeouts)
+- ✅ **Must** test service configuration (browser settings, formats)
+- ✅ **Must** use dependency injection for testing (mock browser)
 
 **Example:**
 ```python
-def test_playwright_scraper_crawl_success(mock_playwright_client):
-    """Test Playwright scraper successfully crawls site."""
-    scraper = PlaywrightScraper(crawler=mock_playwright_client)
-    config = SiteConfig(
-        id="test-site",
-        name="Test Site",
-        entrypoints=["https://example.com"],
-        include=["https://example.com/**"],
-        exclude=[],
-        max_pages=10,
-        formats=["html"],
-        only_main_content=True,
-        include_subdomains=False,
+async def test_scrape_service_success():
+    """Test ScrapeService successfully scrapes URL."""
+    service = ScrapeService()
+    result = await service.scrape(
+        url="https://example.com",
+        formats=["markdown", "html"],
     )
-    pages = scraper.crawl(config)
-    assert len(pages) > 0
-    assert all(isinstance(page, Page) for page in pages)
+    assert result.success
+    assert result.data is not None
+    assert result.data.markdown
+    assert result.data.metadata.source_url == "https://example.com"
 ```
 
 ### Site Configuration Testing
@@ -135,14 +129,14 @@ def test_list_sites_command(runner, tmp_path):
 
 ### Integration Testing
 
-- ✅ **Must** test end-to-end crawl flow (config → scraper → corpus)
+- ✅ **Must** test end-to-end crawl flow (config → CrawlService → corpus)
 - ✅ **Must** test chunking flow (snapshot → chunks)
-- ✅ **Must** test CLI commands with Playwright scraper (if possible)
+- ✅ **Must** test CLI commands with CrawlService
 - ✅ **Must** use test fixtures for common test data
 
 ## Key Directives
 
-- **Scraper testing**: Test Playwright scraper, error handling, retry logic
+- **Service testing**: Test ScrapeService, CrawlService, MapService, error handling
 - **Config testing**: Test validation, loading, error handling
 - **Corpus testing**: Test snapshot layout, manifest structure, file naming
 - **CLI testing**: Test commands, error handling, output format
@@ -151,6 +145,5 @@ def test_list_sites_command(runner, tmp_path):
 ## References
 
 - `.cursor/rules/master/71-testing-patterns-basics.mdc` - Universal testing requirements
-- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Playwright scraper patterns to test
 - `.cursor/rules/50-site-config-patterns-web-scraper.mdc` - Configuration patterns to test
 - `docs/70-reliability/testing-web-scraper.md` - Comprehensive testing strategies

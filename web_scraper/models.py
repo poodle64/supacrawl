@@ -353,11 +353,25 @@ class ScrapeMetadata(BaseModel):
     source_url: str | None = None
     status_code: int | None = None
 
-    def to_frontmatter(self, url: str | None = None) -> str:
+    def to_frontmatter(
+        self,
+        url: str | None = None,
+        *,
+        site_id: str | None = None,
+        snapshot_id: str | None = None,
+        content_hash: str | None = None,
+        provider: str | None = None,
+        scraped_at: datetime | None = None,
+    ) -> str:
         """Build YAML frontmatter from metadata.
 
         Args:
             url: URL to use (defaults to source_url if not provided)
+            site_id: Site identifier (for corpus output)
+            snapshot_id: Snapshot identifier (for corpus output)
+            content_hash: Content hash (for corpus output)
+            provider: Scraping provider (for corpus output)
+            scraped_at: Timestamp to use (defaults to now if not provided)
 
         Returns:
             YAML frontmatter string including opening and closing delimiters.
@@ -371,25 +385,37 @@ class ScrapeMetadata(BaseModel):
             return s.replace("\\", "\\\\").replace('"', '\\"')
 
         source = url or self.source_url or ""
+        timestamp = scraped_at or datetime.now(timezone.utc)
         lines = [
             "---",
             f'url: "{escape_yaml(source)}"',
             f'title: "{escape_yaml(self.title)}"',
-            f"scraped_at: {datetime.now(timezone.utc).isoformat()}",
+            f"scraped_at: {timestamp.isoformat()}",
         ]
 
+        # Add corpus fields if provided
+        if content_hash:
+            lines.append(f"content_hash: sha256:{content_hash}")
+        if site_id:
+            lines.append(f"site_id: {site_id}")
+        if snapshot_id:
+            lines.append(f"snapshot_id: {snapshot_id}")
+        if provider:
+            lines.append(f"provider: {provider}")
+
+        # Add optional metadata
         if self.description:
             lines.append(f'description: "{escape_yaml(self.description)}"')
         if self.language:
             lines.append(f"language: {self.language}")
+        if self.status_code:
+            lines.append(f"status_code: {self.status_code}")
         if self.og_title:
             lines.append(f'og_title: "{escape_yaml(self.og_title)}"')
         if self.og_description:
             lines.append(f'og_description: "{escape_yaml(self.og_description)}"')
         if self.og_image:
             lines.append(f'og_image: "{self.og_image}"')
-        if self.status_code:
-            lines.append(f"status_code: {self.status_code}")
 
         lines.append("---")
         return "\n".join(lines)
