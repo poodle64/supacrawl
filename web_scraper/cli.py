@@ -912,8 +912,6 @@ def crawl(
 
     # Handle dry-run mode
     if dry_run:
-        import asyncio
-
         from web_scraper.map import map_site as map_site_func
 
         try:
