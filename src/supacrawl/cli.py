@@ -13,7 +13,6 @@ from supacrawl.config import default_corpora_dir, default_sites_dir
 from supacrawl.corpus.compress import compress_snapshot, extract_archive
 from supacrawl.exceptions import SupacrawlError
 from supacrawl.prep.chunker import chunk_snapshot
-
 from supacrawl.sites.loader import list_site_configs, load_site_config
 
 
@@ -184,6 +183,47 @@ def show_site(site_name: str, base_path: Path | None) -> None:
     show_default=True,
     help="Output formats to save",
 )
+@click.option(
+    "--deduplicate-similar-urls",
+    is_flag=True,
+    default=False,
+    help="Deduplicate URLs that differ only by tracking parameters or fragments",
+)
+@click.option(
+    "--allow-external-links",
+    is_flag=True,
+    default=False,
+    help="Follow and scrape links to external domains (Firecrawl-compatible)",
+)
+@click.option(
+    "--country",
+    type=str,
+    default=None,
+    help="ISO country code for locale settings (e.g., AU, US, DE). Sets language and timezone defaults.",
+)
+@click.option(
+    "--language",
+    type=str,
+    default=None,
+    help="Browser language/locale code (e.g., en-AU, de-DE). Overrides --country language.",
+)
+@click.option(
+    "--timezone",
+    type=str,
+    default=None,
+    help="IANA timezone (e.g., Australia/Sydney). Overrides --country timezone.",
+)
+@click.option(
+    "--stealth/--no-stealth",
+    default=False,
+    help="Enhanced stealth mode via Patchright (requires: pip install supacrawl[stealth]). Note: Basic anti-bot evasion is always active.",
+)
+@click.option(
+    "--proxy",
+    type=str,
+    default=None,
+    help="Proxy URL (e.g., http://user:pass@host:port, socks5://host:port). Also reads SUPACRAWL_PROXY env.",
+)
 def crawl_url(
     url: str,
     limit: int,
@@ -193,6 +233,13 @@ def crawl_url(
     output: Path,
     resume: bool,
     formats: tuple[str, ...],
+    deduplicate_similar_urls: bool,
+    allow_external_links: bool,
+    country: str | None,
+    language: str | None,
+    timezone: str | None,
+    stealth: bool,
+    proxy: str | None,
 ) -> None:
     """Crawl a website and save all pages (Firecrawl-compatible).
 
@@ -200,10 +247,28 @@ def crawl_url(
         supacrawl crawl-url https://example.com --limit 50 --output corpus/
         supacrawl crawl-url https://example.com --output corpus/ --format markdown --format html
         supacrawl crawl-url https://example.com --output corpus/ --resume
+        supacrawl crawl-url https://example.com --output corpus/ --deduplicate-similar-urls
+        supacrawl crawl-url https://example.com --output corpus/ --allow-external-links --limit 50
+        supacrawl crawl-url https://example.com --output corpus/ --country AU
     """
     import asyncio
 
     from supacrawl.services.crawl import CrawlService
+
+    # Build locale config if any location options specified
+    locale_config = None
+    if country or language or timezone:
+        from supacrawl.models import LocaleConfig
+
+        if country:
+            locale_config = LocaleConfig.from_country(country)
+            # Override with explicit language/timezone if provided
+            if language:
+                locale_config = locale_config.model_copy(update={"language": language})
+            if timezone:
+                locale_config = locale_config.model_copy(update={"timezone": timezone})
+        else:
+            locale_config = LocaleConfig(language=language, timezone=timezone)
 
     async def run():
         from urllib.parse import urlparse
@@ -221,6 +286,11 @@ def crawl_url(
             output_dir=output,
             resume=resume,
             formats=list(formats),
+            deduplicate_similar_urls=deduplicate_similar_urls,
+            allow_external_links=allow_external_links,
+            locale_config=locale_config,
+            stealth=stealth,
+            proxy=proxy,
         ):
             if event.type == "progress":
                 # Show progress bar
@@ -261,10 +331,23 @@ def crawl_url(
     "-f",
     "formats",
     multiple=True,
-    type=click.Choice(["markdown", "html", "rawHtml", "links", "screenshot", "pdf"], case_sensitive=False),
+    type=click.Choice(["markdown", "html", "rawHtml", "links", "images", "screenshot", "pdf", "json", "branding", "summary"], case_sensitive=False),
     default=["markdown"],
     show_default=True,
     help="Output formats to include",
+)
+@click.option(
+    "--schema",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to JSON schema file (for json format)",
+)
+@click.option(
+    "--prompt",
+    "-p",
+    type=str,
+    default=None,
+    help="Extraction prompt (for json format)",
 )
 @click.option(
     "--only-main-content/--no-only-main-content",
@@ -299,24 +382,141 @@ def crawl_url(
     show_default=True,
     help="Capture full scrollable page for screenshots",
 )
+@click.option(
+    "--actions",
+    "-a",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to JSON file containing page actions (Firecrawl-compatible).",
+)
+@click.option(
+    "--include-tags",
+    multiple=True,
+    help="CSS selectors for elements to include (can be repeated). Takes precedence over --only-main-content.",
+)
+@click.option(
+    "--exclude-tags",
+    multiple=True,
+    help="CSS selectors for elements to exclude (can be repeated). Applied before include-tags.",
+)
+@click.option(
+    "--country",
+    type=str,
+    default=None,
+    help="ISO country code for locale settings (e.g., AU, US, DE). Sets language and timezone defaults.",
+)
+@click.option(
+    "--language",
+    type=str,
+    default=None,
+    help="Browser language/locale code (e.g., en-AU, de-DE). Overrides --country language.",
+)
+@click.option(
+    "--timezone",
+    type=str,
+    default=None,
+    help="IANA timezone (e.g., Australia/Sydney). Overrides --country timezone.",
+)
+@click.option(
+    "--max-age",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Cache freshness in seconds (0=no cache). Returns cached content if fresh.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Cache directory. Defaults to ~/.supacrawl/cache or SUPACRAWL_CACHE_DIR.",
+)
+@click.option(
+    "--stealth/--no-stealth",
+    default=False,
+    help="Enhanced stealth mode via Patchright (requires: pip install supacrawl[stealth]). Note: Basic anti-bot evasion is always active.",
+)
+@click.option(
+    "--proxy",
+    type=str,
+    default=None,
+    help="Proxy URL (e.g., http://user:pass@host:port, socks5://host:port). Also reads SUPACRAWL_PROXY env.",
+)
+@click.option(
+    "--solve-captcha/--no-solve-captcha",
+    default=False,
+    help="Enable CAPTCHA solving via 2Captcha (requires: pip install supacrawl[captcha] and CAPTCHA_API_KEY env var). WARNING: Each solve costs ~$0.002-0.003.",
+)
 def scrape_url(
     url: str,
     formats: tuple[str, ...],
+    schema: Path | None,
+    prompt: str | None,
     only_main_content: bool,
     wait_for: int,
     timeout: int,
     output: Path | None,
     full_page: bool,
+    actions: Path | None,
+    include_tags: tuple[str, ...],
+    exclude_tags: tuple[str, ...],
+    country: str | None,
+    language: str | None,
+    timezone: str | None,
+    max_age: int,
+    cache_dir: Path | None,
+    stealth: bool,
+    proxy: str | None,
+    solve_captcha: bool,
 ) -> None:
     """Scrape a single URL and extract content (Firecrawl-compatible).
+
+    ANTI-BOT PROTECTION (automatic, no configuration needed):
+        Basic fingerprint evasion, browser headers, and bot detection are always active.
+        If blocked, automatically retries with enhanced stealth when patchright is installed.
+
+    FOR HEAVILY PROTECTED SITES:
+        Install: pip install supacrawl[stealth]
+        Then use: --stealth flag
+
+    FOR SITES WITH CAPTCHA:
+        1. Install: pip install supacrawl[captcha]
+        2. Configure: export CAPTCHA_API_KEY=your-2captcha-api-key
+        3. Use: --solve-captcha flag
+        WARNING: Each CAPTCHA solve costs ~$0.002-0.003
+
+    Actions JSON format (Firecrawl-compatible):
+        [
+            {"type": "wait", "milliseconds": 2000},
+            {"type": "click", "selector": "button#load-more"},
+            {"type": "scroll", "direction": "down"},
+            {"type": "type", "selector": "input#search", "text": "query"},
+            {"type": "press", "key": "Enter"},
+            {"type": "executeJavascript", "script": "document.title"}
+        ]
 
     Examples:
         supacrawl scrape-url https://example.com
         supacrawl scrape-url https://example.com --output page.md
         supacrawl scrape-url https://example.com --output page.json
         supacrawl scrape-url https://example.com --format markdown --format html
+        supacrawl scrape-url https://example.com --format images --output images.json
+        supacrawl scrape-url https://example.com --format markdown --format images
+        supacrawl scrape-url https://example.com --format branding --output branding.json
+        supacrawl scrape-url https://example.com --format summary --output summary.txt
+        supacrawl scrape-url https://example.com --format markdown --format summary
         supacrawl scrape-url https://example.com --format screenshot --output page.png
         supacrawl scrape-url https://example.com --format pdf --output page.pdf
+        supacrawl scrape-url https://example.com --format json --prompt "Extract product name and price"
+        supacrawl scrape-url https://example.com --format json --schema schema.json
+        supacrawl scrape-url https://example.com --actions actions.json
+        supacrawl scrape-url https://example.com --include-tags article --include-tags .post-content
+        supacrawl scrape-url https://example.com --exclude-tags nav --exclude-tags .sidebar --exclude-tags footer
+        supacrawl scrape-url https://example.com --country AU
+        supacrawl scrape-url https://example.com --language en-AU --timezone Australia/Sydney
+        supacrawl scrape-url https://example.com --max-age 3600  # Use cache if fresh within 1 hour
+        supacrawl scrape-url https://example.com --max-age 3600 --cache-dir ~/.my-cache
+        supacrawl scrape-url https://protected-site.com --stealth  # Force stealth mode
+        supacrawl scrape-url https://captcha-site.com --stealth --solve-captcha  # Solve CAPTCHAs
     """
     import asyncio
     import base64
@@ -333,8 +533,65 @@ def scrape_url(
         elif suffix == ".pdf" and "pdf" not in formats_list:
             formats_list.append("pdf")
 
+    # Parse actions from JSON file if provided
+    parsed_actions = None
+    if actions:
+        from supacrawl.services.actions import parse_actions
+
+        with open(actions) as f:
+            actions_json = json.load(f)
+        parsed_actions = parse_actions(actions_json)
+        click.echo(f"Loaded {len(parsed_actions)} actions from {actions}", err=True)
+
+    # Parse schema from JSON file if provided
+    parsed_schema = None
+    if schema:
+        with open(schema) as f:
+            parsed_schema = json.load(f)
+
+    # Validate json format usage
+    if "json" in formats_list:
+        if not prompt and not parsed_schema:
+            click.echo("Error: --prompt or --schema required when using json format", err=True)
+            raise SystemExit(1)
+
+    # Build locale config if any location options specified
+    locale_config = None
+    if country or language or timezone:
+        from supacrawl.models import LocaleConfig
+
+        if country:
+            locale_config = LocaleConfig.from_country(country)
+            # Override with explicit language/timezone if provided
+            if language:
+                locale_config = locale_config.model_copy(update={"language": language})
+            if timezone:
+                locale_config = locale_config.model_copy(update={"timezone": timezone})
+        else:
+            locale_config = LocaleConfig(language=language, timezone=timezone)
+
+    # Resolve cache directory if max_age is set
+    resolved_cache_dir = cache_dir if max_age > 0 else None
+    if max_age > 0 and not resolved_cache_dir:
+        # Use default cache dir when max_age is set but no explicit cache_dir
+        from supacrawl.cache import CacheManager
+        resolved_cache_dir = CacheManager.DEFAULT_CACHE_DIR
+
+    # Print cost warning for CAPTCHA solving
+    if solve_captcha:
+        click.echo(
+            "WARNING: CAPTCHA solving is enabled. Each solve costs ~$0.002-0.003.",
+            err=True,
+        )
+
     async def run():
-        service = ScrapeService()
+        service = ScrapeService(
+            locale_config=locale_config,
+            cache_dir=resolved_cache_dir,
+            stealth=stealth,
+            proxy=proxy,
+            solve_captcha=solve_captcha,
+        )
         result = await service.scrape(
             url=url,
             formats=formats_list,  # type: ignore[arg-type]
@@ -342,6 +599,12 @@ def scrape_url(
             wait_for=wait_for,
             timeout=timeout,
             screenshot_full_page=full_page,
+            actions=parsed_actions,
+            json_schema=parsed_schema,
+            json_prompt=prompt,
+            include_tags=list(include_tags) if include_tags else None,
+            exclude_tags=list(exclude_tags) if exclude_tags else None,
+            max_age=max_age,
         )
         return result
 
@@ -370,18 +633,26 @@ def scrape_url(
         elif suffix == ".png":
             # Screenshot (binary)
             if result.data and result.data.screenshot:
-                with open(output, "wb") as f:
-                    f.write(base64.b64decode(result.data.screenshot))
+                with open(output, "wb") as fb:
+                    fb.write(base64.b64decode(result.data.screenshot))
             else:
                 click.echo("No screenshot available", err=True)
                 raise SystemExit(1)
         elif suffix == ".pdf":
             # PDF (binary)
             if result.data and result.data.pdf:
-                with open(output, "wb") as f:
-                    f.write(base64.b64decode(result.data.pdf))
+                with open(output, "wb") as fb:
+                    fb.write(base64.b64decode(result.data.pdf))
             else:
                 click.echo("No PDF available", err=True)
+                raise SystemExit(1)
+        elif suffix == ".txt" and "summary" in formats_list:
+            # Summary text only
+            if result.data and result.data.summary:
+                with open(output, "w") as f:
+                    f.write(result.data.summary)
+            else:
+                click.echo("No summary available", err=True)
                 raise SystemExit(1)
         else:
             # Default to markdown (.md or any other extension)
@@ -421,6 +692,16 @@ def scrape_url(
     help="Maximum concurrent requests",
 )
 @click.option(
+    "--format",
+    "-f",
+    "formats",
+    multiple=True,
+    type=click.Choice(["markdown", "html", "rawHtml", "links"], case_sensitive=False),
+    default=["markdown"],
+    show_default=True,
+    help="Output formats to include",
+)
+@click.option(
     "--only-main-content/--no-only-main-content",
     default=True,
     show_default=True,
@@ -443,6 +724,7 @@ def scrape_url(
 def batch_scrape(
     urls_file: Path,
     concurrency: int,
+    formats: tuple[str, ...],
     only_main_content: bool,
     timeout: int,
     output: Path | None,
@@ -505,11 +787,14 @@ def batch_scrape(
 
     click.echo(f"Loaded {len(urls)} URLs from {source}")
 
+    formats_list = list(formats) if formats else ["markdown"]
+
     async def run():
         service = BatchService()
         async for event in service.batch_scrape(
             urls=urls,
             concurrency=concurrency,
+            formats=formats_list,  # type: ignore[arg-type]
             only_main_content=only_main_content,
             timeout=timeout,
         ):
@@ -524,15 +809,24 @@ def batch_scrape(
                     parsed = urlparse(event.url)
                     path = parsed.path.strip("/").replace("/", "_") or "index"
                     url_hash = hashlib.sha256(event.url.encode()).hexdigest()[:8]
-                    filename = f"{path}_{url_hash}.md"
 
-                    with open(output / filename, "w") as f:
-                        f.write("---\n")
-                        f.write(f"source_url: {event.url}\n")
-                        if event.item.data.metadata and event.item.data.metadata.title:
-                            f.write(f"title: {event.item.data.metadata.title}\n")
-                        f.write("---\n\n")
-                        f.write(event.item.data.markdown or "")
+                    # Save each requested format
+                    if "markdown" in formats_list and event.item.data.markdown:
+                        with open(output / f"{path}_{url_hash}.md", "w") as f:
+                            f.write("---\n")
+                            f.write(f"source_url: {event.url}\n")
+                            if event.item.data.metadata and event.item.data.metadata.title:
+                                f.write(f"title: {event.item.data.metadata.title}\n")
+                            f.write("---\n\n")
+                            f.write(event.item.data.markdown)
+
+                    if "html" in formats_list and event.item.data.html:
+                        with open(output / f"{path}_{url_hash}.html", "w") as f:
+                            f.write(event.item.data.html)
+
+                    if "rawHtml" in formats_list and event.item.data.raw_html:
+                        with open(output / f"{path}_{url_hash}_raw.html", "w") as f:
+                            f.write(event.item.data.raw_html)
 
             elif event.type == "complete":
                 click.echo(f"\nComplete: {event.completed}/{event.total}", err=True)
@@ -590,6 +884,23 @@ def batch_scrape(
     show_default=True,
     help="Output format: json (full result) or text (URLs only).",
 )
+@click.option(
+    "--ignore-query-params",
+    is_flag=True,
+    default=False,
+    help="Remove query parameters from URLs (Firecrawl-compatible).",
+)
+@click.option(
+    "--stealth/--no-stealth",
+    default=False,
+    help="Enhanced stealth mode via Patchright (requires: pip install supacrawl[stealth]). Note: Basic anti-bot evasion is always active.",
+)
+@click.option(
+    "--proxy",
+    type=str,
+    default=None,
+    help="Proxy URL (e.g., http://user:pass@host:port, socks5://host:port). Also reads SUPACRAWL_PROXY env.",
+)
 def map_url(
     url: str,
     limit: int,
@@ -599,6 +910,9 @@ def map_url(
     search: str | None,
     output: Path | None,
     output_format: str,
+    ignore_query_params: bool,
+    stealth: bool,
+    proxy: str | None,
 ) -> None:
     """Map a website to discover all URLs (Firecrawl-compatible).
 
@@ -613,7 +927,7 @@ def map_url(
     from supacrawl.services.map import MapService
 
     async def run():
-        service = MapService()
+        service = MapService(stealth=stealth, proxy=proxy)
         result = await service.map(
             url=url,
             limit=limit,
@@ -621,6 +935,7 @@ def map_url(
             sitemap=sitemap,  # type: ignore[arg-type]
             include_subdomains=include_subdomains,
             search=search,
+            ignore_query_params=ignore_query_params,
         )
         return result
 
@@ -1478,6 +1793,481 @@ def extract(archive_path: Path, target_dir: Path | None) -> None:
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(1) from exc
+
+
+@app.command("search", help="Search the web (Firecrawl-compatible API).")
+@click.argument("query")
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Maximum number of results (1-10) per source type.",
+)
+@click.option(
+    "--source",
+    "-s",
+    "sources",
+    multiple=True,
+    type=click.Choice(["web", "images", "news", "all"], case_sensitive=False),
+    default=["web"],
+    show_default=True,
+    help="Source types to search. Use 'all' for web+images+news.",
+)
+@click.option(
+    "--scrape/--no-scrape",
+    default=False,
+    show_default=True,
+    help="Scrape content from result pages (web results only).",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["duckduckgo", "brave"], case_sensitive=False),
+    default="duckduckgo",
+    show_default=True,
+    help="Search provider to use.",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Output file (JSON). If omitted, prints to stdout.",
+)
+def search(
+    query: str,
+    limit: int,
+    sources: tuple[str, ...],
+    scrape: bool,
+    provider: str,
+    output: Path | None,
+) -> None:
+    """Search the web and optionally scrape results (Firecrawl-compatible).
+
+    Examples:
+        supacrawl search "python web scraping"
+        supacrawl search "site:docs.python.org asyncio" --limit 10
+        supacrawl search "AI startups 2024" --scrape --output results.json
+        supacrawl search "product screenshots" --source images
+        supacrawl search "tech news" --source news
+        supacrawl search "AI announcements" --source web --source news
+        supacrawl search "topic" --source all
+    """
+    import json
+
+    from supacrawl.services.search import ScrapeOptions, SearchService
+
+    # Expand "all" to individual source types
+    source_list: list[str] = []
+    for s in sources:
+        if s.lower() == "all":
+            source_list.extend(["web", "images", "news"])
+        else:
+            source_list.append(s.lower())
+
+    # Remove duplicates while preserving order
+    seen: set[str] = set()
+    unique_sources: list[str] = []
+    for s in source_list:
+        if s not in seen:
+            seen.add(s)
+            unique_sources.append(s)
+
+    async def run():
+        # Create scrape service if scraping is requested
+        scrape_service = None
+        scrape_options = None
+
+        if scrape:
+            from supacrawl.services.scrape import ScrapeService
+
+            scrape_service = ScrapeService()
+            scrape_options = ScrapeOptions(formats=["markdown"], only_main_content=True)
+
+        service = SearchService(
+            scrape_service=scrape_service,
+            provider=provider,  # type: ignore[arg-type]
+        )
+
+        try:
+            result = await service.search(
+                query=query,
+                limit=limit,
+                sources=unique_sources,  # type: ignore[arg-type]
+                scrape_options=scrape_options,
+            )
+            return result
+        finally:
+            await service.close()
+
+    result = asyncio.run(run())
+
+    if not result.success:
+        click.echo(f"Error: {result.error}", err=True)
+        raise SystemExit(1)
+
+    # Format output
+    output_data = result.model_dump(exclude_none=True)
+    json_str = json.dumps(output_data, indent=2)
+
+    if output:
+        with open(output, "w") as f:
+            f.write(json_str)
+        click.echo(f"Wrote {len(result.data)} results to {output}")
+    else:
+        click.echo(json_str)
+
+
+@app.command("llm-extract", help="Extract structured data from URLs using LLM (Firecrawl-compatible API).")
+@click.argument("urls", nargs=-1, required=True)
+@click.option(
+    "--prompt",
+    "-p",
+    type=str,
+    required=True,
+    help="Extraction prompt describing what data to extract.",
+)
+@click.option(
+    "--schema",
+    "-s",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to JSON schema file for structured output.",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["ollama", "openai", "anthropic"], case_sensitive=False),
+    default="ollama",
+    show_default=True,
+    help="LLM provider to use.",
+)
+@click.option(
+    "--model",
+    type=str,
+    default=None,
+    help="Model name (defaults to provider's default).",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Output file (JSON). If omitted, prints to stdout.",
+)
+def llm_extract(
+    urls: tuple[str, ...],
+    prompt: str,
+    schema: Path | None,
+    provider: str,
+    model: str | None,
+    output: Path | None,
+) -> None:
+    """Extract structured data from URLs using LLM (Firecrawl-compatible).
+
+    Examples:
+        supacrawl llm-extract https://example.com/product -p "Extract product name and price"
+        supacrawl llm-extract https://example.com -p "Extract contact info" -s schema.json
+        supacrawl llm-extract https://a.com https://b.com -p "Extract titles" --provider openai
+    """
+    import json
+
+    from supacrawl.services.extract import ExtractService
+    from supacrawl.services.scrape import ScrapeService
+
+    # Load schema if provided
+    schema_dict = None
+    if schema:
+        with open(schema) as f:
+            schema_dict = json.load(f)
+
+    async def run():
+        scrape_service = ScrapeService()
+        service = ExtractService(
+            scrape_service=scrape_service,
+            provider=provider,  # type: ignore[arg-type]
+            model=model,
+        )
+
+        try:
+            result = await service.extract(
+                urls=list(urls),
+                prompt=prompt,
+                schema=schema_dict,
+            )
+            return result
+        finally:
+            await service.close()
+
+    result = asyncio.run(run())
+
+    if not result.success:
+        click.echo(f"Error: {result.error}", err=True)
+        # Still output partial results if available
+        if not result.data:
+            raise SystemExit(1)
+
+    # Format output
+    output_data = result.model_dump(exclude_none=True)
+    json_str = json.dumps(output_data, indent=2)
+
+    if output:
+        with open(output, "w") as f:
+            f.write(json_str)
+        successful = sum(1 for item in result.data if item.success)
+        click.echo(f"Extracted from {successful}/{len(result.data)} URLs to {output}")
+    else:
+        click.echo(json_str)
+
+
+@app.command("agent", help="Run autonomous web agent (Firecrawl-compatible API).")
+@click.argument("prompt")
+@click.option(
+    "--url",
+    "-u",
+    "urls",
+    multiple=True,
+    help="Starting URLs (can be specified multiple times). If omitted, agent searches first.",
+)
+@click.option(
+    "--schema",
+    "-s",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to JSON schema file for structured output.",
+)
+@click.option(
+    "--max-steps",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Maximum pages to visit.",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["ollama", "openai", "anthropic"], case_sensitive=False),
+    default="ollama",
+    show_default=True,
+    help="LLM provider to use.",
+)
+@click.option(
+    "--model",
+    type=str,
+    default=None,
+    help="Model name (defaults to provider's default).",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Output file (JSON). If omitted, prints to stdout.",
+)
+@click.option(
+    "--quiet",
+    "-q",
+    is_flag=True,
+    default=False,
+    help="Suppress progress output, only show final result.",
+)
+def agent_cmd(
+    prompt: str,
+    urls: tuple[str, ...],
+    schema: Path | None,
+    max_steps: int,
+    provider: str,
+    model: str | None,
+    output: Path | None,
+    quiet: bool,
+) -> None:
+    """Run autonomous web agent to gather data (Firecrawl-compatible).
+
+    The agent will search the web, visit relevant pages, and extract
+    information based on your prompt.
+
+    Examples:
+        supacrawl agent "Find AI startups founded in 2024"
+        supacrawl agent "Find product pricing" -u https://example.com/pricing
+        supacrawl agent "Find tech news" --max-steps 20 --output results.json
+    """
+    import json
+
+    from supacrawl.services.agent import AgentService
+    from supacrawl.services.scrape import ScrapeService
+    from supacrawl.services.search import SearchService
+
+    # Load schema if provided
+    schema_dict = None
+    if schema:
+        with open(schema) as f:
+            schema_dict = json.load(f)
+
+    async def run():
+        scrape_service = ScrapeService()
+        search_service = SearchService(scrape_service=scrape_service)
+        agent = AgentService(
+            scrape_service=scrape_service,
+            search_service=search_service,
+            provider=provider,  # type: ignore[arg-type]
+            model=model,
+        )
+
+        try:
+            # Stream events unless quiet mode
+            if quiet:
+                result = await agent.run_sync(
+                    prompt=prompt,
+                    urls=list(urls) if urls else None,
+                    schema=schema_dict,
+                    max_steps=max_steps,
+                )
+                return result
+            else:
+                # Stream events to stderr, return final result
+                final_result = None
+                async for event in agent.run(
+                    prompt=prompt,
+                    urls=list(urls) if urls else None,
+                    schema=schema_dict,
+                    max_steps=max_steps,
+                ):
+                    if event.type == "thinking":
+                        click.echo(f"💭 {event.message}", err=True)
+                    elif event.type == "action":
+                        click.echo(f"🔍 {event.message}", err=True)
+                    elif event.type == "result":
+                        click.echo(f"✓ {event.message}", err=True)
+                    elif event.type == "error":
+                        click.echo(f"✗ {event.message}", err=True)
+                    elif event.type == "complete":
+                        click.echo(f"\n✅ {event.message}", err=True)
+                        from supacrawl.models import AgentResult
+
+                        final_result = AgentResult(
+                            success=True,
+                            data=event.data,
+                            urls_visited=[],  # Not tracked in streaming mode
+                        )
+
+                return final_result
+        finally:
+            await search_service.close()
+            await agent.close()
+
+    result = asyncio.run(run())
+
+    if result is None or not result.success:
+        error_msg = result.error if result else "Agent failed"
+        click.echo(f"Error: {error_msg}", err=True)
+        raise SystemExit(1)
+
+    # Format output
+    output_data = result.model_dump(exclude_none=True)
+    json_str = json.dumps(output_data, indent=2)
+
+    if output:
+        with open(output, "w") as f:
+            f.write(json_str)
+        click.echo(f"Wrote results to {output}")
+    else:
+        click.echo(json_str)
+
+
+# Cache management commands
+@app.group()
+def cache() -> None:
+    """Manage the local scrape cache.
+
+    The cache stores scraped content locally for faster repeated requests.
+    Use --max-age with scrape-url to enable caching.
+
+    Examples:
+        supacrawl cache stats           # Show cache statistics
+        supacrawl cache clear           # Clear all cached entries
+        supacrawl cache clear --url URL # Clear cache for specific URL
+        supacrawl cache prune           # Remove expired entries
+    """
+    pass
+
+
+@cache.command("stats")
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Cache directory. Defaults to ~/.supacrawl/cache or SUPACRAWL_CACHE_DIR.",
+)
+def cache_stats(cache_dir: Path | None) -> None:
+    """Show cache statistics."""
+    from supacrawl.cache import CacheManager
+
+    cache_manager = CacheManager(cache_dir)
+    stats = cache_manager.stats()
+
+    click.echo("Cache Statistics:")
+    click.echo(f"  Directory: {stats['cache_dir']}")
+    click.echo(f"  Total entries: {stats['entries']}")
+    click.echo(f"  Valid entries: {stats['valid']}")
+    click.echo(f"  Expired entries: {stats['expired']}")
+    click.echo(f"  Size: {stats['size_human']}")
+
+
+@cache.command("clear")
+@click.option(
+    "--url",
+    type=str,
+    default=None,
+    help="Clear cache for specific URL only. If not specified, clears all cache.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Cache directory. Defaults to ~/.supacrawl/cache or SUPACRAWL_CACHE_DIR.",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt.",
+)
+def cache_clear(url: str | None, cache_dir: Path | None, yes: bool) -> None:
+    """Clear cached entries."""
+    from supacrawl.cache import CacheManager
+
+    if not yes and not url:
+        if not click.confirm("Are you sure you want to clear all cache entries?"):
+            click.echo("Aborted.")
+            return
+
+    cache_manager = CacheManager(cache_dir)
+    cleared = cache_manager.clear(url)
+
+    if url:
+        if cleared:
+            click.echo(f"Cleared cache for: {url}")
+        else:
+            click.echo(f"No cache entry found for: {url}")
+    else:
+        click.echo(f"Cleared {cleared} cache entries")
+
+
+@cache.command("prune")
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Cache directory. Defaults to ~/.supacrawl/cache or SUPACRAWL_CACHE_DIR.",
+)
+def cache_prune(cache_dir: Path | None) -> None:
+    """Remove expired cache entries."""
+    from supacrawl.cache import CacheManager
+
+    cache_manager = CacheManager(cache_dir)
+    pruned = cache_manager.prune_expired()
+
+    click.echo(f"Pruned {pruned} expired cache entries")
 
 
 if __name__ == "__main__":

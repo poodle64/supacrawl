@@ -3,6 +3,11 @@ Web search service for supacrawl.
 
 Provides search functionality using DuckDuckGo (free, no API key)
 or Brave Search (requires API key for higher limits).
+
+Supports multiple search source types (Firecrawl-compatible):
+- web: Standard web search (default)
+- images: Image search results
+- news: News article search
 """
 
 from __future__ import annotations
@@ -10,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -17,13 +23,16 @@ import httpx
 from bs4 import BeautifulSoup
 
 from supacrawl.exceptions import ProviderError, generate_correlation_id
-from supacrawl.models import SearchResult, SearchResultItem, ScrapeMetadata
+from supacrawl.models import SearchResult, SearchResultItem, SearchSourceType
 from supacrawl.utils import log_with_correlation
 
 if TYPE_CHECKING:
     from supacrawl.services.scrape import ScrapeService
 
 LOGGER = logging.getLogger(__name__)
+
+# Type alias for source types
+SourceType = Literal["web", "images", "news"]
 
 
 @dataclass
@@ -85,6 +94,7 @@ class SearchService:
         self,
         query: str,
         limit: int = 5,
+        sources: list[SourceType] | None = None,
         scrape_options: ScrapeOptions | None = None,
     ) -> SearchResult:
         """
@@ -95,14 +105,20 @@ class SearchService:
                 - "quotes" for exact match
                 - -word to exclude
                 - site:example.com to limit to domain
-            limit: Maximum number of results (1-10).
-            scrape_options: Options for scraping result pages.
+            limit: Maximum number of results (1-10) per source type.
+            sources: List of source types to search. Defaults to ["web"].
+                Supported: "web", "images", "news".
+            scrape_options: Options for scraping result pages (web only).
 
         Returns:
             SearchResult with search results and optional scraped content.
         """
         correlation_id = generate_correlation_id()
         limit = max(1, min(limit, 10))  # Clamp to 1-10
+
+        # Default to web search
+        if sources is None:
+            sources = ["web"]
 
         try:
             log_with_correlation(
@@ -112,25 +128,55 @@ class SearchService:
                 correlation_id=correlation_id,
                 query=query,
                 limit=limit,
+                sources=sources,
             )
 
-            if self._provider == "brave" and self._brave_api_key:
-                results = await self._search_brave(query, limit, correlation_id)
-            else:
-                results = await self._search_duckduckgo(query, limit, correlation_id)
+            all_results: list[SearchResultItem] = []
 
-            # Optionally scrape results
+            # Search each source type
+            for source in sources:
+                if source == "web":
+                    if self._provider == "brave" and self._brave_api_key:
+                        results = await self._search_brave(query, limit, correlation_id)
+                    else:
+                        results = await self._search_duckduckgo(query, limit, correlation_id)
+                elif source == "images":
+                    if self._provider == "brave" and self._brave_api_key:
+                        results = await self._search_brave_images(query, limit, correlation_id)
+                    else:
+                        results = await self._search_duckduckgo_images(query, limit, correlation_id)
+                elif source == "news":
+                    if self._provider == "brave" and self._brave_api_key:
+                        results = await self._search_brave_news(query, limit, correlation_id)
+                    else:
+                        results = await self._search_duckduckgo_news(query, limit, correlation_id)
+                else:
+                    log_with_correlation(
+                        LOGGER,
+                        logging.WARNING,
+                        f"Unknown source type: {source}",
+                        correlation_id=correlation_id,
+                    )
+                    continue
+
+                all_results.extend(results)
+
+            # Optionally scrape results (web results only)
             if scrape_options and self._scrape_service:
-                results = await self._scrape_results(results, scrape_options, correlation_id)
+                web_results = [r for r in all_results if r.source_type == SearchSourceType.WEB]
+                other_results = [r for r in all_results if r.source_type != SearchSourceType.WEB]
+                if web_results:
+                    web_results = await self._scrape_results(web_results, scrape_options, correlation_id)
+                all_results = web_results + other_results
 
             log_with_correlation(
                 LOGGER,
                 logging.INFO,
-                f"Search completed with {len(results)} results",
+                f"Search completed with {len(all_results)} results",
                 correlation_id=correlation_id,
             )
 
-            return SearchResult(success=True, data=results)
+            return SearchResult(success=True, data=all_results)
 
         except Exception as e:
             log_with_correlation(
@@ -181,8 +227,9 @@ class SearchService:
             if len(results) >= limit:
                 break
 
-            href = link_cell.get("href", "")
-            if not href or href.startswith("//duckduckgo.com"):
+            href_attr = link_cell.get("href", "")
+            href = href_attr[0] if isinstance(href_attr, list) else href_attr
+            if not href or not isinstance(href, str) or href.startswith("//duckduckgo.com"):
                 continue
 
             title = link_cell.get_text(strip=True)
@@ -203,9 +250,199 @@ class SearchService:
                         url=str(href),
                         title=title,
                         description=description,
+                        source_type=SearchSourceType.WEB,
                     )
                 )
 
+        return results
+
+    async def _search_duckduckgo_images(
+        self,
+        query: str,
+        limit: int,
+        correlation_id: str,
+    ) -> list[SearchResultItem]:
+        """
+        Search for images using DuckDuckGo.
+
+        Uses DuckDuckGo's image search API endpoint.
+        """
+        client = await self._get_client()
+
+        # First, we need to get a vqd token from the main search
+        token_params = {"q": query}
+        token_response = await client.get(
+            "https://duckduckgo.com/",
+            params=token_params,
+        )
+
+        # Extract vqd token from response
+        vqd_match = re.search(r'vqd=["\']([^"\']+)["\']', token_response.text)
+        if not vqd_match:
+            # Fallback: try to find vqd in a different format
+            vqd_match = re.search(r'vqd=([a-zA-Z0-9_-]+)', token_response.text)
+
+        if not vqd_match:
+            log_with_correlation(
+                LOGGER,
+                logging.WARNING,
+                "Could not extract DuckDuckGo vqd token for image search",
+                correlation_id=correlation_id,
+            )
+            return []
+
+        vqd = vqd_match.group(1)
+
+        # Now make the image search request
+        params = {
+            "q": query,
+            "vqd": vqd,
+            "l": "au-en",
+            "o": "json",
+            "f": ",,,",
+            "p": "1",
+        }
+
+        response = await client.get(
+            "https://duckduckgo.com/i.js",
+            params=params,
+        )
+
+        results: list[SearchResultItem] = []
+
+        try:
+            data = response.json()
+            for item in data.get("results", [])[:limit]:
+                image_url = item.get("image", "")
+                if not image_url:
+                    continue
+
+                results.append(
+                    SearchResultItem(
+                        url=image_url,
+                        title=item.get("title", ""),
+                        description=item.get("source", ""),
+                        source_type=SearchSourceType.IMAGES,
+                        thumbnail=item.get("thumbnail", ""),
+                        image_width=item.get("width"),
+                        image_height=item.get("height"),
+                    )
+                )
+        except Exception as e:
+            log_with_correlation(
+                LOGGER,
+                logging.WARNING,
+                f"Failed to parse DuckDuckGo image results: {e}",
+                correlation_id=correlation_id,
+            )
+
+        log_with_correlation(
+            LOGGER,
+            logging.DEBUG,
+            f"DuckDuckGo images returned {len(results)} results",
+            correlation_id=correlation_id,
+            query=query,
+        )
+        return results
+
+    async def _search_duckduckgo_news(
+        self,
+        query: str,
+        limit: int,
+        correlation_id: str,
+    ) -> list[SearchResultItem]:
+        """
+        Search for news using DuckDuckGo.
+
+        Uses DuckDuckGo's news search API endpoint.
+        """
+        client = await self._get_client()
+
+        # First, we need to get a vqd token from the main search
+        token_params = {"q": query}
+        token_response = await client.get(
+            "https://duckduckgo.com/",
+            params=token_params,
+        )
+
+        # Extract vqd token from response
+        vqd_match = re.search(r'vqd=["\']([^"\']+)["\']', token_response.text)
+        if not vqd_match:
+            vqd_match = re.search(r'vqd=([a-zA-Z0-9_-]+)', token_response.text)
+
+        if not vqd_match:
+            log_with_correlation(
+                LOGGER,
+                logging.WARNING,
+                "Could not extract DuckDuckGo vqd token for news search",
+                correlation_id=correlation_id,
+            )
+            return []
+
+        vqd = vqd_match.group(1)
+
+        # Now make the news search request
+        params = {
+            "q": query,
+            "vqd": vqd,
+            "l": "au-en",
+            "o": "json",
+            "noamp": "1",
+            "df": "",
+        }
+
+        response = await client.get(
+            "https://duckduckgo.com/news.js",
+            params=params,
+        )
+
+        results: list[SearchResultItem] = []
+
+        try:
+            data = response.json()
+            for item in data.get("results", [])[:limit]:
+                url = item.get("url", "")
+                if not url:
+                    continue
+
+                # Parse date from Unix timestamp if available
+                published_at = None
+                if "date" in item:
+                    try:
+                        from datetime import datetime, timezone
+
+                        timestamp = item["date"]
+                        if isinstance(timestamp, int):
+                            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                            published_at = dt.isoformat()
+                    except Exception:
+                        pass
+
+                results.append(
+                    SearchResultItem(
+                        url=url,
+                        title=item.get("title", ""),
+                        description=item.get("excerpt", item.get("body", "")),
+                        source_type=SearchSourceType.NEWS,
+                        published_at=published_at,
+                        source_name=item.get("source", ""),
+                    )
+                )
+        except Exception as e:
+            log_with_correlation(
+                LOGGER,
+                logging.WARNING,
+                f"Failed to parse DuckDuckGo news results: {e}",
+                correlation_id=correlation_id,
+            )
+
+        log_with_correlation(
+            LOGGER,
+            logging.DEBUG,
+            f"DuckDuckGo news returned {len(results)} results",
+            correlation_id=correlation_id,
+            query=query,
+        )
         return results
 
     async def _search_brave(
@@ -232,7 +469,7 @@ class SearchService:
             "Accept": "application/json",
             "X-Subscription-Token": self._brave_api_key,
         }
-        params = {"q": query, "count": limit}
+        params: dict[str, str | int] = {"q": query, "count": limit}
 
         response = await client.get(
             "https://api.search.brave.com/res/v1/web/search",
@@ -250,6 +487,7 @@ class SearchService:
                     url=item.get("url", ""),
                     title=item.get("title", ""),
                     description=item.get("description", ""),
+                    source_type=SearchSourceType.WEB,
                 )
             )
 
@@ -257,6 +495,125 @@ class SearchService:
             LOGGER,
             logging.DEBUG,
             f"Brave returned {len(results)} results",
+            correlation_id=correlation_id,
+            query=query,
+        )
+        return results
+
+    async def _search_brave_images(
+        self,
+        query: str,
+        limit: int,
+        correlation_id: str,
+    ) -> list[SearchResultItem]:
+        """
+        Search for images using Brave Search API.
+
+        Requires BRAVE_API_KEY environment variable or constructor parameter.
+        """
+        if not self._brave_api_key:
+            raise ProviderError(
+                "Brave API key not configured",
+                provider="brave",
+                correlation_id=correlation_id,
+            )
+
+        client = await self._get_client()
+
+        headers = {
+            "Accept": "application/json",
+            "X-Subscription-Token": self._brave_api_key,
+        }
+        params: dict[str, str | int] = {"q": query, "count": limit}
+
+        response = await client.get(
+            "https://api.search.brave.com/res/v1/images/search",
+            headers=headers,
+            params=params,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        results: list[SearchResultItem] = []
+
+        for item in data.get("results", [])[:limit]:
+            results.append(
+                SearchResultItem(
+                    url=item.get("url", ""),
+                    title=item.get("title", ""),
+                    description=item.get("source", ""),
+                    source_type=SearchSourceType.IMAGES,
+                    thumbnail=item.get("thumbnail", {}).get("src", ""),
+                    image_width=item.get("properties", {}).get("width"),
+                    image_height=item.get("properties", {}).get("height"),
+                )
+            )
+
+        log_with_correlation(
+            LOGGER,
+            logging.DEBUG,
+            f"Brave images returned {len(results)} results",
+            correlation_id=correlation_id,
+            query=query,
+        )
+        return results
+
+    async def _search_brave_news(
+        self,
+        query: str,
+        limit: int,
+        correlation_id: str,
+    ) -> list[SearchResultItem]:
+        """
+        Search for news using Brave Search API.
+
+        Requires BRAVE_API_KEY environment variable or constructor parameter.
+        """
+        if not self._brave_api_key:
+            raise ProviderError(
+                "Brave API key not configured",
+                provider="brave",
+                correlation_id=correlation_id,
+            )
+
+        client = await self._get_client()
+
+        headers = {
+            "Accept": "application/json",
+            "X-Subscription-Token": self._brave_api_key,
+        }
+        params: dict[str, str | int] = {"q": query, "count": limit}
+
+        response = await client.get(
+            "https://api.search.brave.com/res/v1/news/search",
+            headers=headers,
+            params=params,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        results: list[SearchResultItem] = []
+
+        for item in data.get("results", [])[:limit]:
+            # Brave news returns age as relative time (e.g., "2 hours ago")
+            # and page_age as ISO 8601 timestamp
+            published_at = item.get("page_age")
+
+            results.append(
+                SearchResultItem(
+                    url=item.get("url", ""),
+                    title=item.get("title", ""),
+                    description=item.get("description", ""),
+                    source_type=SearchSourceType.NEWS,
+                    published_at=published_at,
+                    source_name=item.get("meta_url", {}).get("hostname", ""),
+                )
+            )
+
+        log_with_correlation(
+            LOGGER,
+            logging.DEBUG,
+            f"Brave news returned {len(results)} results",
             correlation_id=correlation_id,
             query=query,
         )
@@ -282,13 +639,15 @@ class SearchService:
         if not self._scrape_service:
             return results
 
+        # Capture service reference for closure
+        scrape_service = self._scrape_service
         formats = options.formats or ["markdown"]
 
         async def scrape_one(item: SearchResultItem) -> SearchResultItem:
             try:
-                result = await self._scrape_service.scrape(
+                result = await scrape_service.scrape(
                     url=item.url,
-                    formats=formats,
+                    formats=list(formats),  # type: ignore[arg-type]
                     only_main_content=options.only_main_content,
                 )
                 if result.success and result.data:

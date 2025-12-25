@@ -98,3 +98,22 @@ class TestCrawlService:
             manifest = json.load(f)
             assert "scraped_urls" in manifest
             assert len(manifest["scraped_urls"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_crawl_allow_external_links_accepted(self, tmp_path: Path):
+        """Test that allow_external_links parameter is accepted."""
+        service = CrawlService()
+        events = []
+        async for event in service.crawl(
+            "https://example.com",
+            limit=2,
+            output_dir=tmp_path,
+            allow_external_links=True,
+        ):
+            events.append(event)
+            if event.type == "complete":
+                break
+
+        # Should complete without error
+        assert len(events) > 0
+        assert any(e.type == "complete" for e in events)

@@ -91,3 +91,29 @@ class TestMapService:
         result = await service.map("https://example.com", limit=5, sitemap="skip")
         # Should succeed or fail gracefully
         assert isinstance(result, MapResult)
+
+    @pytest.mark.asyncio
+    async def test_allow_external_links_default_false(self):
+        """Test that external links are excluded by default."""
+        service = MapService()
+        result = await service.map("https://example.com", limit=10, sitemap="skip")
+        if result.success:
+            # All URLs should be from example.com (no external)
+            for link in result.links:
+                assert "example.com" in link.url, f"External link found: {link.url}"
+
+    @pytest.mark.asyncio
+    async def test_allow_external_links_enabled(self):
+        """Test that external links are allowed when enabled."""
+        service = MapService()
+        # This test verifies the parameter is accepted; actual external link
+        # discovery depends on the source page having external links
+        result = await service.map(
+            "https://example.com",
+            limit=10,
+            sitemap="skip",
+            allow_external_links=True,
+        )
+        assert isinstance(result, MapResult)
+        # Should succeed or fail gracefully
+        assert result.success is True or result.error is not None

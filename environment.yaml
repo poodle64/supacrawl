@@ -7,6 +7,9 @@ dependencies:
   - python=3.12
   - pip
   - pip:
+    # Install supacrawl package in editable mode
+    - -e .
+
     # Build Tools
     - setuptools>=61.0
     - wheel

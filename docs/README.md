@@ -20,7 +20,7 @@
 
 ## Schemas
 
-- **`supacrawl/schemas/snapshot-manifest.schema.json`** - JSON schema for snapshot manifest validation
+- **`src/supacrawl/schemas/snapshot-manifest.schema.json`** - JSON schema for snapshot manifest validation
 
 ## Quick Reference
 

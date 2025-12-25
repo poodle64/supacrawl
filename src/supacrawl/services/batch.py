@@ -31,6 +31,7 @@ class BatchService:
         self,
         urls: list[str],
         concurrency: int = 5,
+        formats: list[str] | None = None,
         only_main_content: bool = True,
         timeout: int = 30000,
     ) -> AsyncGenerator[BatchEvent, None]:
@@ -39,12 +40,14 @@ class BatchService:
         Args:
             urls: List of URLs to scrape
             concurrency: Maximum concurrent requests
+            formats: Output formats (markdown, html, rawHtml, links)
             only_main_content: Extract main content only
             timeout: Per-page timeout in ms
 
         Yields:
             BatchEvent for each completed URL and progress updates
         """
+        scrape_formats = formats or ["markdown"]
         total = len(urls)
         completed = 0
         successful = 0
@@ -62,6 +65,7 @@ class BatchService:
                         service = ScrapeService(browser=browser)
                         result = await service.scrape(
                             url=url,
+                            formats=scrape_formats,  # type: ignore[arg-type]
                             only_main_content=only_main_content,
                         )
 

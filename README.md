@@ -321,10 +321,10 @@ See [Corpus Layout](docs/30-architecture/corpus-layout-supacrawl.md) for detaile
 
 ```bash
 # Linting
-ruff check supacrawl tools
+ruff check src/supacrawl
 
 # Type checking
-mypy supacrawl
+mypy src/supacrawl
 
 # Fast local testing (excludes browser-based e2e tests)
 pytest -q -m "not e2e"

@@ -7,6 +7,34 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2025.12.3] - 2025-12-26
+
+### Added
+
+- **Cache service**: Local caching for scraped content with configurable expiry, statistics, and pruning. Use `--max-age` with `scrape-url` to enable caching, manage with `supacrawl cache` subcommands
+- **Actions service**: Page interaction actions for complex scraping workflows (click, scroll, wait, screenshot, form filling)
+- **Branding extraction**: Extract brand identity (colours, fonts, logos, typography) from pages with `--format branding`
+- **CAPTCHA solving**: Optional 2Captcha integration for solving reCAPTCHA, hCaptcha, and Turnstile. Install with `pip install supacrawl[captcha]`
+- **Stealth mode**: Patchright-based stealth browsing for bot-protected sites. Install with `pip install supacrawl[stealth]`
+- **New CLI commands**: `search`, `llm-extract`, `agent`, `cache` for Firecrawl-compatible workflows
+
+### Changed
+
+- **Dynamic version loading**: Package version now read from `pyproject.toml` via `importlib.metadata`, eliminating version drift between files
+
+### Fixed
+
+- Fixed 23 mypy type errors across cache, captcha, branding, browser, and scrape services
+- Fixed `.claude/CLAUDE.md` references to use correct `.cursor/rules/` path
+- Fixed `docs/README.md` schema reference path
+- Fixed CLI documentation to include all Firecrawl-compatible commands
+
+### Internal
+
+- Removed completed `FIRECRAWL_PARITY_PLAN.md`
+- Enhanced test coverage for new services
+- Improved type annotations throughout
+
 ## [2025.12.2] - 2025-12-25
 
 ### Breaking Changes

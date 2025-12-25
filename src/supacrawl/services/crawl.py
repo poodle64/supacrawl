@@ -13,6 +13,7 @@ from supacrawl.models import CrawlEvent, ScrapeData
 from supacrawl.services.browser import BrowserManager
 from supacrawl.services.map import MapService
 from supacrawl.services.scrape import ScrapeService
+from supacrawl.utils import normalise_url_for_dedupe
 
 if TYPE_CHECKING:
     from supacrawl.corpus.adapter import OutputAdapter
@@ -49,6 +50,11 @@ class CrawlService:
         resume: bool = False,
         formats: list[str] | None = None,
         output_adapter: OutputAdapter | None = None,
+        deduplicate_similar_urls: bool = False,
+        allow_external_links: bool = False,
+        locale_config: object | None = None,  # LocaleConfig
+        stealth: bool = False,
+        proxy: str | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -62,6 +68,13 @@ class CrawlService:
             resume: Resume from previous crawl state
             formats: Output formats to save (default: ["markdown"])
             output_adapter: Optional OutputAdapter for corpus output with manifests
+            deduplicate_similar_urls: Deduplicate URLs that differ only by
+                tracking parameters or fragments (default: False)
+            allow_external_links: Follow and scrape links to external domains
+                (Firecrawl-compatible, default: False)
+            locale_config: Optional LocaleConfig for browser locale/timezone settings
+            stealth: Enable stealth mode via Patchright for anti-bot evasion
+            proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
 
         Yields:
             CrawlEvent for each page and progress update
@@ -74,11 +87,11 @@ class CrawlService:
             if output_adapter:
                 await output_adapter.start()
 
-            # Initialize browser and services
-            async with BrowserManager() as browser:
+            # Initialize browser and services with locale config and stealth mode
+            async with BrowserManager(locale_config=locale_config, stealth=stealth, proxy=proxy) as browser:
                 self._browser = browser
                 self._map_service = MapService(browser=browser)
-                self._scrape_service = ScrapeService(browser=browser)
+                self._scrape_service = ScrapeService(browser=browser, locale_config=locale_config)
 
                 # Load resume state
                 scraped_urls: set[str] = set()
@@ -94,10 +107,13 @@ class CrawlService:
 
                 # Discover URLs
                 LOGGER.info(f"Mapping URLs from {url}")
+                if allow_external_links:
+                    LOGGER.info("External links enabled - will follow cross-domain links")
                 map_result = await self._map_service.map(
                     url=url,
                     limit=limit,
                     max_depth=max_depth,
+                    allow_external_links=allow_external_links,
                 )
 
                 if not map_result.success:
@@ -109,6 +125,9 @@ class CrawlService:
 
                 # Filter URLs
                 urls_to_scrape = []
+                normalised_urls: set[str] = set()
+                dedupe_count = 0
+
                 for link in map_result.links:
                     if link.url in scraped_urls:
                         continue
@@ -118,9 +137,21 @@ class CrawlService:
                         continue
                     if exclude_patterns and self._matches_patterns(link.url, exclude_patterns):
                         continue
+
+                    # Deduplicate similar URLs if enabled
+                    if deduplicate_similar_urls:
+                        normalised = normalise_url_for_dedupe(link.url)
+                        if normalised in normalised_urls:
+                            LOGGER.debug(f"Deduplicated URL: {link.url}")
+                            dedupe_count += 1
+                            continue
+                        normalised_urls.add(normalised)
+
                     urls_to_scrape.append(link.url)
 
                 total = len(urls_to_scrape)
+                if dedupe_count > 0:
+                    LOGGER.info(f"Deduplicated {dedupe_count} similar URLs")
                 LOGGER.info(f"Found {total} URLs to scrape")
 
                 yield CrawlEvent(
@@ -301,7 +332,7 @@ class CrawlService:
 
         # Update manifest
         manifest_path = output_dir / "manifest.json"
-        manifest = {"scraped_urls": []}
+        manifest: dict[str, list[str]] = {"scraped_urls": []}
         if manifest_path.exists():
             with open(manifest_path) as f:
                 manifest = json.load(f)

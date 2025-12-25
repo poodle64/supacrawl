@@ -215,6 +215,8 @@ class MarkdownConverter:
         base_url: str | None = None,
         only_main_content: bool = True,
         remove_boilerplate: bool = True,
+        include_tags: list[str] | None = None,
+        exclude_tags: list[str] | None = None,
     ) -> str:
         """Convert HTML to markdown.
 
@@ -225,6 +227,10 @@ class MarkdownConverter:
             base_url: Base URL for resolving relative links
             only_main_content: Extract main content area only
             remove_boilerplate: Remove nav, footer, ads, etc.
+            include_tags: CSS selectors for elements to include (Firecrawl-compatible).
+                         When specified, takes precedence over only_main_content.
+            exclude_tags: CSS selectors for elements to exclude (Firecrawl-compatible).
+                         Applied before include_tags filtering.
 
         Returns:
             Clean markdown string
@@ -233,7 +239,8 @@ class MarkdownConverter:
             return ""
 
         return self._convert_with_patterns(
-            html, base_url, only_main_content, remove_boilerplate
+            html, base_url, only_main_content, remove_boilerplate,
+            include_tags, exclude_tags
         )
 
     def _convert_with_patterns(
@@ -242,6 +249,8 @@ class MarkdownConverter:
         base_url: str | None = None,
         only_main_content: bool = True,
         remove_boilerplate: bool = True,
+        include_tags: list[str] | None = None,
+        exclude_tags: list[str] | None = None,
     ) -> str:
         """Extract content using pattern-based approach (fallback).
 
@@ -250,6 +259,8 @@ class MarkdownConverter:
             base_url: Base URL for resolving relative links
             only_main_content: Extract main content area only
             remove_boilerplate: Remove nav, footer, ads, etc.
+            include_tags: CSS selectors for elements to include
+            exclude_tags: CSS selectors for elements to exclude
 
         Returns:
             Markdown string
@@ -260,8 +271,16 @@ class MarkdownConverter:
             if remove_boilerplate:
                 self._remove_boilerplate(soup)
 
+            # Apply exclude_tags first (before include_tags, as per Firecrawl spec)
+            if exclude_tags:
+                self._apply_exclude_tags(soup, exclude_tags)
+
             content_element = None
-            if only_main_content:
+
+            # include_tags takes precedence over only_main_content
+            if include_tags:
+                content_element = self._apply_include_tags(soup, include_tags)
+            elif only_main_content:
                 content_element = self._find_main_content(soup)
 
             if content_element:
@@ -290,6 +309,54 @@ class MarkdownConverter:
                 return soup.get_text(separator="\n\n", strip=True)
             except Exception:
                 return ""
+
+    def _apply_exclude_tags(self, soup: BeautifulSoup, exclude_tags: list[str]) -> None:
+        """Remove elements matching exclude_tags selectors.
+
+        Args:
+            soup: BeautifulSoup object to modify in-place
+            exclude_tags: List of CSS selectors for elements to remove
+        """
+        for selector in exclude_tags:
+            try:
+                for element in soup.select(selector):
+                    element.decompose()
+            except Exception as e:
+                LOGGER.warning(f"Invalid exclude_tags selector '{selector}': {e}")
+
+    def _apply_include_tags(self, soup: BeautifulSoup, include_tags: list[str]) -> Tag | None:
+        """Extract only elements matching include_tags selectors.
+
+        Args:
+            soup: BeautifulSoup object to search
+            include_tags: List of CSS selectors for elements to include
+
+        Returns:
+            A wrapper Tag containing all matched elements, or None if no matches
+        """
+        matched_elements: list[Tag] = []
+
+        for selector in include_tags:
+            try:
+                for element in soup.select(selector):
+                    # Avoid duplicates (e.g., nested matches)
+                    if element not in matched_elements:
+                        matched_elements.append(element)
+            except Exception as e:
+                LOGGER.warning(f"Invalid include_tags selector '{selector}': {e}")
+
+        if not matched_elements:
+            LOGGER.debug("No elements matched include_tags selectors")
+            return None
+
+        # Create a wrapper div to hold all matched elements
+        wrapper = soup.new_tag("div")
+        for element in matched_elements:
+            # Copy the element to avoid modifying the original structure
+            wrapper.append(element.extract())
+
+        LOGGER.debug(f"include_tags matched {len(matched_elements)} elements")
+        return wrapper
 
     def _remove_boilerplate(self, soup: BeautifulSoup) -> None:
         """Remove boilerplate elements in-place."""

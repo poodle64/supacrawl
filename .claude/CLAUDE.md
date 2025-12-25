@@ -1,7 +1,7 @@
 # Supacrawl Project Instructions
 
 These instructions provide runtime context, defaults, and environment assumptions only.
-See `.claude/rules/` for constraints and requirements. See `docs/` for implementation patterns.
+See `.cursor/rules/` for constraints and requirements. See `docs/` for implementation patterns.
 
 ## Project Goal
 
@@ -49,19 +49,19 @@ See `.claude/rules/` for constraints and requirements. See `docs/` for implement
 
 ## Development Rules
 
-All detailed development rules are organized in `.claude/rules/` and automatically loaded by Claude Code.
+All detailed development rules are organized in `.cursor/rules/` and automatically loaded by editors.
 
 Key rule files include:
 - **00-project-foundations-supacrawl.mdc** - Project foundations and non-negotiable constraints
-- **20-python-backend-supacrawl.mdc** - Python backend development standards (if exists)
-- **30-architecture-supacrawl.mdc** - System architecture and design patterns (if exists)
+- **20-development-environment-supacrawl.mdc** - Development environment standards
+- **50-corpus-layout-patterns-supacrawl.mdc** - Corpus layout patterns
+- **70-error-handling-supacrawl.mdc** - Error handling patterns
 
-See `.claude/rules/README.md` for complete reference and `.claude/rules/master/` for universal principles.
+See `.cursor/rules/` for complete reference.
 
 ## Sources of Truth
 
-- **Rules**: `.claude/rules/` - Detailed development rules and constraints
+- **Rules**: `.cursor/rules/` - Detailed development rules and constraints
 - **Documentation**: `docs/` - Implementation patterns and guides
-- **Master Rules**: `.claude/rules/master/` - Universal principles (via symlink)
 - **Master Docs**: `docs/master/` - Conceptual explanations (via symlink)
 

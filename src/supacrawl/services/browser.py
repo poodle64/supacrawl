@@ -1,4 +1,31 @@
-"""Browser manager for Playwright-based page fetching."""
+"""Browser manager for Playwright-based page fetching.
+
+ANTI-BOT PROTECTION (automatic, no configuration needed):
+    The following evasions are applied by default to every page:
+    - navigator.webdriver = false (hides automation)
+    - Chrome runtime objects (window.chrome.runtime, etc.)
+    - Non-empty plugins array (avoids empty plugins fingerprint)
+    - Standard languages array (['en-US', 'en'])
+    - WebGL vendor/renderer spoofing (Intel Inc. / Intel Iris OpenGL Engine)
+    - Canvas fingerprint noise (unique per session, non-destructive)
+    - Standard browser headers (Accept-Language, Sec-Fetch-*, etc.)
+
+ENHANCED STEALTH (optional, for heavily protected sites):
+    Install: pip install supacrawl[stealth]
+    Usage: BrowserManager(stealth=True) or --stealth flag
+    Provides: Full Patchright browser with advanced anti-detection
+
+CAPTCHA SOLVING (optional, requires third-party service):
+    Install: pip install supacrawl[captcha]
+    Configure: export CAPTCHA_API_KEY=your-2captcha-api-key
+    Usage: ScrapeService(solve_captcha=True) or --solve-captcha flag
+    Supports: reCAPTCHA v2/v3, hCaptcha, Cloudflare Turnstile
+    WARNING: Each solve costs ~$0.002-0.003
+
+OTHER FEATURES:
+    - Proxy support: --proxy http://user:pass@host:port or socks5://host:port
+    - Locale/timezone: Automatic or via LocaleConfig
+"""
 
 from __future__ import annotations
 
@@ -7,12 +34,221 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser, BrowserContext, Page
 
 LOGGER = logging.getLogger(__name__)
+
+# Basic stealth scripts for non-stealth mode (subset of puppeteer-extra-plugin-stealth)
+STEALTH_SCRIPTS = [
+    # navigator.webdriver = false
+    """
+    Object.defineProperty(navigator, 'webdriver', {
+        get: () => false,
+    });
+    """,
+    # Chrome runtime objects
+    """
+    window.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+        app: {}
+    };
+    """,
+    # Plugins array (non-empty)
+    """
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+    });
+    """,
+    # Languages array
+    """
+    Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en'],
+    });
+    """,
+    # WebGL vendor/renderer spoofing (prevents GPU fingerprinting)
+    # Safely checks if WebGL exists before patching
+    """
+    (function() {
+        // Only patch if WebGL is available
+        if (typeof WebGLRenderingContext === 'undefined') return;
+
+        const getParameterOriginal = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            // UNMASKED_VENDOR_WEBGL
+            if (parameter === 37445) {
+                return 'Intel Inc.';
+            }
+            // UNMASKED_RENDERER_WEBGL
+            if (parameter === 37446) {
+                return 'Intel Iris OpenGL Engine';
+            }
+            return getParameterOriginal.call(this, parameter);
+        };
+
+        // Also patch WebGL2 if available
+        if (typeof WebGL2RenderingContext !== 'undefined') {
+            const getParameter2Original = WebGL2RenderingContext.prototype.getParameter;
+            WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) {
+                    return 'Intel Inc.';
+                }
+                if (parameter === 37446) {
+                    return 'Intel Iris OpenGL Engine';
+                }
+                return getParameter2Original.call(this, parameter);
+            };
+        }
+    })();
+    """,
+    # Canvas fingerprint noise - NON-DESTRUCTIVE approach
+    # Only affects the OUTPUT of toDataURL/toBlob, not the actual canvas content
+    # This ensures screenshots and visual rendering are unaffected
+    """
+    (function() {
+        // Session-stable noise seed (consistent within page, different per session)
+        const noiseSeed = Math.floor(Math.random() * 1000);
+
+        // Simple seeded random for consistent noise
+        function seededRandom(seed) {
+            const x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // Add subtle noise to a COPY of image data (non-destructive)
+        function addNoiseToData(data, seed) {
+            for (let i = 0; i < data.length; i += 4) {
+                // Modify RGB channels, not alpha
+                for (let c = 0; c < 3; c++) {
+                    const noise = Math.floor(seededRandom(seed + i + c) * 3) - 1;
+                    data[i + c] = Math.max(0, Math.min(255, data[i + c] + noise));
+                }
+            }
+        }
+
+        // Patch toDataURL - creates noisy copy without modifying original canvas
+        const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
+            // Only add noise for fingerprinting-relevant types
+            if (!type || type === 'image/png' || type === 'image/jpeg') {
+                try {
+                    const context = this.getContext('2d');
+                    if (context && this.width > 0 && this.height > 0) {
+                        // Create a temporary canvas to avoid modifying original
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = this.width;
+                        tempCanvas.height = this.height;
+                        const tempContext = tempCanvas.getContext('2d');
+
+                        // Copy original content
+                        tempContext.drawImage(this, 0, 0);
+
+                        // Get image data and add noise
+                        const imageData = tempContext.getImageData(0, 0, this.width, this.height);
+                        addNoiseToData(imageData.data, noiseSeed);
+                        tempContext.putImageData(imageData, 0, 0);
+
+                        // Return noisy version
+                        return originalToDataURL.call(tempCanvas, type, quality);
+                    }
+                } catch (e) {
+                    // Fall through to original on any error (e.g., WebGL canvas, tainted canvas)
+                }
+            }
+            return originalToDataURL.call(this, type, quality);
+        };
+
+        // Patch toBlob - creates noisy copy without modifying original canvas
+        const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+        HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+            if (!type || type === 'image/png' || type === 'image/jpeg') {
+                try {
+                    const context = this.getContext('2d');
+                    if (context && this.width > 0 && this.height > 0) {
+                        // Create a temporary canvas
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = this.width;
+                        tempCanvas.height = this.height;
+                        const tempContext = tempCanvas.getContext('2d');
+
+                        // Copy and add noise
+                        tempContext.drawImage(this, 0, 0);
+                        const imageData = tempContext.getImageData(0, 0, this.width, this.height);
+                        addNoiseToData(imageData.data, noiseSeed);
+                        tempContext.putImageData(imageData, 0, 0);
+
+                        // Return noisy version
+                        return originalToBlob.call(tempCanvas, callback, type, quality);
+                    }
+                } catch (e) {
+                    // Fall through to original
+                }
+            }
+            return originalToBlob.call(this, callback, type, quality);
+        };
+
+        // NOTE: We intentionally do NOT patch getImageData
+        // Patching getImageData breaks legitimate canvas operations (games, image editors)
+        // Fingerprinting typically uses toDataURL, so this is sufficient protection
+    })();
+    """,
+]
+
+
+def _parse_proxy_url(proxy_url: str) -> dict[str, Any]:
+    """Parse a proxy URL into Playwright proxy config.
+
+    Supports formats:
+        - http://host:port
+        - http://user:pass@host:port
+        - socks5://host:port
+        - socks5://user:pass@host:port
+
+    Args:
+        proxy_url: Proxy URL string
+
+    Returns:
+        Dictionary for Playwright proxy config
+
+    Raises:
+        ValueError: If proxy URL format is invalid
+    """
+    # Handle socks5 scheme (Playwright expects socks5://)
+    parsed = urlparse(proxy_url)
+
+    if parsed.scheme not in ("http", "https", "socks5"):
+        raise ValueError(
+            f"Invalid proxy scheme '{parsed.scheme}'. "
+            "Supported: http, https, socks5"
+        )
+
+    # Build proxy config
+    config: dict[str, Any] = {
+        "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port or 80}",
+    }
+
+    if parsed.username:
+        config["username"] = parsed.username
+    if parsed.password:
+        config["password"] = parsed.password
+
+    return config
+
+
+class StealthNotAvailableError(ImportError):
+    """Raised when stealth mode is requested but patchright is not installed."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Stealth mode requires patchright. Install with: pip install supacrawl[stealth]"
+        )
 
 
 @dataclass
@@ -25,6 +261,7 @@ class PageContent:
     status_code: int
     screenshot: bytes | None = None
     pdf: bytes | None = None
+    action_results: list[Any] | None = None  # Results from ActionRunner
 
 
 @dataclass
@@ -53,6 +290,16 @@ class BrowserManager:
     Usage:
         async with BrowserManager() as browser:
             content = await browser.fetch_page("https://example.com")
+
+        # With locale configuration
+        from supacrawl.models import LocaleConfig
+        locale = LocaleConfig.from_country("AU")
+        async with BrowserManager(locale_config=locale) as browser:
+            content = await browser.fetch_page("https://example.com")
+
+        # With stealth mode (requires: pip install supacrawl[stealth])
+        async with BrowserManager(stealth=True) as browser:
+            content = await browser.fetch_page("https://protected-site.com")
     """
 
     def __init__(
@@ -60,6 +307,9 @@ class BrowserManager:
         headless: bool | None = None,
         timeout_ms: int | None = None,
         user_agent: str | None = None,
+        locale_config: Any | None = None,  # LocaleConfig, avoid circular import
+        stealth: bool = False,
+        proxy: str | None = None,
     ):
         """Initialize browser manager.
 
@@ -67,6 +317,9 @@ class BrowserManager:
             headless: Run headless (default from SUPACRAWL_HEADLESS env, or True)
             timeout_ms: Page load timeout (default from SUPACRAWL_TIMEOUT env, or 30000)
             user_agent: User agent string (default from SUPACRAWL_USER_AGENT env)
+            locale_config: LocaleConfig for browser locale/timezone settings
+            stealth: Enable stealth mode via Patchright for anti-bot evasion
+            proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
         """
         self.headless = (
             headless
@@ -79,6 +332,9 @@ class BrowserManager:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         )
+        self.locale_config = locale_config
+        self.stealth = stealth
+        self.proxy = proxy or os.getenv("SUPACRAWL_PROXY")
         self._browser: Browser | None = None
         self._playwright: Any = None
 
@@ -90,6 +346,60 @@ class BrowserManager:
             return default
         return val.strip().lower() in {"1", "true", "yes", "on"}
 
+    def _build_context_options(self) -> dict[str, Any]:
+        """Build browser context options including locale settings.
+
+        Returns:
+            Dictionary of options for browser.new_context()
+        """
+        # Start with user agent
+        options: dict[str, Any] = {
+            "user_agent": self.user_agent,
+        }
+
+        # Apply locale config if provided
+        if self.locale_config is not None:
+            locale = self.locale_config.get_language()
+            timezone = self.locale_config.get_timezone()
+            accept_lang = self.locale_config.get_accept_language_header()
+
+            options["locale"] = locale
+            options["timezone_id"] = timezone
+            options["extra_http_headers"] = {
+                "Accept-Language": accept_lang,
+                # Standard browser headers for consistency
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            }
+            LOGGER.debug(
+                "Using locale config: language=%s, timezone=%s",
+                locale,
+                timezone,
+            )
+        else:
+            # Fall back to environment variables with proper headers
+            locale = os.getenv("SUPACRAWL_LOCALE", "en-US")
+            options["locale"] = locale
+            options["timezone_id"] = os.getenv("SUPACRAWL_TIMEZONE", "Australia/Brisbane")
+            options["extra_http_headers"] = {
+                "Accept-Language": f"{locale},en;q=0.9",
+                # Standard browser headers for consistency
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            }
+
+        return options
+
     async def __aenter__(self) -> "BrowserManager":
         """Start browser (async context manager entry)."""
         await self.start()
@@ -99,17 +409,62 @@ class BrowserManager:
         """Close browser (async context manager exit)."""
         await self.stop()
 
+    def _get_playwright_module(self) -> Any:
+        """Get the appropriate playwright module based on stealth setting.
+
+        Returns:
+            The async_playwright function from either patchright or playwright.
+
+        Raises:
+            StealthNotAvailableError: If stealth is enabled but patchright not installed.
+        """
+        if self.stealth:
+            try:
+                from patchright.async_api import async_playwright
+
+                LOGGER.debug("Using Patchright for stealth mode")
+                return async_playwright
+            except ImportError as e:
+                raise StealthNotAvailableError() from e
+        else:
+            from playwright.async_api import async_playwright  # type: ignore[assignment]
+
+            return async_playwright
+
     async def start(self) -> None:
         """Start the browser.
 
         Can be called directly for manual lifecycle management, or implicitly
         via async context manager (async with BrowserManager() as browser).
+
+        Raises:
+            StealthNotAvailableError: If stealth is enabled but patchright not installed.
         """
         if self._browser is not None:
             return  # Already started
+
+        async_playwright = self._get_playwright_module()
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=self.headless)
-        LOGGER.debug("Browser started (headless=%s)", self.headless)
+
+        # Build launch options
+        launch_options: dict[str, Any] = {"headless": self.headless}
+
+        # Add proxy if configured
+        if self.proxy:
+            try:
+                launch_options["proxy"] = _parse_proxy_url(self.proxy)
+                LOGGER.debug("Using proxy: %s", self.proxy.split("@")[-1])  # Hide credentials
+            except ValueError as e:
+                LOGGER.error(f"Invalid proxy URL: {e}")
+                raise
+
+        self._browser = await self._playwright.chromium.launch(**launch_options)
+        LOGGER.debug(
+            "Browser started (headless=%s, stealth=%s, proxy=%s)",
+            self.headless,
+            self.stealth,
+            bool(self.proxy),
+        )
 
     async def stop(self) -> None:
         """Stop the browser and cleanup resources.
@@ -132,6 +487,7 @@ class BrowserManager:
         capture_screenshot: bool = False,
         capture_pdf: bool = False,
         screenshot_full_page: bool = True,
+        actions: list[Any] | None = None,
     ) -> PageContent:
         """Fetch a page with browser rendering.
 
@@ -142,6 +498,7 @@ class BrowserManager:
             capture_screenshot: Capture PNG screenshot of page
             capture_pdf: Generate PDF of page
             screenshot_full_page: Capture full scrollable page (default True)
+            actions: List of Action objects to execute before capturing content
 
         Returns:
             PageContent with HTML, metadata, and optional screenshot/PDF
@@ -158,20 +515,26 @@ class BrowserManager:
         page: Page | None = None
 
         try:
-            # Create fresh context for isolation
-            locale = os.getenv("SUPACRAWL_LOCALE", "en-US")
-            timezone = os.getenv("SUPACRAWL_TIMEZONE", "Australia/Brisbane")
-
-            context = await self._browser.new_context(
-                locale=locale,
-                timezone_id=timezone,
-                user_agent=self.user_agent,
-            )
+            # Create fresh context for isolation with locale settings
+            context_options = self._build_context_options()
+            context = await self._browser.new_context(**context_options)
 
             page = await context.new_page()
 
+            # Inject basic stealth scripts (for non-Patchright mode)
+            # Patchright handles these automatically, but we add them for standard Playwright
+            if not self.stealth:
+                for script in STEALTH_SCRIPTS:
+                    await page.add_init_script(script)
+                LOGGER.debug("Injected %d basic stealth scripts", len(STEALTH_SCRIPTS))
+
             # Navigate to URL
-            wait_until = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
+            wait_until_env = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
+            wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] = (
+                wait_until_env  # type: ignore[assignment]
+                if wait_until_env in ("commit", "domcontentloaded", "load", "networkidle")
+                else "domcontentloaded"
+            )
             response = await page.goto(
                 url, wait_until=wait_until, timeout=self.timeout_ms
             )
@@ -179,6 +542,15 @@ class BrowserManager:
             # Wait for SPA stability if requested
             if wait_for_spa:
                 await self._wait_for_spa_stability(page, spa_timeout_ms)
+
+            # Execute actions if provided
+            action_results_list: list[Any] | None = None
+            if actions:
+                from supacrawl.services.actions import ActionRunner
+
+                runner = ActionRunner(timeout_ms=self.timeout_ms)
+                action_results_list = await runner.run(page, actions)
+                LOGGER.debug(f"Executed {len(action_results_list)} actions")
 
             # Additional fixed delay for any remaining JS execution
             await asyncio.sleep(0.5)
@@ -211,6 +583,7 @@ class BrowserManager:
                 status_code=status_code,
                 screenshot=screenshot_bytes,
                 pdf=pdf_bytes,
+                action_results=action_results_list,
             )
 
         finally:
@@ -246,17 +619,19 @@ class BrowserManager:
         page: Page | None = None
 
         try:
-            # Create fresh context
-            context = await self._browser.new_context(
-                locale=os.getenv("SUPACRAWL_LOCALE", "en-US"),
-                timezone_id=os.getenv("SUPACRAWL_TIMEZONE", "Australia/Brisbane"),
-                user_agent=self.user_agent,
-            )
+            # Create fresh context with locale settings
+            context_options = self._build_context_options()
+            context = await self._browser.new_context(**context_options)
 
             page = await context.new_page()
 
             # Navigate to URL
-            wait_until = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
+            wait_until_env = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
+            wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] = (
+                wait_until_env  # type: ignore[assignment]
+                if wait_until_env in ("commit", "domcontentloaded", "load", "networkidle")
+                else "domcontentloaded"
+            )
             await page.goto(url, wait_until=wait_until, timeout=self.timeout_ms)
 
             # Extract all links using JavaScript
@@ -283,6 +658,65 @@ class BrowserManager:
                 except Exception:
                     pass
 
+    async def extract_images(self, html: str, base_url: str) -> list[str]:
+        """Extract all image URLs from HTML content.
+
+        Args:
+            html: HTML content to extract images from
+            base_url: Base URL for resolving relative URLs
+
+        Returns:
+            List of absolute image URLs, deduplicated and sorted
+        """
+        from urllib.parse import urljoin
+
+        soup = BeautifulSoup(html, "html.parser")
+        images: set[str] = set()
+
+        # Extract from <img> tags
+        for img in soup.find_all("img"):
+            # Get src attribute
+            src = img.get("src")
+            if src and isinstance(src, str) and not src.startswith("data:"):
+                absolute_url = urljoin(base_url, src)
+                images.add(absolute_url)
+
+            # Get srcset attribute (responsive images)
+            srcset = img.get("srcset")
+            if srcset and isinstance(srcset, str):
+                for part in srcset.split(","):
+                    url = part.strip().split()[0]  # Take URL, ignore size descriptor
+                    if url and not url.startswith("data:"):
+                        absolute_url = urljoin(base_url, url)
+                        images.add(absolute_url)
+
+        # Extract from <picture> <source> tags
+        for source in soup.find_all("source"):
+            # Get srcset attribute
+            srcset = source.get("srcset")
+            if srcset and isinstance(srcset, str):
+                for part in srcset.split(","):
+                    url = part.strip().split()[0]
+                    if url and not url.startswith("data:"):
+                        absolute_url = urljoin(base_url, url)
+                        images.add(absolute_url)
+
+            # Get src attribute (some sources use src instead of srcset)
+            src = source.get("src")
+            if src and isinstance(src, str) and not src.startswith("data:"):
+                absolute_url = urljoin(base_url, src)
+                images.add(absolute_url)
+
+        # Filter out common tracking pixels and tiny images
+        filtered_images = []
+        for url in images:
+            # Skip common tracking pixel patterns
+            if any(pattern in url.lower() for pattern in ["1x1", "pixel", "tracking", "analytics"]):
+                continue
+            filtered_images.append(url)
+
+        return sorted(filtered_images)
+
     async def extract_metadata(self, html: str) -> PageMetadata:
         """Extract metadata from HTML (Firecrawl-compatible fields).
 
@@ -302,7 +736,13 @@ class BrowserManager:
                 tag = soup.find("meta", attrs={"property": property})
             else:
                 return None
-            return tag.get("content", None) if tag else None
+            if not tag:
+                return None
+            content = tag.get("content", None)
+            # Handle case where content could be a list
+            if isinstance(content, list):
+                return content[0] if content else None
+            return content
 
         # Extract title
         title_tag = soup.find("title")
@@ -315,11 +755,13 @@ class BrowserManager:
 
         # Extract language from html tag
         html_tag = soup.find("html")
-        language = html_tag.get("lang", None) if html_tag else None
+        language_attr = html_tag.get("lang", None) if html_tag else None
+        language = language_attr[0] if isinstance(language_attr, list) else language_attr
 
         # Extract canonical URL
         canonical_tag = soup.find("link", attrs={"rel": "canonical"})
-        canonical_url = canonical_tag.get("href", None) if canonical_tag else None
+        canonical_attr = canonical_tag.get("href", None) if canonical_tag else None
+        canonical_url = canonical_attr[0] if isinstance(canonical_attr, list) else canonical_attr
 
         # Extract OpenGraph tags
         og_title = get_meta_content(property="og:title")

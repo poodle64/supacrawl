@@ -24,16 +24,29 @@ class MapService:
         result = await service.map("https://example.com")
         for link in result.links:
             print(link.url, link.title)
+
+    With stealth mode (requires: pip install supacrawl[stealth]):
+        service = MapService(stealth=True)
+        result = await service.map("https://protected-site.com")
     """
 
-    def __init__(self, browser: BrowserManager | None = None):
+    def __init__(
+        self,
+        browser: BrowserManager | None = None,
+        stealth: bool = False,
+        proxy: str | None = None,
+    ):
         """Initialize map service.
 
         Args:
             browser: Optional BrowserManager (created if not provided)
+            stealth: Enable stealth mode via Patchright for anti-bot evasion
+            proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
         """
         self._browser = browser
         self._owns_browser = browser is None
+        self._stealth = stealth
+        self._proxy = proxy
 
     async def map(
         self,
@@ -43,6 +56,8 @@ class MapService:
         sitemap: Literal["include", "skip", "only"] = "include",
         include_subdomains: bool = False,
         search: str | None = None,
+        ignore_query_params: bool = False,
+        allow_external_links: bool = False,
     ) -> MapResult:
         """Map a website and discover URLs.
 
@@ -53,6 +68,8 @@ class MapService:
             sitemap: Sitemap handling mode
             include_subdomains: Include subdomain URLs
             search: Filter URLs containing this text
+            ignore_query_params: Remove query params from URLs (Firecrawl-compatible)
+            allow_external_links: Follow links to external domains (Firecrawl-compatible)
 
         Returns:
             MapResult with discovered links
@@ -81,9 +98,20 @@ class MapService:
                     max_depth=max_depth,
                     limit=limit,
                     include_subdomains=include_subdomains,
+                    allow_external_links=allow_external_links,
                 )
                 discovered_urls.update(crawl_urls)
                 LOGGER.info(f"Found {len(crawl_urls)} URLs from crawling")
+
+            # Strip query params if requested (Firecrawl-compatible)
+            if ignore_query_params:
+                normalized_urls: set[str] = set()
+                for u in discovered_urls:
+                    parsed_url = urlparse(u)
+                    normalized = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                    normalized_urls.add(normalized)
+                discovered_urls = normalized_urls
+                LOGGER.info(f"Normalized to {len(discovered_urls)} URLs (query params removed)")
 
             # Convert to list and apply limit
             urls_list = list(discovered_urls)[:limit]
@@ -182,6 +210,7 @@ class MapService:
         max_depth: int,
         limit: int,
         include_subdomains: bool,
+        allow_external_links: bool = False,
     ) -> list[str]:
         """BFS crawl to discover URLs.
 
@@ -191,6 +220,7 @@ class MapService:
             max_depth: Maximum depth
             limit: Maximum URLs to discover
             include_subdomains: Include subdomains
+            allow_external_links: Allow URLs from external domains
 
         Returns:
             List of discovered URLs
@@ -199,11 +229,14 @@ class MapService:
         queue: deque[tuple[str, int]] = deque([(start_url, 0)])
         discovered: list[str] = []
 
+        # Track domains visited for logging
+        domains_visited: set[str] = set()
+
         # Create or use existing browser
         browser = self._browser
         close_browser = False
         if browser is None:
-            browser = BrowserManager()
+            browser = BrowserManager(stealth=self._stealth, proxy=self._proxy)
             close_browser = True
 
         try:
@@ -219,9 +252,17 @@ class MapService:
                     continue
                 visited.add(url)
 
-                # Check domain boundaries
-                if not self._is_same_domain(url, domain, include_subdomains):
-                    continue
+                # Check domain boundaries (unless external links allowed)
+                if not allow_external_links:
+                    if not self._is_same_domain(url, domain, include_subdomains):
+                        continue
+
+                # Track domain for logging
+                url_domain = urlparse(url).netloc
+                if url_domain not in domains_visited:
+                    domains_visited.add(url_domain)
+                    if len(domains_visited) > 1:
+                        LOGGER.info(f"Crawling external domain: {url_domain}")
 
                 # Add to discovered list
                 discovered.append(url)
@@ -260,7 +301,7 @@ class MapService:
         browser = self._browser
         close_browser = False
         if browser is None:
-            browser = BrowserManager()
+            browser = BrowserManager(stealth=self._stealth, proxy=self._proxy)
             close_browser = True
 
         try:

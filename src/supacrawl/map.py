@@ -10,7 +10,7 @@ import asyncio
 import fnmatch
 import logging
 import os
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -231,7 +231,12 @@ async def _extract_browser_links(
                 page = await context.new_page()
 
                 # Navigate to URL
-                wait_until = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
+                wait_until_env = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
+                wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] = (
+                    wait_until_env  # type: ignore[assignment]
+                    if wait_until_env in ("commit", "domcontentloaded", "load", "networkidle")
+                    else "domcontentloaded"
+                )
                 await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
 
                 # Wait for SPA content to render

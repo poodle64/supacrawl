@@ -135,6 +135,11 @@ class CorpusOutputAdapter:
             LOGGER.warning(f"Skipping failed scrape for {url}: {result.error}")
             return
 
+        # After start(), _writer is guaranteed to be set
+        writer = self._writer
+        if writer is None:
+            raise RuntimeError("Writer not initialized after start()")
+
         # Convert ScrapeResult to Page model
         markdown = result.data.markdown or ""
         page = Page(
@@ -152,7 +157,7 @@ class CorpusOutputAdapter:
             },
         )
 
-        await self._writer.add_pages([page])
+        await writer.add_pages([page])
 
     async def complete(self) -> Path | None:
         """Finalize corpus and return snapshot path."""

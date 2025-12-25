@@ -106,3 +106,94 @@ class TestBrowserManager:
         del os.environ["SUPACRAWL_TEST"]
         assert BrowserManager._env_bool("SUPACRAWL_TEST", True) is True
         assert BrowserManager._env_bool("SUPACRAWL_TEST", False) is False
+
+    @pytest.mark.asyncio
+    async def test_extract_images_from_html(self):
+        """Test image extraction from HTML."""
+        html = """
+        <html>
+            <body>
+                <img src="/image1.jpg">
+                <img src="https://example.com/image2.png">
+                <img src="data:image/png;base64,iVBORw0...">
+                <img srcset="/image3.jpg 1x, /image4.jpg 2x">
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            # Should have image1, image2, image3, image4 (not data URI)
+            assert len(images) >= 4
+            # All should be absolute URLs
+            assert all(img.startswith("http") for img in images)
+            # Should not contain data URIs
+            assert not any(img.startswith("data:") for img in images)
+
+    @pytest.mark.asyncio
+    async def test_extract_images_with_srcset(self):
+        """Test image extraction with srcset attribute."""
+        html = """
+        <html>
+            <body>
+                <img srcset="small.jpg 300w, medium.jpg 600w, large.jpg 900w" src="default.jpg">
+                <picture>
+                    <source srcset="image.webp" type="image/webp">
+                    <source srcset="image.jpg" type="image/jpeg">
+                    <img src="fallback.jpg">
+                </picture>
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            # Should have small, medium, large, default, image.webp, image.jpg, fallback
+            assert len(images) >= 6
+
+    @pytest.mark.asyncio
+    async def test_extract_images_filters_tracking_pixels(self):
+        """Test that tracking pixels are filtered out."""
+        html = """
+        <html>
+            <body>
+                <img src="/good-image.jpg">
+                <img src="/pixel.gif">
+                <img src="/tracking-1x1.png">
+                <img src="/analytics.jpg">
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            # Should only have good-image.jpg
+            assert len(images) == 1
+            assert "good-image.jpg" in images[0]
+
+    @pytest.mark.asyncio
+    async def test_extract_images_deduplicates(self):
+        """Test that duplicate images are removed."""
+        html = """
+        <html>
+            <body>
+                <img src="/image.jpg">
+                <img src="/image.jpg">
+                <img src="https://example.com/image.jpg">
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            # Should only have one unique image
+            assert len(images) == 1
+
+    @pytest.mark.asyncio
+    async def test_extract_images_empty_page(self):
+        """Test image extraction from page with no images."""
+        html = "<html><body><p>No images here</p></body></html>"
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            assert len(images) == 0

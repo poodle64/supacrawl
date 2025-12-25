@@ -97,11 +97,41 @@ def _strip_fragment(raw_url: str) -> str:
     return urlunsplit(parts._replace(fragment=""))
 
 
+# Tracking parameters to remove during URL normalisation
+TRACKING_PARAMS = frozenset({
+    # Google Analytics / UTM
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "_ga",
+    "_gl",
+    # Facebook
+    "fbclid",
+    # Google Ads
+    "gclid",
+    # Microsoft / Bing Ads
+    "msclkid",
+    # Instagram
+    "igshid",
+    # Mailchimp
+    "mc_cid",
+    "mc_eid",
+    # Generic referral/source
+    "ref",
+    "ref_src",
+    "source",
+    "share",
+})
+
+
 def strip_tracking_params(raw_url: str) -> str:
     """
     Remove common tracking parameters from URL.
 
-    Removes: utm_*, fbclid, gclid, igshid, mc_eid, ref, ref_src.
+    Removes UTM parameters, ad platform click IDs, and generic referral params.
+    See TRACKING_PARAMS for the full list.
 
     Args:
         raw_url: URL to clean.
@@ -116,19 +146,49 @@ def strip_tracking_params(raw_url: str) -> str:
     params = []
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
         key_lower = key.lower()
-        if key_lower.startswith("utm_") or key_lower in {
-            "fbclid",
-            "gclid",
-            "igshid",
-            "mc_eid",
-            "ref",
-            "ref_src",
-        }:
+        # Check for utm_* prefix or exact match in tracking params
+        if key_lower.startswith("utm_") or key_lower in TRACKING_PARAMS:
             continue
         params.append((key, value))
 
     cleaned_query = urlencode(params, doseq=True)
     return urlunsplit(parsed._replace(query=cleaned_query))
+
+
+def normalise_url_for_dedupe(url: str) -> str:
+    """
+    Normalise URL for deduplication comparison.
+
+    Performs more aggressive normalisation than normalise_url():
+    - Removes fragments
+    - Removes tracking parameters
+    - Sorts query parameters for consistent comparison
+
+    Args:
+        url: URL to normalise.
+
+    Returns:
+        Normalised URL suitable for deduplication comparison.
+    """
+    parsed = urlsplit(url)
+
+    # Remove fragment
+    parsed = parsed._replace(fragment="")
+
+    # Filter and sort query params
+    if parsed.query:
+        params = []
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+            key_lower = key.lower()
+            if key_lower.startswith("utm_") or key_lower in TRACKING_PARAMS:
+                continue
+            params.append((key, value))
+        # Sort params for consistent comparison
+        params.sort(key=lambda x: (x[0], x[1]))
+        cleaned_query = urlencode(params, doseq=True)
+        parsed = parsed._replace(query=cleaned_query)
+
+    return urlunsplit(parsed)
 
 
 def extract_canonical_url(

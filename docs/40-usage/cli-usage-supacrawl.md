@@ -24,6 +24,10 @@ The `supacrawl` CLI provides commands for managing site configurations, running 
 - `batch-scrape` - Scrape multiple URLs concurrently
 - `crawl-url` - Crawl a website from a starting URL
 - `map-url` - Map URLs from a website
+- `search` - Search the web using DuckDuckGo or Brave
+- `llm-extract` - Extract structured data using LLM
+- `agent` - Run autonomous web agent
+- `cache` - Manage the local scrape cache
 
 ## Command Reference
 
@@ -349,6 +353,121 @@ $ supacrawl map-url https://example.com --sitemap only --format json --output si
 
 $ supacrawl map-url https://docs.example.com --depth 5 --include-subdomains
 # Deep crawl including subdomains
+```
+
+### search
+
+Search the web using DuckDuckGo or Brave.
+
+**Usage:**
+```bash
+supacrawl search QUERY [OPTIONS]
+```
+
+**Arguments:**
+- `QUERY` - Search query string
+
+**Options:**
+- `-l, --limit INT` - Maximum results per source type (1-10, default: 5)
+- `-s, --source TYPE` - Source types: `web`, `images`, `news`, or `all` (default: `web`)
+- `--scrape/--no-scrape` - Scrape content from result pages (default: no-scrape)
+- `--provider PROVIDER` - Search provider: `duckduckgo` or `brave` (default: `duckduckgo`)
+- `-o, --output PATH` - Output file (JSON). If omitted, prints to stdout
+
+**Example:**
+```bash
+$ supacrawl search "python web scraping" --limit 5 --source web
+# Search web for Python scraping content
+
+$ supacrawl search "AI news 2025" --source news --scrape --output results.json
+# Search news and scrape content from result pages
+```
+
+### llm-extract
+
+Extract structured data from URLs using a local LLM (via Ollama).
+
+**Usage:**
+```bash
+supacrawl llm-extract URLS... [OPTIONS]
+```
+
+**Arguments:**
+- `URLS` - One or more URLs to extract data from
+
+**Options:**
+- `-p, --prompt TEXT` - Extraction prompt describing what to extract (required)
+- `-s, --schema FILE` - Path to JSON schema file for structured output
+- `--provider PROVIDER` - LLM provider: `ollama`, `openai`, or `anthropic` (default: `ollama`)
+- `--model TEXT` - Model name (defaults to provider's default)
+- `-o, --output PATH` - Output file (JSON). If omitted, prints to stdout
+
+**Example:**
+```bash
+$ supacrawl llm-extract https://example.com/products --prompt "Extract product names and prices"
+# Extract product data from a page
+
+$ supacrawl llm-extract https://example.com/about --prompt "Extract company info" --schema schema.json
+# Extract structured data according to a schema
+```
+
+### agent
+
+Run an autonomous web agent that searches, navigates, and extracts data.
+
+**Usage:**
+```bash
+supacrawl agent PROMPT [OPTIONS]
+```
+
+**Arguments:**
+- `PROMPT` - Natural language description of data to find
+
+**Options:**
+- `-u, --url URL` - Starting URLs (can specify multiple). If omitted, agent searches first
+- `-s, --schema FILE` - Path to JSON schema for structured output
+- `--max-steps INT` - Maximum pages to visit (default: 10)
+- `--provider PROVIDER` - LLM provider: `ollama`, `openai`, or `anthropic` (default: `ollama`)
+- `--model TEXT` - Model name (defaults to provider's default)
+- `-o, --output PATH` - Output file (JSON). If omitted, prints to stdout
+- `-q, --quiet` - Suppress progress output, only show final result
+
+**Example:**
+```bash
+$ supacrawl agent "Find the pricing for Firecrawl API"
+# Agent will search and navigate to find pricing info
+
+$ supacrawl agent "Extract all team member names and roles" --url https://example.com/about
+# Start from a specific URL
+```
+
+### cache
+
+Manage the local scrape cache.
+
+**Usage:**
+```bash
+supacrawl cache COMMAND [OPTIONS]
+```
+
+**Subcommands:**
+- `stats` - Show cache statistics (entry count, size, directory)
+- `clear` - Clear cached entries (all or by URL)
+- `prune` - Remove expired cache entries
+
+**Example:**
+```bash
+$ supacrawl cache stats
+# Show cache statistics
+
+$ supacrawl cache clear
+# Clear all cached entries
+
+$ supacrawl cache clear --url https://example.com
+# Clear cache for a specific URL
+
+$ supacrawl cache prune
+# Remove expired entries
 ```
 
 ## Common Workflows
