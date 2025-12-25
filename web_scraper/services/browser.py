@@ -23,6 +23,8 @@ class PageContent:
     html: str
     title: str | None
     status_code: int
+    screenshot: bytes | None = None
+    pdf: bytes | None = None
 
 
 @dataclass
@@ -89,23 +91,47 @@ class BrowserManager:
         return val.strip().lower() in {"1", "true", "yes", "on"}
 
     async def __aenter__(self) -> "BrowserManager":
-        """Start browser."""
-        self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=self.headless)
+        """Start browser (async context manager entry)."""
+        await self.start()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Close browser."""
+        """Close browser (async context manager exit)."""
+        await self.stop()
+
+    async def start(self) -> None:
+        """Start the browser.
+
+        Can be called directly for manual lifecycle management, or implicitly
+        via async context manager (async with BrowserManager() as browser).
+        """
+        if self._browser is not None:
+            return  # Already started
+        self._playwright = await async_playwright().start()
+        self._browser = await self._playwright.chromium.launch(headless=self.headless)
+        LOGGER.debug("Browser started (headless=%s)", self.headless)
+
+    async def stop(self) -> None:
+        """Stop the browser and cleanup resources.
+
+        Safe to call multiple times.
+        """
         if self._browser:
             await self._browser.close()
+            self._browser = None
         if self._playwright:
             await self._playwright.stop()
+            self._playwright = None
+        LOGGER.debug("Browser stopped")
 
     async def fetch_page(
         self,
         url: str,
         wait_for_spa: bool = True,
         spa_timeout_ms: int = 5000,
+        capture_screenshot: bool = False,
+        capture_pdf: bool = False,
+        screenshot_full_page: bool = True,
     ) -> PageContent:
         """Fetch a page with browser rendering.
 
@@ -113,9 +139,12 @@ class BrowserManager:
             url: URL to fetch
             wait_for_spa: Wait for SPA content to stabilize
             spa_timeout_ms: Max time to wait for SPA stability
+            capture_screenshot: Capture PNG screenshot of page
+            capture_pdf: Generate PDF of page
+            screenshot_full_page: Capture full scrollable page (default True)
 
         Returns:
-            PageContent with HTML and metadata
+            PageContent with HTML, metadata, and optional screenshot/PDF
 
         Raises:
             RuntimeError: If browser not initialized or fetch fails
@@ -159,11 +188,29 @@ class BrowserManager:
             title = await page.title() or None
             status_code = response.status if response else 200
 
+            # Capture screenshot if requested
+            screenshot_bytes: bytes | None = None
+            if capture_screenshot:
+                screenshot_bytes = await page.screenshot(
+                    full_page=screenshot_full_page,
+                    type="png",
+                )
+
+            # Generate PDF if requested (requires headless mode)
+            pdf_bytes: bytes | None = None
+            if capture_pdf:
+                pdf_bytes = await page.pdf(
+                    format="A4",
+                    print_background=True,
+                )
+
             return PageContent(
                 url=url,
                 html=html,
                 title=title,
                 status_code=status_code,
+                screenshot=screenshot_bytes,
+                pdf=pdf_bytes,
             )
 
         finally:

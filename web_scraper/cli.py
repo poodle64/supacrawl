@@ -261,7 +261,7 @@ def crawl_url(
     "-f",
     "formats",
     multiple=True,
-    type=click.Choice(["markdown", "html", "rawHtml", "links"], case_sensitive=False),
+    type=click.Choice(["markdown", "html", "rawHtml", "links", "screenshot", "pdf"], case_sensitive=False),
     default=["markdown"],
     show_default=True,
     help="Output formats to include",
@@ -291,7 +291,13 @@ def crawl_url(
     "-o",
     type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Output file. Use .md for markdown, .json for full result, .html for HTML.",
+    help="Output file. Use .md, .json, .html, .png (screenshot), or .pdf.",
+)
+@click.option(
+    "--full-page/--no-full-page",
+    default=True,
+    show_default=True,
+    help="Capture full scrollable page for screenshots",
 )
 def scrape_url(
     url: str,
@@ -300,6 +306,7 @@ def scrape_url(
     wait_for: int,
     timeout: int,
     output: Path | None,
+    full_page: bool,
 ) -> None:
     """Scrape a single URL and extract content (Firecrawl-compatible).
 
@@ -308,20 +315,33 @@ def scrape_url(
         web-scraper scrape-url https://example.com --output page.md
         web-scraper scrape-url https://example.com --output page.json
         web-scraper scrape-url https://example.com --format markdown --format html
+        web-scraper scrape-url https://example.com --format screenshot --output page.png
+        web-scraper scrape-url https://example.com --format pdf --output page.pdf
     """
     import asyncio
+    import base64
     import json
 
     from web_scraper.services.scrape import ScrapeService
+
+    # Auto-add format based on output extension if not explicitly provided
+    formats_list = list(formats)
+    if output:
+        suffix = output.suffix.lower()
+        if suffix == ".png" and "screenshot" not in formats_list:
+            formats_list.append("screenshot")
+        elif suffix == ".pdf" and "pdf" not in formats_list:
+            formats_list.append("pdf")
 
     async def run():
         service = ScrapeService()
         result = await service.scrape(
             url=url,
-            formats=list(formats),  # type: ignore[arg-type]
+            formats=formats_list,  # type: ignore[arg-type]
             only_main_content=only_main_content,
             wait_for=wait_for,
             timeout=timeout,
+            screenshot_full_page=full_page,
         )
         return result
 
@@ -335,28 +355,46 @@ def scrape_url(
     # Output handling
     if output:
         suffix = output.suffix.lower()
-        with open(output, "w") as f:
-            if suffix == ".json":
-                # Full JSON result
+        if suffix == ".json":
+            # Full JSON result
+            with open(output, "w") as f:
                 json.dump(result.model_dump(exclude_none=True), f, indent=2)
-            elif suffix == ".html":
-                # HTML content
-                if result.data and result.data.html:
+        elif suffix == ".html":
+            # HTML content
+            if result.data and result.data.html:
+                with open(output, "w") as f:
                     f.write(result.data.html)
-                else:
-                    click.echo("No HTML content available", err=True)
-                    raise SystemExit(1)
             else:
-                # Default to markdown (.md or any other extension)
-                if result.data and result.data.markdown:
+                click.echo("No HTML content available", err=True)
+                raise SystemExit(1)
+        elif suffix == ".png":
+            # Screenshot (binary)
+            if result.data and result.data.screenshot:
+                with open(output, "wb") as f:
+                    f.write(base64.b64decode(result.data.screenshot))
+            else:
+                click.echo("No screenshot available", err=True)
+                raise SystemExit(1)
+        elif suffix == ".pdf":
+            # PDF (binary)
+            if result.data and result.data.pdf:
+                with open(output, "wb") as f:
+                    f.write(base64.b64decode(result.data.pdf))
+            else:
+                click.echo("No PDF available", err=True)
+                raise SystemExit(1)
+        else:
+            # Default to markdown (.md or any other extension)
+            if result.data and result.data.markdown:
+                with open(output, "w") as f:
                     # Add YAML frontmatter with metadata
                     frontmatter = result.data.metadata.to_frontmatter(url)
                     f.write(frontmatter)
                     f.write("\n\n")
                     f.write(result.data.markdown)
-                else:
-                    click.echo("No markdown content available", err=True)
-                    raise SystemExit(1)
+            else:
+                click.echo("No markdown content available", err=True)
+                raise SystemExit(1)
         click.echo(f"Wrote {output}")
     else:
         # Print markdown to stdout

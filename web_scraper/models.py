@@ -460,6 +460,8 @@ class ScrapeData(BaseModel):
     markdown: str | None = None
     html: str | None = None
     raw_html: str | None = None
+    screenshot: str | None = None  # Base64-encoded PNG screenshot
+    pdf: str | None = None  # Base64-encoded PDF document
     metadata: ScrapeMetadata
     links: list[str] | None = None
 

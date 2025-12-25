@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 from typing import Literal
 
@@ -41,19 +42,22 @@ class ScrapeService:
     async def scrape(
         self,
         url: str,
-        formats: list[Literal["markdown", "html", "rawHtml", "links"]] | None = None,
+        formats: list[Literal["markdown", "html", "rawHtml", "links", "screenshot", "pdf"]] | None = None,
         only_main_content: bool = True,
         wait_for: int = 0,
         timeout: int = 30000,
+        screenshot_full_page: bool = True,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
         Args:
             url: URL to scrape
             formats: Content formats to return (default: ["markdown"])
+                     Supports: markdown, html, rawHtml, links, screenshot, pdf
             only_main_content: Extract main content area only
             wait_for: Additional wait time in ms after page load
             timeout: Page load timeout in ms
+            screenshot_full_page: Capture full scrollable page for screenshots
 
         Returns:
             ScrapeResult with scraped content
@@ -70,11 +74,18 @@ class ScrapeService:
                 await browser.__aenter__()
 
             try:
+                # Determine if we need screenshot or PDF capture
+                capture_screenshot = "screenshot" in formats
+                capture_pdf = "pdf" in formats
+
                 # Fetch page
                 page_content = await browser.fetch_page(
                     url,
                     wait_for_spa=True,
                     spa_timeout_ms=wait_for if wait_for > 0 else 5000,
+                    capture_screenshot=capture_screenshot,
+                    capture_pdf=capture_pdf,
+                    screenshot_full_page=screenshot_full_page,
                 )
 
                 # Extract metadata
@@ -85,6 +96,8 @@ class ScrapeService:
                 html = None
                 raw_html = None
                 links = None
+                screenshot_b64 = None
+                pdf_b64 = None
 
                 if "markdown" in formats:
                     markdown = self._converter.convert(
@@ -103,6 +116,12 @@ class ScrapeService:
                 if "links" in formats:
                     links = await browser.extract_links(url)
 
+                if capture_screenshot and page_content.screenshot:
+                    screenshot_b64 = base64.b64encode(page_content.screenshot).decode("utf-8")
+
+                if capture_pdf and page_content.pdf:
+                    pdf_b64 = base64.b64encode(page_content.pdf).decode("utf-8")
+
                 # Compute word count from markdown
                 word_count = len(markdown.split()) if markdown else None
 
@@ -112,6 +131,8 @@ class ScrapeService:
                         markdown=markdown,
                         html=html,
                         raw_html=raw_html,
+                        screenshot=screenshot_b64,
+                        pdf=pdf_b64,
                         metadata=ScrapeMetadata(
                             # Core metadata
                             title=metadata.title,

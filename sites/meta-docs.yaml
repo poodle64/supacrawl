@@ -29,15 +29,7 @@ entrypoints:
   - https://developers.facebook.com/docs/marketing-api/guides/lead-ads/retrieving/
 
 include:
-  - https://developers.facebook.com/docs/graph-api/**/guides/**
-  - https://developers.facebook.com/docs/graph-api/reference/application**
-  - https://developers.facebook.com/docs/graph-api/reference/page**
-  - https://developers.facebook.com/docs/graph-api/reference/user**
-  - https://developers.facebook.com/docs/graph-api/reference/post**
-  - https://developers.facebook.com/docs/graph-api/reference/comment**
-  - https://developers.facebook.com/docs/graph-api/reference/debug_token**
-  - https://developers.facebook.com/docs/graph-api/reference/page/leadgen_forms**
-  - https://developers.facebook.com/docs/graph-api/webhooks/**
+  - https://developers.facebook.com/docs/graph-api/**
   - https://developers.facebook.com/docs/app-management/**
   - https://developers.facebook.com/docs/marketing-api/**
 
@@ -45,10 +37,20 @@ exclude:
   - https://developers.facebook.com/tools/**
   - https://developers.facebook.com/docs/**/changelog**
   - https://developers.facebook.com/docs/**/sdk**
+  # Platform-specific SDK references (problematic SPAs)
+  - https://developers.facebook.com/docs/reference/android/**
+  - https://developers.facebook.com/docs/reference/ios/**
+  - https://developers.facebook.com/docs/reference/unity/**
+  - https://developers.facebook.com/docs/reference/javascript/**
   - https://www.facebook.com/*
   - https://m.facebook.com/*
 
-max_pages: 200
+max_pages: 30
+
+# Meta docs use heavy JavaScript - need longer timeouts
+politeness:
+  page_timeout: 60.0
+  delay_between_requests: [1.0, 2.0]
 
 formats:
   - markdown

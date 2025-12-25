@@ -7,6 +7,44 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2025.12.1] - 2025-12-25
+
+### Breaking Changes
+
+- **Removed Crawl4AI dependency**: Complete migration from Crawl4AI to native Playwright implementation. All Crawl4AI-specific code, configuration, and dependencies have been removed. Users must update any custom code that relied on Crawl4AI-specific features.
+- **Removed markdown fixes framework**: The custom markdown fixes system has been removed in favour of markdownify's built-in conversion. Any site configurations referencing markdown fixes will need to be updated.
+- **Removed language detection**: Language detection that was stripping code blocks has been removed. Content extraction now preserves all code blocks by default.
+- **Service architecture refactoring**: Major refactoring of the service layer. Internal service interfaces have changed, though CLI commands remain compatible.
+
+### Added
+
+- **New CLI commands**: Added `map`, `scrape`, `crawl`, and `batch-scrape` commands for comprehensive website ingestion workflows
+- **LLM-assisted content identification**: Experimental feature for using local LLMs (via Ollama) to identify and extract main content
+- **Progress bars**: Visual progress indicators for long-running crawl operations
+- **Format options**: `--format` option for `crawl-url` command to specify output formats
+- **Auto-resume functionality**: Interrupted crawls automatically resume from the last checkpoint
+- **Snapshot listing**: New commands to list and inspect corpus snapshots
+- **Firecrawl parity features**: Enhanced compatibility with Firecrawl output format and behaviour
+- **Batch processing**: Parallel URL processing with `batch-scrape` command
+- **URL discovery**: `map` command for discovering URLs before crawling
+- **Enhanced frontmatter metadata**: Improved metadata extraction and preservation in output
+
+### Fixed
+
+- Fixed duplicate asyncio import causing UnboundLocalError
+- Fixed markdown table preservation during content filtering
+- Fixed benchmark.yaml to match current SiteConfig schema
+- Fixed various CLI command edge cases and error handling
+
+### Internal
+
+- Complete removal of Crawl4AI codebase and references
+- Unified service architecture through CrawlService
+- Enhanced corpus writer with improved manifest generation
+- Comprehensive test suite reorganization (unit, integration, e2e)
+- Major documentation updates aligning with Playwright-based architecture
+- Improved error handling and correlation ID tracking throughout
+
 ## [2025.12.0] - 2025-12-15
 
 ### Added
