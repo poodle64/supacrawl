@@ -12,8 +12,8 @@ from typing import Any
 from urllib.parse import urljoin
 
 
-from web_scraper.map import map_site
-from web_scraper.sites.loader import load_site_config
+from supacrawl.map import map_site
+from supacrawl.sites.loader import load_site_config
 
 # Fixture paths
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"

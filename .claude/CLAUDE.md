@@ -1,4 +1,4 @@
-# Web-Scraper Project Instructions
+# Supacrawl Project Instructions
 
 These instructions provide runtime context, defaults, and environment assumptions only.
 See `.claude/rules/` for constraints and requirements. See `docs/` for implementation patterns.
@@ -17,9 +17,9 @@ See `.claude/rules/` for constraints and requirements. See `docs/` for implement
 
 ## Development Environment
 
-- Conda environment: `web-scraper`
+- Conda environment: `supacrawl`
 - Python: 3.12
-- CLI tool: `web-scraper` command
+- CLI tool: `supacrawl` command
 
 ## Technology Stack
 
@@ -52,9 +52,9 @@ See `.claude/rules/` for constraints and requirements. See `docs/` for implement
 All detailed development rules are organized in `.claude/rules/` and automatically loaded by Claude Code.
 
 Key rule files include:
-- **00-project-foundations-web-scraper.mdc** - Project foundations and non-negotiable constraints
-- **20-python-backend-web-scraper.mdc** - Python backend development standards (if exists)
-- **30-architecture-web-scraper.mdc** - System architecture and design patterns (if exists)
+- **00-project-foundations-supacrawl.mdc** - Project foundations and non-negotiable constraints
+- **20-python-backend-supacrawl.mdc** - Python backend development standards (if exists)
+- **30-architecture-supacrawl.mdc** - System architecture and design patterns (if exists)
 
 See `.claude/rules/README.md` for complete reference and `.claude/rules/master/` for universal principles.
 

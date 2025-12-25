@@ -1,4 +1,4 @@
-name: web-scraper
+name: supacrawl
 channels:
   - conda-forge
   - defaults
@@ -13,19 +13,21 @@ dependencies:
 
     # Core Runtime Dependencies
     - aiofiles>=24.1.0
+    - beautifulsoup4>=4.12.3
     - click>=8.1.7
-    - markdownify>=0.13.1
     - httpx>=0.28.1
+    - markdownify>=0.14.0
     - ollama>=0.1.0
+    - playwright>=1.49.0
     - pydantic>=2.9.0
     - pyyaml>=6.0.1
-
-    # Private Packages (requires GHCR_PAT environment variable)
-    # Install manually after setting GHCR_PAT:
-    # pip install "package @ git+https://${GHCR_PAT}@github.com/..."
 
     # Development Dependencies
     - mypy>=1.11.0
     - pre-commit>=3.7.0
     - pytest>=8.3.0
+    - pytest-asyncio>=0.23.0
+    - pytest-xdist>=3.5.0
     - ruff>=0.6.2
+    - types-aiofiles>=24.1.0
+    - types-PyYAML>=6.0.1

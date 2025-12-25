@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from web_scraper.exceptions import FileNotFoundError
-from web_scraper.corpus.writer import SCHEMA_VERSION
-from web_scraper.prep.chunker import chunk_snapshot
+from supacrawl.exceptions import FileNotFoundError
+from supacrawl.corpus.writer import SCHEMA_VERSION
+from supacrawl.prep.chunker import chunk_snapshot
 
 
 def _write_manifest(snapshot_path: Path, pages: list[dict]) -> None:

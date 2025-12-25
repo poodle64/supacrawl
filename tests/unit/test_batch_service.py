@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from web_scraper.services.batch import BatchService
-from web_scraper.models import BatchEvent, BatchItem, BatchResult
+from supacrawl.services.batch import BatchService
+from supacrawl.models import BatchEvent, BatchItem, BatchResult
 
 
 class TestBatchService:

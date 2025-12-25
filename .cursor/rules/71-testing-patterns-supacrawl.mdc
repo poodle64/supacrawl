@@ -1,0 +1,149 @@
+---
+Rule Type: Product Quality
+Scope: Project
+Extends: 71-testing-patterns-basics (master)
+ISO/IEC 25010:
+  Primary: Reliability
+description: Supacrawl-specific testing patterns - scrape/crawl service testing, site config testing, corpus testing
+globs: "**/test_*.py"
+alwaysApply: true
+---
+
+# Testing Patterns
+
+**Note**: Universal testing patterns (error handling tests, input validation tests, retry logic tests) are covered in `.cursor/rules/master/71-testing-patterns-basics.mdc`.
+
+This rule documents project-specific testing practice and relies on master rules for requirements.
+
+## Core Principles
+
+All supacrawl code must have comprehensive test coverage with supacrawl-specific patterns for service testing, site configuration testing, and corpus testing.
+
+## Mandatory Requirements
+
+### Scraping Service Testing
+
+- ✅ **Must** test `ScrapeService.scrape()` method with valid URLs
+- ✅ **Must** test `CrawlService.crawl()` async generator with valid URLs
+- ✅ **Must** test service error handling (network errors, timeouts)
+- ✅ **Must** test service configuration (browser settings, formats)
+- ✅ **Must** use dependency injection for testing (mock browser)
+
+**Example:**
+```python
+async def test_scrape_service_success():
+    """Test ScrapeService successfully scrapes URL."""
+    service = ScrapeService()
+    result = await service.scrape(
+        url="https://example.com",
+        formats=["markdown", "html"],
+    )
+    assert result.success
+    assert result.data is not None
+    assert result.data.markdown
+    assert result.data.metadata.source_url == "https://example.com"
+```
+
+### Site Configuration Testing
+
+- ✅ **Must** test valid site configurations load successfully
+- ✅ **Must** test invalid site configurations raise `ValidationError`
+- ✅ **Must** test missing site configurations raise `ConfigurationError`
+- ✅ **Must** test configuration validation rules (entrypoints, max_pages)
+- ✅ **Must** test configuration loading from YAML files
+
+**Example:**
+```python
+def test_load_site_config_valid(tmp_path):
+    """Test loading valid site configuration."""
+    config_file = tmp_path / "test-site.yaml"
+    config_file.write_text("""
+id: test-site
+name: Test Site
+entrypoints:
+  - https://example.com
+include:
+  - https://example.com/**
+exclude: []
+max_pages: 10
+formats:
+  - html
+only_main_content: true
+include_subdomains: false
+""")
+    config = load_site_config(config_file)
+    assert config.id == "test-site"
+```
+
+### Corpus Writer Testing
+
+- ✅ **Must** test snapshot directory creation
+- ✅ **Must** test manifest file structure and content
+- ✅ **Must** test page file writing and naming
+- ✅ **Must** test snapshot ID generation (timestamp format)
+- ✅ **Must** test corpus layout structure (`corpora/{site_id}/{snapshot_id}/`)
+
+**Example:**
+```python
+def test_write_snapshot_creates_manifest(tmp_path):
+    """Test writing snapshot creates manifest.json."""
+    corpora_dir = tmp_path / "corpora"
+    config = SiteConfig(...)
+    pages = [Page(...), Page(...)]
+    
+    snapshot_id = write_snapshot(corpora_dir, config, pages)
+    
+    manifest_path = corpora_dir / config.id / snapshot_id / "manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["site_id"] == config.id
+    assert manifest["total_pages"] == len(pages)
+```
+
+### Chunker Testing
+
+- ✅ **Must** test chunking creates JSONL file
+- ✅ **Must** test chunk content structure (url, title, chunk_index, content)
+- ✅ **Must** test chunking handles empty pages gracefully
+- ✅ **Must** test chunking preserves page metadata
+
+### CLI Testing
+
+- ✅ **Must** test CLI commands with Click test client
+- ✅ **Must** test CLI error handling (exceptions show friendly messages)
+- ✅ **Must** test CLI output format (stdout vs stderr)
+- ✅ **Must** test CLI exit codes (0 for success, 1 for errors)
+
+**Example:**
+```python
+def test_list_sites_command(runner, tmp_path):
+    """Test list-sites command."""
+    sites_dir = tmp_path / "sites"
+    sites_dir.mkdir()
+    (sites_dir / "test-site.yaml").write_text("...")
+    
+    result = runner.invoke(app, ["list-sites", "--base-path", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "test-site" in result.output
+```
+
+### Integration Testing
+
+- ✅ **Must** test end-to-end crawl flow (config → CrawlService → corpus)
+- ✅ **Must** test chunking flow (snapshot → chunks)
+- ✅ **Must** test CLI commands with CrawlService
+- ✅ **Must** use test fixtures for common test data
+
+## Key Directives
+
+- **Service testing**: Test ScrapeService, CrawlService, MapService, error handling
+- **Config testing**: Test validation, loading, error handling
+- **Corpus testing**: Test snapshot layout, manifest structure, file naming
+- **CLI testing**: Test commands, error handling, output format
+- **Integration testing**: Test end-to-end workflows
+
+## References
+
+- `.cursor/rules/master/71-testing-patterns-basics.mdc` - Universal testing requirements
+- `.cursor/rules/50-site-config-patterns-supacrawl.mdc` - Configuration patterns to test
+- `docs/70-reliability/testing-supacrawl.md` - Comprehensive testing strategies

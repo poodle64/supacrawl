@@ -1,4 +1,4 @@
-"""Pytest configuration and shared fixtures for web-scraper tests."""
+"""Pytest configuration and shared fixtures for supacrawl tests."""
 
 from __future__ import annotations
 

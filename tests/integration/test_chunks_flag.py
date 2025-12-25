@@ -6,7 +6,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from web_scraper.cli import app
+from supacrawl.cli import app
 from tests.integration.test_cli import _write_site_config
 
 

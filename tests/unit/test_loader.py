@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from web_scraper.exceptions import FileNotFoundError
-from web_scraper.sites.loader import list_site_configs, load_site_config
+from supacrawl.exceptions import FileNotFoundError
+from supacrawl.sites.loader import list_site_configs, load_site_config
 
 
 def test_list_site_configs_returns_sorted_paths(tmp_path: Path) -> None:

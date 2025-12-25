@@ -1,7 +1,7 @@
 """Tests for markdown converter."""
 
 import pytest
-from web_scraper.services.converter import MarkdownConverter
+from supacrawl.services.converter import MarkdownConverter
 
 
 class TestMarkdownConverter:

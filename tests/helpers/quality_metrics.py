@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from web_scraper.models import Page
+from supacrawl.models import Page
 
 
 def calculate_page_metrics(pages: list[Page]) -> dict[str, Any]:

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from web_scraper.cli import app
+from supacrawl.cli import app
 
 
 def test_crawl_output_shows_latest_path(monkeypatch, tmp_path: Path) -> None:
@@ -91,7 +91,7 @@ def test_dry_run_output_is_clean(tmp_path: Path) -> None:
             {"url": "https://example.com/page2"},
         ]
     
-    with patch("web_scraper.map.map_site", mock_map_site):
+    with patch("supacrawl.map.map_site", mock_map_site):
         runner = CliRunner()
         result = runner.invoke(
             app, ["crawl", "example", "--dry-run", "--base-path", str(base_path)]

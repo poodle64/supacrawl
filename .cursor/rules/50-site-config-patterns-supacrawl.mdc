@@ -1,0 +1,93 @@
+---
+Rule Type: Compatibility
+Scope: Project
+ISO/IEC 25010:
+  Primary: Compatibility
+description: Site configuration YAML patterns and validation requirements
+globs: "**/*.yaml"
+alwaysApply: true
+---
+
+# Site Configuration Patterns
+
+## Core Principles
+
+All site configurations must follow the `SiteConfig` Pydantic model schema and be stored as YAML files in the `sites/` directory.
+
+## Mandatory Requirements
+
+### Configuration File Structure
+
+- ✅ **Must** use YAML format for site configurations
+- ✅ **Must** store configurations in `sites/` directory
+- ✅ **Must** use filename (without `.yaml`) as site identifier
+- ✅ **Must** follow `SiteConfig` model schema exactly
+- ✅ **Must** validate configurations on load (Pydantic validation)
+- ❌ **Must NOT** use JSON or other formats for site configurations
+- ❌ **Must NOT** store configurations outside `sites/` directory
+
+### SiteConfig Model Schema
+
+- ✅ **Must** include all required fields: `id`, `name`, `entrypoints`, `include`, `exclude`, `max_pages`, `formats`, `only_main_content`, `include_subdomains`
+- ✅ **Must** use `id` field as unique site identifier (matches filename)
+- ✅ **Must** use `name` field for human-readable site name
+- ✅ **Must** provide at least one entrypoint URL in `entrypoints` list
+- ✅ **Must** use `include` patterns for URLs to include in crawl
+- ✅ **Must** use `exclude` patterns for URLs to exclude from crawl
+- ✅ **Must** set `max_pages` to positive integer (limits crawl size)
+- ✅ **Must** specify `formats` list (e.g., `["html", "markdown"]`)
+- ✅ **Must** set `only_main_content` boolean (extract main content only)
+- ✅ **Must** set `include_subdomains` boolean (include subdomains in crawl)
+
+### Validation Rules
+
+- ✅ **Must** validate `entrypoints` list is not empty (at least one URL required)
+- ✅ **Must** validate `max_pages` is positive integer (greater than 0)
+- ✅ **Must** validate URLs in `entrypoints` are valid URLs
+- ✅ **Must** raise `ValidationError` with field context when validation fails
+- ✅ **Must** include correlation ID in validation errors
+
+**Example validation:**
+```python
+@field_validator("entrypoints")
+@classmethod
+def validate_entrypoints(cls, value: list[str]) -> list[str]:
+    """Ensure at least one entrypoint is provided."""
+    if not value:
+        correlation_id = generate_correlation_id()
+        raise ValidationError(
+            "At least one entrypoint is required.",
+            field="entrypoints",
+            value=value,
+            correlation_id=correlation_id,
+            context={"example": "entrypoints: ['https://example.com']"},
+        )
+    return value
+```
+
+### Configuration Loading
+
+- ✅ **Must** use `load_site_config()` function to load configurations
+- ✅ **Must** handle `FileNotFoundError` when configuration file doesn't exist
+- ✅ **Must** handle `ValidationError` when configuration is invalid
+- ✅ **Must** raise `ConfigurationError` with config path context on load failure
+- ✅ **Must** validate configuration immediately on load (don't defer validation)
+
+### Configuration Naming
+
+- ✅ **Must** use kebab-case for site IDs (e.g., `example-site`)
+- ✅ **Must** use descriptive names that identify the site
+- ✅ **Must** match filename to site ID (e.g., `example-site.yaml` → `id: example-site`)
+
+## Key Directives
+
+- **YAML format**: Always use YAML for site configurations
+- **Schema compliance**: Follow `SiteConfig` model exactly
+- **Validation**: Validate on load, provide helpful error messages
+- **Naming**: Use kebab-case, match filename to site ID
+
+## References
+
+- `.cursor/rules/master/70-input-validation-basics.mdc` - Universal input validation requirements
+- `.cursor/rules/70-error-handling-supacrawl.mdc` - Configuration error handling patterns
+- `docs/40-usage/creating-site-configs-supacrawl.md` - Site configuration guide and examples

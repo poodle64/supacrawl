@@ -16,7 +16,7 @@ This approach treats each page like an actual browser:
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           USER COMMAND                                   │
-│  web-scraper crawl https://example.com --output ./corpus                │
+│  supacrawl crawl https://example.com --output ./corpus                │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼

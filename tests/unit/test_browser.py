@@ -1,7 +1,7 @@
 """Tests for browser manager."""
 
 import pytest
-from web_scraper.services.browser import BrowserManager, PageContent, PageMetadata
+from supacrawl.services.browser import BrowserManager, PageContent, PageMetadata
 
 
 class TestBrowserManager:
@@ -86,23 +86,23 @@ class TestBrowserManager:
         import os
 
         # Test various truthy values
-        os.environ["WEB_SCRAPER_TEST"] = "true"
-        assert BrowserManager._env_bool("WEB_SCRAPER_TEST", False) is True
+        os.environ["SUPACRAWL_TEST"] = "true"
+        assert BrowserManager._env_bool("SUPACRAWL_TEST", False) is True
 
-        os.environ["WEB_SCRAPER_TEST"] = "1"
-        assert BrowserManager._env_bool("WEB_SCRAPER_TEST", False) is True
+        os.environ["SUPACRAWL_TEST"] = "1"
+        assert BrowserManager._env_bool("SUPACRAWL_TEST", False) is True
 
-        os.environ["WEB_SCRAPER_TEST"] = "yes"
-        assert BrowserManager._env_bool("WEB_SCRAPER_TEST", False) is True
+        os.environ["SUPACRAWL_TEST"] = "yes"
+        assert BrowserManager._env_bool("SUPACRAWL_TEST", False) is True
 
         # Test falsy values
-        os.environ["WEB_SCRAPER_TEST"] = "false"
-        assert BrowserManager._env_bool("WEB_SCRAPER_TEST", True) is False
+        os.environ["SUPACRAWL_TEST"] = "false"
+        assert BrowserManager._env_bool("SUPACRAWL_TEST", True) is False
 
-        os.environ["WEB_SCRAPER_TEST"] = "0"
-        assert BrowserManager._env_bool("WEB_SCRAPER_TEST", True) is False
+        os.environ["SUPACRAWL_TEST"] = "0"
+        assert BrowserManager._env_bool("SUPACRAWL_TEST", True) is False
 
         # Test default
-        del os.environ["WEB_SCRAPER_TEST"]
-        assert BrowserManager._env_bool("WEB_SCRAPER_TEST", True) is True
-        assert BrowserManager._env_bool("WEB_SCRAPER_TEST", False) is False
+        del os.environ["SUPACRAWL_TEST"]
+        assert BrowserManager._env_bool("SUPACRAWL_TEST", True) is True
+        assert BrowserManager._env_bool("SUPACRAWL_TEST", False) is False

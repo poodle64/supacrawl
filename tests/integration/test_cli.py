@@ -7,8 +7,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from web_scraper.cli import app
-from web_scraper.corpus.writer import SCHEMA_VERSION
+from supacrawl.cli import app
+from supacrawl.corpus.writer import SCHEMA_VERSION
 
 
 def _write_site_config(base_path: Path) -> None:

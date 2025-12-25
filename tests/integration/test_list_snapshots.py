@@ -7,7 +7,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from web_scraper.cli import app
+from supacrawl.cli import app
 
 
 def _create_snapshot_with_manifest(

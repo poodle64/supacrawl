@@ -25,4 +25,4 @@ sitemap:
 robots:
   respect: true
   enforcement: strict
-  user_agent: WebScraperBot/1.0
+  user_agent: SupacrawlBot/1.0

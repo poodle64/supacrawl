@@ -9,7 +9,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 
 This skill is auto-generated from cursor rules. Follow these development standards:
 
-# Source: 50-corpus-layout-patterns-web-scraper.mdc
+# Source: 50-corpus-layout-patterns-supacrawl.mdc
 
 # Corpus Layout Patterns
 
@@ -97,12 +97,12 @@ All corpus snapshots must follow consistent directory structure and manifest for
 
 ## References
 
-- `.cursor/rules/20-development-environment-web-scraper.mdc` - Directory structure requirements
-- `docs/30-architecture/corpus-layout-web-scraper.md` - Detailed corpus layout documentation
+- `.cursor/rules/20-development-environment-supacrawl.mdc` - Directory structure requirements
+- `docs/30-architecture/corpus-layout-supacrawl.md` - Detailed corpus layout documentation
 
 ---
 
-# Source: 50-site-config-patterns-web-scraper.mdc
+# Source: 50-site-config-patterns-supacrawl.mdc
 
 # Site Configuration Patterns
 
@@ -185,9 +185,9 @@ def validate_entrypoints(cls, value: list[str]) -> list[str]:
 ## References
 
 - `.cursor/rules/master/70-input-validation-basics.mdc` - Universal input validation requirements
-- `.cursor/rules/70-error-handling-web-scraper.mdc` - Configuration error handling patterns
-- `docs/40-usage/creating-site-configs-web-scraper.md` - Site configuration guide and examples
+- `.cursor/rules/70-error-handling-supacrawl.mdc` - Configuration error handling patterns
+- `docs/40-usage/creating-site-configs-supacrawl.md` - Site configuration guide and examples
 
 ---
 *Generated: 2025-12-22 21:05:15 UTC*
-*Source rules: 50-corpus-layout-patterns-web-scraper.mdc, 50-site-config-patterns-web-scraper.mdc*
+*Source rules: 50-corpus-layout-patterns-supacrawl.mdc, 50-site-config-patterns-supacrawl.mdc*

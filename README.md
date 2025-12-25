@@ -1,8 +1,8 @@
-# web-scraper
+# supacrawl
 
 **A local-first, CLI-driven website ingestion tool for building LLM-ready corpora.**
 
-Web-scraper is a Python CLI that uses Playwright to produce snapshot-based, filesystem-first website archives. It's designed for developers who need clean, versioned website content for LLM consumption without relying on SaaS scraping services. Produces Firecrawl-compatible markdown output format, running entirely on your machine with no API keys, rate limits, or external dependencies.
+Supacrawl is a Python CLI that uses Playwright to produce snapshot-based, filesystem-first website archives. It's designed for developers who need clean, versioned website content for LLM consumption without relying on SaaS scraping services. Produces Firecrawl-compatible markdown output format, running entirely on your machine with no API keys, rate limits, or external dependencies.
 
 ## What This Tool Is
 
@@ -24,9 +24,9 @@ Web-scraper is a Python CLI that uses Playwright to produce snapshot-based, file
 
 ## Comparison to Firecrawl
 
-Web-scraper produces **Firecrawl-compatible markdown output** (same format: clean markdown, structured manifests, LLM-ready chunks) but with a **different deployment model** (local CLI vs hosted API):
+Supacrawl produces **Firecrawl-compatible markdown output** (same format: clean markdown, structured manifests, LLM-ready chunks) but with a **different deployment model** (local CLI vs hosted API):
 
-| Feature | web-scraper | Firecrawl |
+| Feature | supacrawl | Firecrawl |
 |---------|-------------|-----------|
 | **Deployment** | Local CLI | Hosted SaaS |
 | **Cost** | Free (local compute) | Paid API credits |
@@ -36,7 +36,7 @@ Web-scraper produces **Firecrawl-compatible markdown output** (same format: clea
 | **Output format** | Snapshot directories | API responses |
 | **Customisation** | Configure via YAML + env vars | API parameters only |
 
-**When to use web-scraper**: You need versioned, archival website corpora for LLM training/RAG, you want full control over crawl behaviour, and you're comfortable running local infrastructure.
+**When to use supacrawl**: You need versioned, archival website corpora for LLM training/RAG, you want full control over crawl behaviour, and you're comfortable running local infrastructure.
 
 **When to use Firecrawl**: You need on-demand scraping via API, you want zero infrastructure management, or you're building a production service that requires SLA-backed uptime guarantees.
 
@@ -44,7 +44,7 @@ Web-scraper produces **Firecrawl-compatible markdown output** (same format: clea
 
 **Current State**: ✅ **Production Ready**
 
-Web-scraper produces Firecrawl-compatible markdown output with excellent quality on prose content. The tool has been tested against Firecrawl's output format and achieves high similarity scores.
+Supacrawl produces Firecrawl-compatible markdown output with excellent quality on prose content. The tool has been tested against Firecrawl's output format and achieves high similarity scores.
 
 **Output formats**: markdown, HTML, and optional JSONL chunks for LLM consumption.
 
@@ -52,13 +52,13 @@ Web-scraper produces Firecrawl-compatible markdown output with excellent quality
 
 ```
 1. Create YAML site config (sites/example.yaml)
-2. Run crawl: web-scraper crawl example
+2. Run crawl: supacrawl crawl example
 3. Get output: corpora/example/latest/
    ├── manifest.json       (metadata, checksums, URLs)
    ├── .meta/              (internal: crawl state, logs, checksums)
    ├── markdown/           (clean markdown content)
    └── html/               (original HTML)
-4. Optional: Chunk for LLM: web-scraper crawl example --chunks
+4. Optional: Chunk for LLM: supacrawl crawl example --chunks
    └── chunks.jsonl        (LLM-ready chunks with metadata)
 ```
 
@@ -82,7 +82,7 @@ Web-scraper produces Firecrawl-compatible markdown output with excellent quality
 1. **Create conda environment**:
    ```bash
    conda env create -f environment.yaml
-   conda activate web-scraper
+   conda activate supacrawl
    ```
 
 2. **Install dependencies**:
@@ -97,26 +97,26 @@ Web-scraper produces Firecrawl-compatible markdown output with excellent quality
 
 4. **Verify installation**:
    ```bash
-   web-scraper list-sites
+   supacrawl list-sites
    ```
 
 ### First Crawl
 
 ```bash
 # List example site configs
-web-scraper list-sites
+supacrawl list-sites
 
 # Show config details
-web-scraper show-site meta
+supacrawl show-site meta
 
 # Run crawl (creates corpora/meta/latest/)
-web-scraper crawl meta
+supacrawl crawl meta
 
 # Chunk for LLM consumption (creates corpora/meta/latest/chunks.jsonl)
-web-scraper crawl meta --chunks
+supacrawl crawl meta --chunks
 
 # Or chunk an existing snapshot
-web-scraper chunk meta latest
+supacrawl chunk meta latest
 ```
 
 ## Quick Start from URL
@@ -125,31 +125,31 @@ Create a site config and crawl in one command:
 
 ```bash
 # Initialize from URL and start crawling immediately
-web-scraper crawl https://example.com --init my-site
+supacrawl crawl https://example.com --init my-site
 
 # Or create config first, then crawl
-web-scraper init my-site --url https://example.com
-web-scraper crawl my-site
+supacrawl init my-site --url https://example.com
+supacrawl crawl my-site
 ```
 
 ## CLI Commands
 
 | Command | Purpose |
 |---------|---------|
-| `web-scraper list-sites` | List available site configuration files |
-| `web-scraper show-site <name>` | Show site configuration details |
-| `web-scraper init <name>` | Create a new site configuration interactively |
-| `web-scraper list-snapshots <name>` | List all snapshots for a site |
-| `web-scraper map <name>` | Discover URLs from sitemap without crawling |
-| `web-scraper crawl <name>` | Run a crawl and create a snapshot |
-| `web-scraper chunk <site> <snapshot>` | Chunk snapshot into JSONL for LLM consumption |
-| `web-scraper compress <site> <snapshot>` | Compress a snapshot for archival |
-| `web-scraper extract <archive>` | Extract a compressed snapshot archive |
+| `supacrawl list-sites` | List available site configuration files |
+| `supacrawl show-site <name>` | Show site configuration details |
+| `supacrawl init <name>` | Create a new site configuration interactively |
+| `supacrawl list-snapshots <name>` | List all snapshots for a site |
+| `supacrawl map <name>` | Discover URLs from sitemap without crawling |
+| `supacrawl crawl <name>` | Run a crawl and create a snapshot |
+| `supacrawl chunk <site> <snapshot>` | Chunk snapshot into JSONL for LLM consumption |
+| `supacrawl compress <site> <snapshot>` | Compress a snapshot for archival |
+| `supacrawl extract <archive>` | Extract a compressed snapshot archive |
 
 ### Crawl Options
 
 ```bash
-web-scraper crawl <site-name> [OPTIONS]
+supacrawl crawl <site-name> [OPTIONS]
   --verbose          Show crawl progress logs and snapshot IDs
   --fresh            Start a fresh crawl (ignore incomplete snapshots)
   --chunks           Generate chunks.jsonl after crawling
@@ -169,7 +169,7 @@ web-scraper crawl <site-name> [OPTIONS]
 ### Chunk Options
 
 ```bash
-web-scraper chunk <site-id> <snapshot-id> [OPTIONS]
+supacrawl chunk <site-id> <snapshot-id> [OPTIONS]
   --max-chars <int>    Maximum characters per chunk (default: 1200)
   --use-ollama         Enable Ollama for AI processing
   --ollama-summarize   Add AI-generated summaries to chunks
@@ -220,11 +220,11 @@ politeness:
   max_retries: 3                 # Retry attempts for failed requests
 ```
 
-See [Creating Site Configurations](docs/40-usage/creating-site-configs-web-scraper.md) for detailed documentation.
+See [Creating Site Configurations](docs/40-usage/creating-site-configs-supacrawl.md) for detailed documentation.
 
 ## Quality-Focused Defaults
 
-Web-scraper is pre-configured for quality over speed. Most users don't need to change anything.
+Supacrawl is pre-configured for quality over speed. Most users don't need to change anything.
 
 **Built-in defaults**:
 - **Stealth mode**: Random user agents, realistic viewport (1280x720), magic mode for anti-bot bypass
@@ -236,7 +236,7 @@ Web-scraper is pre-configured for quality over speed. Most users don't need to c
 **When to override**:
 - Slow sites: Increase `page_timeout` via CLI or YAML
 - Aggressive crawling: Increase `max_concurrent` (not recommended for public sites)
-- Debugging: Set `WEB_SCRAPER_HEADLESS=false` to see browser
+- Debugging: Set `SUPACRAWL_HEADLESS=false` to see browser
 
 See `.env.example` for optional configuration overrides.
 
@@ -255,7 +255,7 @@ Enable local LLM processing for content enhancement (requires Ollama running on 
 
 **During chunking** (AI-generated summaries):
 ```bash
-web-scraper chunk <site-id> <snapshot-id> --use-ollama --ollama-summarize
+supacrawl chunk <site-id> <snapshot-id> --use-ollama --ollama-summarize
 ```
 
 **Configuration**:
@@ -272,8 +272,8 @@ All configuration is optional. Sensible defaults are built in. Copy `.env.exampl
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WEB_SCRAPER_HEADLESS` | `true` | Set to `false` to see the browser for debugging |
-| `WEB_SCRAPER_TIMEOUT` | `30000` | Timeout per page in milliseconds (increase for slow sites) |
+| `SUPACRAWL_HEADLESS` | `true` | Set to `false` to see the browser for debugging |
+| `SUPACRAWL_TIMEOUT` | `30000` | Timeout per page in milliseconds (increase for slow sites) |
 
 ### Ollama Integration (Optional)
 
@@ -307,7 +307,7 @@ corpora/example/2025-12-18_1430/
 
 **Snapshot ID format**: `YYYY-MM-DD_HHMM` (timezone: `Australia/Brisbane`)
 
-See [Corpus Layout](docs/30-architecture/corpus-layout-web-scraper.md) for detailed documentation.
+See [Corpus Layout](docs/30-architecture/corpus-layout-supacrawl.md) for detailed documentation.
 
 ## Development
 
@@ -321,10 +321,10 @@ See [Corpus Layout](docs/30-architecture/corpus-layout-web-scraper.md) for detai
 
 ```bash
 # Linting
-ruff check web_scraper tools
+ruff check supacrawl tools
 
 # Type checking
-mypy web_scraper
+mypy supacrawl
 
 # Fast local testing (excludes browser-based e2e tests)
 pytest -q -m "not e2e"
@@ -346,7 +346,7 @@ Tests are organised into directories with automatic marker assignment:
 | `tests/integration/` | `integration` | Filesystem, mocks, local HTTP | ~3s |
 | `tests/e2e/` | `e2e` | Real Playwright browser tests | ~5 minutes |
 
-**Live Network Tests**: Two e2e baseline tests require live internet access to external sites. These tests are automatically skipped in CI unless `WEB_SCRAPER_TEST_ENABLED=1` is set. All other tests are fully offline-safe and use local fixtures only.
+**Live Network Tests**: Two e2e baseline tests require live internet access to external sites. These tests are automatically skipped in CI unless `SUPACRAWL_TEST_ENABLED=1` is set. All other tests are fully offline-safe and use local fixtures only.
 
 Use `pytest -m "not e2e"` for fast feedback during development.
 
@@ -359,7 +359,7 @@ Use `pytest -m "not e2e"` for fast feedback during development.
 ```bash
 # Check version
 cat VERSION
-python -c "from web_scraper import __version__; print(__version__)"
+python -c "from supacrawl import __version__; print(__version__)"
 ```
 
 ## Standards
@@ -386,14 +386,14 @@ All code in this project follows these standards:
 ## Resources
 
 ### Documentation
-- **CLI Usage**: [CLI Usage Guide](docs/40-usage/cli-usage-web-scraper.md)
-- **Site Configuration**: [Creating Site Configurations](docs/40-usage/creating-site-configs-web-scraper.md)
-- **Architecture**: [Corpus Layout](docs/30-architecture/corpus-layout-web-scraper.md), [Site Configuration](docs/30-architecture/site-configuration-web-scraper.md)
-- **Reliability**: [Error Handling](docs/70-reliability/error-handling-web-scraper.md), [Retry Logic](docs/70-reliability/retry-logic-web-scraper.md), [Testing](docs/70-reliability/testing-web-scraper.md)
+- **CLI Usage**: [CLI Usage Guide](docs/40-usage/cli-usage-supacrawl.md)
+- **Site Configuration**: [Creating Site Configurations](docs/40-usage/creating-site-configs-supacrawl.md)
+- **Architecture**: [Corpus Layout](docs/30-architecture/corpus-layout-supacrawl.md), [Site Configuration](docs/30-architecture/site-configuration-supacrawl.md)
+- **Reliability**: [Error Handling](docs/70-reliability/error-handling-supacrawl.md), [Retry Logic](docs/70-reliability/retry-logic-supacrawl.md), [Testing](docs/70-reliability/testing-supacrawl.md)
 
 ### Development
 - **Development Rules**: [.cursor/rules/](.cursor/rules/)
-- **GitHub Issues**: [Issue Tracker](https://github.com/poodle64/web-scraper/issues)
+- **GitHub Issues**: [Issue Tracker](https://github.com/poodle64/supacrawl/issues)
 
 ### External
 - **Playwright Documentation**: https://playwright.dev/python/

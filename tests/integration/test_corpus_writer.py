@@ -6,8 +6,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from web_scraper.corpus.writer import write_snapshot
-from web_scraper.models import Page, SiteConfig
+from supacrawl.corpus.writer import write_snapshot
+from supacrawl.models import Page, SiteConfig
 
 
 def _site_config() -> SiteConfig:
@@ -115,7 +115,7 @@ def test_write_snapshot_multiple_pages(tmp_path: Path) -> None:
 
 def test_write_snapshot_id_format(tmp_path: Path) -> None:
     """Snapshot ID should be in YYYY-MM-DD_HHMM format."""
-    from web_scraper.corpus.layout import new_snapshot_id
+    from supacrawl.corpus.layout import new_snapshot_id
     import re
 
     snapshot_id = new_snapshot_id()

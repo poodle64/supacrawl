@@ -3,8 +3,8 @@
  build-backend = "hatchling.build"
 
 [project]
-name = "web-scraper"
- version = "2025.12.1"
+name = "supacrawl"
+ version = "2025.12.2"
  description = "Generic website ingestion pipeline for crawling and corpus preparation."
  readme = "README.md"
  requires-python = ">=3.12"
@@ -19,7 +19,6 @@ dependencies = [
   "playwright>=1.49.0",
   "pydantic>=2.9.0",
   "pyyaml>=6.0.1",
-  "trafilatura>=2.0.0",
 ]
 
  [project.optional-dependencies]
@@ -35,7 +34,7 @@ dependencies = [
  ]
 
 [project.scripts]
-web-scraper = "web_scraper.cli:app"
+supacrawl = "supacrawl.cli:app"
 
 [tool.pytest.ini_options]
 markers = [
@@ -48,3 +47,6 @@ asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore:The 'text' argument to find\\(\\)-type methods is deprecated:DeprecationWarning:bs4.element",
 ]
+
+[tool.hatchling.build.targets.wheel]
+packages = ["src/supacrawl"]

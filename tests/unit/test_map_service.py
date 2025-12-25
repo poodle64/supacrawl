@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from web_scraper.models import MapLink, MapResult
-from web_scraper.services.map import MapService
+from supacrawl.models import MapLink, MapResult
+from supacrawl.services.map import MapService
 
 
 class TestMapService:

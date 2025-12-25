@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from web_scraper.services.crawl import CrawlService
-from web_scraper.models import CrawlEvent
+from supacrawl.services.crawl import CrawlService
+from supacrawl.models import CrawlEvent
 
 
 class TestCrawlService:

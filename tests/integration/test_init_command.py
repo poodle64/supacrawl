@@ -6,8 +6,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from web_scraper.cli import app
-from web_scraper.sites.loader import load_site_config
+from supacrawl.cli import app
+from supacrawl.sites.loader import load_site_config
 
 
 def test_init_creates_valid_config_with_url(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 # Site Configuration Template
 # 
-# This template shows all available configuration options for web-scraper.
+# This template shows all available configuration options for supacrawl.
 # Copy this file and customize it for your site. Remove sections you don't need.
 #
 # Required fields are marked with # REQUIRED
@@ -56,14 +56,14 @@ sitemap:
   filter_by_lastmod: null
 
 # OPTIONAL: Robots.txt configuration
-# Default: respect: true, enforcement: "warn", user_agent: "WebScraperBot/1.0"
+# Default: respect: true, enforcement: "warn", user_agent: "SupacrawlBot/1.0"
 robots:
   # Whether to respect robots.txt at all
   respect: true
   # Enforcement level: "strict" (block), "warn" (log only), "ignore"
   enforcement: warn
   # User agent for robots.txt matching
-  user_agent: WebScraperBot/1.0
+  user_agent: SupacrawlBot/1.0
   # Minimum delay between requests (seconds), applied on top of Crawl-delay
   min_delay: 0.0
 

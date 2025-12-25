@@ -9,7 +9,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 
 This skill is auto-generated from cursor rules. Follow these development standards:
 
-# Source: 20-cli-patterns-web-scraper.mdc
+# Source: 20-cli-patterns-supacrawl.mdc
 
 # CLI Patterns
 
@@ -94,11 +94,11 @@ def list_sites(base_path: Path | None) -> None:
 
 ## References
 
-- `.cursor/rules/70-error-handling-web-scraper.mdc` - Error handling patterns for CLI commands
+- `.cursor/rules/70-error-handling-supacrawl.mdc` - Error handling patterns for CLI commands
 
 ---
 
-# Source: 70-error-handling-web-scraper.mdc
+# Source: 70-error-handling-supacrawl.mdc
 
 # Error Handling
 
@@ -108,7 +108,7 @@ This rule documents project-specific error handling practice and relies on maste
 
 ## Core Principles
 
-All web-scraper code must implement comprehensive error handling with web-scraper-specific patterns for exception hierarchy, correlation IDs, and provider error mapping.
+All supacrawl code must implement comprehensive error handling with supacrawl-specific patterns for exception hierarchy, correlation IDs, and provider error mapping.
 
 ## Mandatory Requirements
 
@@ -225,9 +225,9 @@ if not value:
 ## References
 
 - `.cursor/rules/master/70-error-handling-basics.mdc` - Universal error handling principles
-- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Provider error handling patterns
-- `.cursor/rules/20-cli-patterns-web-scraper.mdc` - CLI error presentation patterns
+- `.cursor/rules/50-scraper-provider-patterns-supacrawl.mdc` - Provider error handling patterns
+- `.cursor/rules/20-cli-patterns-supacrawl.mdc` - CLI error presentation patterns
 
 ---
 *Generated: 2025-12-22 21:05:15 UTC*
-*Source rules: 20-cli-patterns-web-scraper.mdc, 70-error-handling-web-scraper.mdc*
+*Source rules: 20-cli-patterns-supacrawl.mdc, 70-error-handling-supacrawl.mdc*

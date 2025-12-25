@@ -6,9 +6,9 @@ import asyncio
 import json
 from pathlib import Path
 
-from web_scraper.corpus.writer import write_snapshot
-from web_scraper.models import Page, SiteConfig
-from web_scraper.prep.chunker import chunk_snapshot
+from supacrawl.corpus.writer import write_snapshot
+from supacrawl.models import Page, SiteConfig
+from supacrawl.prep.chunker import chunk_snapshot
 
 
 def test_write_snapshot_and_chunk(tmp_path: Path) -> None:

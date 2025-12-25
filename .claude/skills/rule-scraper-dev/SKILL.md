@@ -8,18 +8,18 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 
 This skill is auto-generated from cursor rules. Follow these development standards:
 
-# Source: 50-scraper-provider-patterns-web-scraper.mdc
+# Source: 50-scraper-provider-patterns-supacrawl.mdc
 
 # Scraping Service Patterns
 
 ## Core Principles
 
-The scraping services (ScrapeService, CrawlService, MapService, BatchService) in `web_scraper/services/` provide the core scraping functionality with consistent patterns for error handling and browser management.
+The scraping services (ScrapeService, CrawlService, MapService, BatchService) in `supacrawl/services/` provide the core scraping functionality with consistent patterns for error handling and browser management.
 
 ## Service Architecture
 
 ```
-web_scraper/services/
+supacrawl/services/
 ├── browser.py      # BrowserManager - Playwright lifecycle management
 ├── converter.py    # MarkdownConverter - HTML to Markdown conversion
 ├── scrape.py       # ScrapeService - Single URL scraping
@@ -42,15 +42,15 @@ web_scraper/services/
 
 ```python
 # Correct - use services package
-from web_scraper.services.browser import BrowserManager
-from web_scraper.services.converter import MarkdownConverter
-from web_scraper.services.scrape import ScrapeService
-from web_scraper.services.crawl import CrawlService
-from web_scraper.services.map import MapService
-from web_scraper.services.batch import BatchService
+from supacrawl.services.browser import BrowserManager
+from supacrawl.services.converter import MarkdownConverter
+from supacrawl.services.scrape import ScrapeService
+from supacrawl.services.crawl import CrawlService
+from supacrawl.services.map import MapService
+from supacrawl.services.batch import BatchService
 
 # Or use the package exports
-from web_scraper.services import ScrapeService, CrawlService
+from supacrawl.services import ScrapeService, CrawlService
 ```
 
 ### Error Handling
@@ -113,7 +113,7 @@ async with BrowserManager() as browser:
 
 ## Key Directives
 
-- **Service architecture**: Use services in `web_scraper/services/` for all scraping
+- **Service architecture**: Use services in `supacrawl/services/` for all scraping
 - **Browser management**: Always use `BrowserManager`, never raw Playwright
 - **Error handling**: Wrap Playwright errors in `ScraperError` with correlation IDs
 - **Retry logic**: Retry on 5xx/timeouts, not on 4xx errors
@@ -123,12 +123,12 @@ async with BrowserManager() as browser:
 ## References
 
 - `.cursor/rules/master/70-error-handling-basics.mdc` - Universal error handling and retry requirements
-- `.cursor/rules/70-error-handling-web-scraper.mdc` - Web-scraper-specific error handling patterns
+- `.cursor/rules/70-error-handling-supacrawl.mdc` - Supacrawl-specific error handling patterns
 - `docs/30-architecture/data-flow-llm.md` - Complete data flow documentation
 
 ---
 
-# Source: 70-error-handling-web-scraper.mdc
+# Source: 70-error-handling-supacrawl.mdc
 
 # Error Handling
 
@@ -138,7 +138,7 @@ This rule documents project-specific error handling practice and relies on maste
 
 ## Core Principles
 
-All web-scraper code must implement comprehensive error handling with web-scraper-specific patterns for exception hierarchy, correlation IDs, and error mapping.
+All supacrawl code must implement comprehensive error handling with supacrawl-specific patterns for exception hierarchy, correlation IDs, and error mapping.
 
 ## Mandatory Requirements
 
@@ -197,9 +197,9 @@ WebScrapeError (base)
 ## References
 
 - `.cursor/rules/master/70-error-handling-basics.mdc` - Universal error handling principles
-- `.cursor/rules/50-scraper-provider-patterns-web-scraper.mdc` - Scraper service patterns
-- `.cursor/rules/20-cli-patterns-web-scraper.mdc` - CLI error presentation patterns
+- `.cursor/rules/50-scraper-provider-patterns-supacrawl.mdc` - Scraper service patterns
+- `.cursor/rules/20-cli-patterns-supacrawl.mdc` - CLI error presentation patterns
 
 ---
 *Generated: 2025-12-24*
-*Source rules: 50-scraper-provider-patterns-web-scraper.mdc, 70-error-handling-web-scraper.mdc*
+*Source rules: 50-scraper-provider-patterns-supacrawl.mdc, 70-error-handling-supacrawl.mdc*

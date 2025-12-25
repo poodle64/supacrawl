@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from web_scraper.corpus.symlink import (
+from supacrawl.corpus.symlink import (
     LATEST_SYMLINK_NAME,
     remove_symlink_if_exists,
     resolve_latest_snapshot,

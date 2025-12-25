@@ -1,11 +1,33 @@
 # Changelog
 
-All notable changes to web-scraper will be documented in this file.
+All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
+
+## [2025.12.2] - 2025-12-25
+
+### Breaking Changes
+
+- **Project renamed from `web_scraper` to `supacrawl`**: Complete package rename affecting all imports, CLI commands, and references. Users must update:
+  - All imports from `from web_scraper import ...` to `from supacrawl import ...`
+  - CLI commands from `web_scraper` to `supacrawl`
+  - Any configuration or scripts referencing the old package name
+- **Package structure relocated**: Source code moved from `web_scraper/` to `src/supacrawl/` following modern Python packaging layout
+
+### Added
+
+- **Firecrawl parity services**: New `agent`, `extract`, and `search` services for enhanced web scraping capabilities
+- **Firecrawl parity plan**: Documentation outlining roadmap for Firecrawl API compatibility
+
+### Internal
+
+- All cursor rules renamed from `*-web-scraper.mdc` to `*-supacrawl.mdc`
+- All documentation renamed from `*-web-scraper.md` to `*-supacrawl.md`
+- Updated all test imports to use new package name
+- Updated environment configuration and examples for new package name
 
 ## [2025.12.1] - 2025-12-25
 

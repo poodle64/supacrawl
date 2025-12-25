@@ -1,4 +1,4 @@
-# Web-Scraper Usage Guide
+# Supacrawl Usage Guide
 
 This guide explains how to run the crawler with the quality-focused defaults and how to tune behavior via environment variables.
 
@@ -15,7 +15,7 @@ cp .env.example .env
 ```
 3) Run a crawl from a site YAML (e.g., `sites/meta.yaml`):
 ```bash
-web-scraper crawl meta
+supacrawl crawl meta
 ```
 Snapshots are written to `corpora/<site_id>/<snapshot_id>/`.
 
@@ -34,43 +34,43 @@ Snapshots are written to `corpora/<site_id>/<snapshot_id>/`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `WEB_SCRAPER_HEADLESS` | `true` | Visible browser when `false` (good for debugging) |
-| `WEB_SCRAPER_USER_AGENT` | Chrome 131 | Custom user agent string (default: Chrome 131) |
-| `WEB_SCRAPER_ACCEPT_LANGUAGE` | `en-US,en;q=0.8` | Accept-Language header |
-| `WEB_SCRAPER_PROXY` | _unset_ | Proxy URL for geo/anti-bot |
-| `WEB_SCRAPER_USE_MANAGED_BROWSER` | `false` | Reuse a persistent profile (set `WEB_SCRAPER_USER_DATA_DIR`) |
-| `WEB_SCRAPER_VIEWPORT_WIDTH` / `WEB_SCRAPER_VIEWPORT_HEIGHT` | `1280` / `720` | Viewport sizing |
+| `SUPACRAWL_HEADLESS` | `true` | Visible browser when `false` (good for debugging) |
+| `SUPACRAWL_USER_AGENT` | Chrome 131 | Custom user agent string (default: Chrome 131) |
+| `SUPACRAWL_ACCEPT_LANGUAGE` | `en-US,en;q=0.8` | Accept-Language header |
+| `SUPACRAWL_PROXY` | _unset_ | Proxy URL for geo/anti-bot |
+| `SUPACRAWL_USE_MANAGED_BROWSER` | `false` | Reuse a persistent profile (set `SUPACRAWL_USER_DATA_DIR`) |
+| `SUPACRAWL_VIEWPORT_WIDTH` / `SUPACRAWL_VIEWPORT_HEIGHT` | `1280` / `720` | Viewport sizing |
 
 ### Wait Strategies
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `WEB_SCRAPER_WAIT_UNTIL` | `networkidle` | Wait strategy: `domcontentloaded`, `networkidle`, `load` (default: `networkidle` for better JavaScript handling) |
+| `SUPACRAWL_WAIT_UNTIL` | `networkidle` | Wait strategy: `domcontentloaded`, `networkidle`, `load` (default: `networkidle` for better JavaScript handling) |
 
 ### Other Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `WEB_SCRAPER_CACHE_ENABLED` | `false` | Enable cache when content is stable |
-| `WEB_SCRAPER_RETRY_ATTEMPTS` | `3` | Crawl retries; base delay/backoff/jitter via `WEB_SCRAPER_RETRY_BASE_DELAY`, `WEB_SCRAPER_RETRY_BACKOFF`, `WEB_SCRAPER_RETRY_JITTER` |
+| `SUPACRAWL_CACHE_ENABLED` | `false` | Enable cache when content is stable |
+| `SUPACRAWL_RETRY_ATTEMPTS` | `3` | Crawl retries; base delay/backoff/jitter via `SUPACRAWL_RETRY_BASE_DELAY`, `SUPACRAWL_RETRY_BACKOFF`, `SUPACRAWL_RETRY_JITTER` |
 
 ## Running the Meta Docs Example
 
 ```bash
 # optional: persistent profile for authenticated or strict sites
-WEB_SCRAPER_USE_MANAGED_BROWSER=true \
-WEB_SCRAPER_USER_DATA_DIR=/path/to/profile \
-web-scraper crawl meta
+SUPACRAWL_USE_MANAGED_BROWSER=true \
+SUPACRAWL_USER_DATA_DIR=/path/to/profile \
+supacrawl crawl meta
 ```
 
 Tips:
 - Leave cache off for changing docs; enable it for stable references.
-- If pages are blocked, set `WEB_SCRAPER_PROXY` and/or use a managed profile.
+- If pages are blocked, set `SUPACRAWL_PROXY` and/or use a managed profile.
 - Use `only_main_content: true` in site config to extract main content and remove boilerplate.
 
 ## Snapshot Layout
 
-Each run writes a manifest and markdown pages under `corpora/<site_id>/<snapshot_id>/`. Use `web-scraper chunk <site_id> <snapshot_id>` to produce JSONL chunks for downstream LLM consumption.
+Each run writes a manifest and markdown pages under `corpora/<site_id>/<snapshot_id>/`. Use `supacrawl chunk <site_id> <snapshot_id>` to produce JSONL chunks for downstream LLM consumption.
 
 ## Content Extraction
 
@@ -80,4 +80,4 @@ When `only_main_content: true` in site configuration, the scraper extracts main 
 
 - Run `playwright install chromium` to verify Playwright browsers are installed.
 - For 4xx client errors, fix cookies/auth/proxy; retries are skipped by design.
-- For rate limits, adjust `WEB_SCRAPER_RETRY_*` environment variables for crawl retries.
+- For rate limits, adjust `SUPACRAWL_RETRY_*` environment variables for crawl retries.

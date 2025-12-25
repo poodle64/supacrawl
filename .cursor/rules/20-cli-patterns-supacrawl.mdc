@@ -1,0 +1,119 @@
+---
+Rule Type: Tooling
+Scope: Project
+ISO/IEC 25010:
+  Primary: N/A (Tooling rule)
+description: Click CLI patterns and conventions for supacrawl commands
+globs: "**/*.py"
+alwaysApply: false
+
+agentMapping:
+  skillName: cli-dev
+  skillDescription: Click CLI development with command patterns, error presentation, and output formatting
+  triggers:
+    - cli
+    - command
+    - click
+    - terminal
+    - command-line
+    - list-sites
+    - show-site
+    - crawl
+  allowedTools:
+    - Read
+    - Write
+    - Edit
+    - Bash
+    - Grep
+    - Glob
+  model: sonnet
+  includeRules:
+    - 70-error-handling-supacrawl.mdc
+  type: skill
+  priority: 8
+---
+
+# CLI Patterns
+
+## Core Principles
+
+All CLI commands must follow consistent Click patterns for command structure, error handling, and output formatting.
+
+## Mandatory Requirements
+
+### Command Structure
+
+- ✅ **Must** use `@click.group()` for main application entry point
+- ✅ **Must** use `@app.command()` for subcommands
+- ✅ **Must** use descriptive command names (kebab-case: `list-sites`, `show-site`)
+- ✅ **Must** provide `help` parameter for all commands and options
+- ✅ **Must** use docstrings for command functions (explains what command does)
+
+### Option and Argument Patterns
+
+- ✅ **Must** use `@click.option()` for optional parameters
+- ✅ **Must** use `@click.argument()` for required positional parameters
+- ✅ **Must** use `click.Path` for file/directory path options
+- ✅ **Must** specify `type` parameter for path options (`path_type=Path`)
+- ✅ **Must** use appropriate Click types (`str`, `int`, `bool`, `click.Path`)
+- ✅ **Must** provide default values when appropriate
+
+### Error Handling in CLI
+
+- ✅ **Must** catch `SupacrawlError` exceptions and display user-friendly messages
+- ✅ **Must** display correlation IDs in error messages for debugging
+- ✅ **Must** use `click.echo()` for normal output (stdout)
+- ✅ **Must** use `click.echo(..., err=True)` for error messages (stderr)
+- ✅ **Must** exit with appropriate exit codes (0 for success, 1 for errors)
+- ❌ **Must NOT** expose stack traces to users (log internally, show friendly messages)
+- ❌ **Must NOT** use `print()` statements (use `click.echo()`)
+
+### Output Formatting
+
+- ✅ **Must** use consistent output format across commands
+- ✅ **Must** use `click.echo()` for all output (not `print()`)
+- ✅ **Must** format lists and tables consistently
+- ✅ **Must** provide clear success/error messages
+- ✅ **Must** use structured output when appropriate (JSON for machine-readable)
+
+### Command Examples
+
+**Good command structure:**
+```python
+@app.command("list-sites", help="List available site configuration files.")
+@click.option(
+    "--base-path",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    help="Base directory containing sites/ and corpora/ folders.",
+)
+def list_sites(base_path: Path | None) -> None:
+    """
+    List available site configuration files.
+
+    Args:
+        base_path: Optional base directory containing sites/ folder.
+    """
+    try:
+        sites_dir = default_sites_dir(base_path)
+        configs = list_site_configs(sites_dir)
+        if not configs:
+            click.echo(f"No site configurations found in {sites_dir}")
+            return
+        for config in configs:
+            click.echo(config.name)
+    except SupacrawlError as e:
+        click.echo(f"Error: {e.message} [correlation_id={e.correlation_id}]", err=True)
+        raise SystemExit(1)
+```
+
+## Key Directives
+
+- **Consistent structure**: Use Click group/command pattern throughout
+- **User-friendly errors**: Catch exceptions, show friendly messages with correlation IDs
+- **Click output**: Always use `click.echo()`, never `print()`
+- **Path handling**: Use `click.Path` with `path_type=Path` for file/directory options
+- **Help text**: Provide help for all commands and options
+
+## References
+
+- `.cursor/rules/70-error-handling-supacrawl.mdc` - Error handling patterns for CLI commands

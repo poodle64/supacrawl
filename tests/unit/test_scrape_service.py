@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from web_scraper.models import ScrapeResult
-from web_scraper.services.scrape import ScrapeService
+from supacrawl.models import ScrapeResult
+from supacrawl.services.scrape import ScrapeService
 
 
 class TestScrapeService:

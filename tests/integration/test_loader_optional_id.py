@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from web_scraper.exceptions import ConfigurationError
-from web_scraper.sites.loader import load_site_config
+from supacrawl.exceptions import ConfigurationError
+from supacrawl.sites.loader import load_site_config
 
 
 def test_load_site_config_without_id_derives_from_filename(tmp_path: Path):

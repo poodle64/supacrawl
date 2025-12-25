@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from web_scraper.exceptions import ValidationError
-from web_scraper.models import SiteConfig
+from supacrawl.exceptions import ValidationError
+from supacrawl.models import SiteConfig
 
 
 def base_config() -> dict[str, object]:

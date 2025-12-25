@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from web_scraper.models import SiteConfig
+from supacrawl.models import SiteConfig
 
 
 def _minimal_config_data() -> dict:
@@ -43,7 +43,7 @@ def test_site_config_explicit_matching_id_validates():
 
 def test_site_config_explicit_mismatching_id_fails():
     """Test that explicit id not matching expected_id raises ValidationError."""
-    from web_scraper.exceptions import ValidationError
+    from supacrawl.exceptions import ValidationError
     
     data = _minimal_config_data()
     data["id"] = "wrong-site"
@@ -58,7 +58,7 @@ def test_site_config_explicit_mismatching_id_fails():
 
 def test_site_config_missing_id_without_context_fails():
     """Test that missing id without expected_id context raises ValidationError."""
-    from web_scraper.exceptions import ValidationError
+    from supacrawl.exceptions import ValidationError
     
     data = _minimal_config_data()
     # No id field and no context
