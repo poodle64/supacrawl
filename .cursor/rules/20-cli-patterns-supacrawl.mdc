@@ -49,7 +49,7 @@ All CLI commands must follow consistent Click patterns for command structure, er
 
 - ✅ **Must** use `@click.group()` for main application entry point
 - ✅ **Must** use `@app.command()` for subcommands
-- ✅ **Must** use descriptive command names (kebab-case: `list-sites`, `show-site`)
+- ✅ **Must** use descriptive command names (kebab-case: `llm-extract`)
 - ✅ **Must** provide `help` parameter for all commands and options
 - ✅ **Must** use docstrings for command functions (explains what command does)
 

@@ -58,6 +58,6 @@ def app() -> None:
     """
     Entry point for the supacrawl CLI.
 
-    Provides commands for listing sites, showing site details, crawling sites,
-    and chunking snapshots.
+    Provides commands for scraping, crawling, mapping, searching,
+    extracting data, and autonomous web agents.
     """

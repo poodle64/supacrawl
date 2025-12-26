@@ -98,7 +98,7 @@ raise ProviderError(
     context={
         "original_error": str(e),
         "provider": self.provider_name,
-        "site_id": config.id,
+        "url": url,
     },
 )
 ```
@@ -198,11 +198,10 @@ Include validation errors in context:
 
 ```python
 try:
-    config = SiteConfig.model_validate(data)
+    result = ScrapeResult.model_validate(data)
 except ValidationError as e:
     raise ConfigurationError(
-        f"Invalid site configuration: {e}",
-        config_path=str(config_path),
+        f"Invalid scrape result: {e}",
         correlation_id=correlation_id,
         context={"validation_errors": str(e)},
     ) from e

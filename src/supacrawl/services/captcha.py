@@ -129,7 +129,7 @@ class CaptchaSolver:
            export CAPTCHA_API_KEY=your-2captcha-api-key
 
         3. Use the --solve-captcha flag:
-           supacrawl scrape-url --stealth --solve-captcha URL
+           supacrawl scrape --stealth --solve-captcha URL
 
     COSTS:
         Each CAPTCHA solve costs approximately $0.002-0.003 (2-3 cents per 1000).

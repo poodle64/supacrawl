@@ -14,7 +14,7 @@ This skill is auto-generated from cursor rules. Follow these development standar
 
 ## Core Principles
 
-The scraping services (ScrapeService, CrawlService, MapService, BatchService) in `supacrawl/services/` provide the core scraping functionality with consistent patterns for error handling and browser management.
+The scraping services (ScrapeService, CrawlService, MapService) in `supacrawl/services/` provide the core scraping functionality with consistent patterns for error handling and browser management.
 
 ## Service Architecture
 
@@ -24,8 +24,7 @@ supacrawl/services/
 ├── converter.py    # MarkdownConverter - HTML to Markdown conversion
 ├── scrape.py       # ScrapeService - Single URL scraping
 ├── crawl.py        # CrawlService - Full site crawling (uses MapService + ScrapeService)
-├── map.py          # MapService - URL discovery
-└── batch.py        # BatchService - Parallel URL scraping
+└── map.py          # MapService - URL discovery
 ```
 
 ## Mandatory Requirements
@@ -47,7 +46,6 @@ from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.scrape import ScrapeService
 from supacrawl.services.crawl import CrawlService
 from supacrawl.services.map import MapService
-from supacrawl.services.batch import BatchService
 
 # Or use the package exports
 from supacrawl.services import ScrapeService, CrawlService
@@ -144,7 +142,7 @@ All supacrawl code must implement comprehensive error handling with supacrawl-sp
 
 ### Exception Hierarchy
 
-- ✅ **Must** use `WebScrapeError` as base exception class
+- ✅ **Must** use `SupacrawlError` as base exception class
 - ✅ **Must** use specific exception types: `ValidationError`, `ConfigurationError`, `ScraperError`
 - ✅ **Must** include correlation ID in all exceptions
 - ✅ **Must** include context dictionary for debugging
@@ -152,7 +150,7 @@ All supacrawl code must implement comprehensive error handling with supacrawl-sp
 
 **Exception hierarchy:**
 ```
-WebScrapeError (base)
+SupacrawlError (base)
 ├── ValidationError (input validation failures)
 ├── ConfigurationError (config loading/validation failures)
 └── ScraperError (scraping operation failures)
@@ -170,7 +168,7 @@ WebScrapeError (base)
 
 ### CLI Error Presentation
 
-- ✅ **Must** catch `WebScrapeError` exceptions in CLI commands
+- ✅ **Must** catch `SupacrawlError` exceptions in CLI commands
 - ✅ **Must** display user-friendly error messages (not stack traces)
 - ✅ **Must** display correlation IDs in error messages for debugging
 - ✅ **Must** use `click.echo(..., err=True)` for error output
@@ -188,7 +186,7 @@ WebScrapeError (base)
 
 ## Key Directives
 
-- **Exception hierarchy**: Use `WebScrapeError` base with specific exception types
+- **Exception hierarchy**: Use `SupacrawlError` base with specific exception types
 - **Correlation IDs**: Include in all exceptions and log messages
 - **Scraper errors**: Wrap Playwright exceptions in `ScraperError` with context
 - **User-friendly**: Show friendly messages to users, log details internally

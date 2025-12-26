@@ -36,7 +36,7 @@ agentMapping:
 
 ## Core Principles
 
-The scraping services (ScrapeService, CrawlService, MapService, BatchService) in `supacrawl/services/` provide the core scraping functionality with consistent patterns for error handling and browser management.
+The scraping services (ScrapeService, CrawlService, MapService) in `supacrawl/services/` provide the core scraping functionality with consistent patterns for error handling and browser management.
 
 ## Service Architecture
 
@@ -46,8 +46,7 @@ supacrawl/services/
 ├── converter.py    # MarkdownConverter - HTML to Markdown conversion
 ├── scrape.py       # ScrapeService - Single URL scraping
 ├── crawl.py        # CrawlService - Full site crawling (uses MapService + ScrapeService)
-├── map.py          # MapService - URL discovery
-└── batch.py        # BatchService - Parallel URL scraping
+└── map.py          # MapService - URL discovery
 ```
 
 ## Mandatory Requirements
@@ -69,7 +68,6 @@ from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.scrape import ScrapeService
 from supacrawl.services.crawl import CrawlService
 from supacrawl.services.map import MapService
-from supacrawl.services.batch import BatchService
 
 # Or use the package exports
 from supacrawl.services import ScrapeService, CrawlService

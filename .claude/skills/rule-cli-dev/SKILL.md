@@ -17,13 +17,25 @@ This skill is auto-generated from cursor rules. Follow these development standar
 
 All CLI commands must follow consistent Click patterns for command structure, error handling, and output formatting.
 
+## Available Commands
+
+Supacrawl provides 7 Firecrawl-aligned commands:
+
+- `scrape` - Scrape a single URL to markdown/HTML/JSON
+- `crawl` - Crawl a website with URL discovery
+- `map` - Discover URLs without scraping
+- `search` - Web search with optional scraping
+- `llm-extract` - LLM-powered structured data extraction
+- `agent` - Autonomous web agent for data gathering
+- `cache` - Cache management subcommands
+
 ## Mandatory Requirements
 
 ### Command Structure
 
 - ✅ **Must** use `@click.group()` for main application entry point
 - ✅ **Must** use `@app.command()` for subcommands
-- ✅ **Must** use descriptive command names (kebab-case: `list-sites`, `show-site`)
+- ✅ **Must** use descriptive command names (kebab-case: `llm-extract`)
 - ✅ **Must** provide `help` parameter for all commands and options
 - ✅ **Must** use docstrings for command functions (explains what command does)
 
@@ -38,7 +50,7 @@ All CLI commands must follow consistent Click patterns for command structure, er
 
 ### Error Handling in CLI
 
-- ✅ **Must** catch `WebScrapeError` exceptions and display user-friendly messages
+- ✅ **Must** catch `SupacrawlError` exceptions and display user-friendly messages
 - ✅ **Must** display correlation IDs in error messages for debugging
 - ✅ **Must** use `click.echo()` for normal output (stdout)
 - ✅ **Must** use `click.echo(..., err=True)` for error messages (stderr)
@@ -58,28 +70,38 @@ All CLI commands must follow consistent Click patterns for command structure, er
 
 **Good command structure:**
 ```python
-@app.command("list-sites", help="List available site configuration files.")
+@app.command("scrape", help="Scrape a single URL to markdown.")
+@click.argument("url")
 @click.option(
-    "--base-path",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-    help="Base directory containing sites/ and corpora/ folders.",
+    "--format",
+    "formats",
+    type=click.Choice(["markdown", "html", "rawHtml", "links"]),
+    multiple=True,
+    default=["markdown"],
+    help="Output format(s).",
 )
-def list_sites(base_path: Path | None) -> None:
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Output file path. If omitted, prints to stdout.",
+)
+def scrape(url: str, formats: tuple[str, ...], output: Path | None) -> None:
     """
-    List available site configuration files.
+    Scrape a single URL and output content.
 
     Args:
-        base_path: Optional base directory containing sites/ folder.
+        url: The URL to scrape.
+        formats: Output format(s) to generate.
+        output: Optional output file path.
     """
     try:
-        sites_dir = default_sites_dir(base_path)
-        configs = list_site_configs(sites_dir)
-        if not configs:
-            click.echo(f"No site configurations found in {sites_dir}")
-            return
-        for config in configs:
-            click.echo(config.name)
-    except WebScrapeError as e:
+        result = asyncio.run(scrape_service.scrape(url, formats=list(formats)))
+        if output:
+            output.write_text(result.markdown)
+            click.echo(f"Scraped to {output}")
+        else:
+            click.echo(result.markdown)
+    except SupacrawlError as e:
         click.echo(f"Error: {e.message} [correlation_id={e.correlation_id}]", err=True)
         raise SystemExit(1)
 ```
@@ -114,7 +136,7 @@ All supacrawl code must implement comprehensive error handling with supacrawl-sp
 
 ### Exception Hierarchy
 
-- ✅ **Must** use `WebScrapeError` as base exception class
+- ✅ **Must** use `SupacrawlError` as base exception class
 - ✅ **Must** use specific exception types: `ValidationError`, `ConfigurationError`, `ProviderError`, `FileNotFoundError`
 - ✅ **Must** include correlation ID in all exceptions
 - ✅ **Must** include context dictionary for debugging
@@ -122,7 +144,7 @@ All supacrawl code must implement comprehensive error handling with supacrawl-sp
 
 **Exception hierarchy:**
 ```
-WebScrapeError (base)
+SupacrawlError (base)
 ├── ValidationError (input validation failures)
 ├── ConfigurationError (config loading/validation failures)
 ├── FileNotFoundError (missing files)
@@ -151,30 +173,23 @@ WebScrapeError (base)
 **Example:**
 ```python
 try:
-    result = provider_client.crawl(...)
-except ProviderSpecificError as e:
+    result = await scrape_service.scrape(url)
+except PlaywrightError as e:
     correlation_id = generate_correlation_id()
     log_with_correlation(
         LOGGER,
         "error",
-        f"Provider {self.provider_name} failed: {e}",
+        f"Browser failed: {e}",
         correlation_id,
-        {"provider": self.provider_name, "error": str(e)},
+        {"url": url, "error": str(e)},
     )
     raise ProviderError(
-        f"Failed to crawl site using {self.provider_name}",
-        provider=self.provider_name,
+        f"Failed to scrape {url}",
+        provider="playwright",
         correlation_id=correlation_id,
         context={"original_error": str(e)},
     ) from e
 ```
-
-### Configuration Error Handling
-
-- ✅ **Must** raise `ConfigurationError` when site configuration loading fails
-- ✅ **Must** include config path in `ConfigurationError` context
-- ✅ **Must** include validation errors in context
-- ✅ **Must** provide helpful error messages with examples
 
 ### Validation Error Handling
 
@@ -185,20 +200,20 @@ except ProviderSpecificError as e:
 
 **Example:**
 ```python
-if not value:
+if not url:
     correlation_id = generate_correlation_id()
     raise ValidationError(
-        "At least one entrypoint is required.",
-        field="entrypoints",
-        value=value,
+        "URL is required.",
+        field="url",
+        value=url,
         correlation_id=correlation_id,
-        context={"example": "entrypoints: ['https://example.com']"},
+        context={"example": "https://example.com"},
     )
 ```
 
 ### CLI Error Presentation
 
-- ✅ **Must** catch `WebScrapeError` exceptions in CLI commands
+- ✅ **Must** catch `SupacrawlError` exceptions in CLI commands
 - ✅ **Must** display user-friendly error messages (not stack traces)
 - ✅ **Must** display correlation IDs in error messages for debugging
 - ✅ **Must** use `click.echo(..., err=True)` for error output
@@ -211,12 +226,11 @@ if not value:
 - ✅ **Must** use `log_with_correlation()` helper for structured logging
 - ✅ **Must** log provider errors at ERROR level
 - ✅ **Must** log validation errors at WARNING level
-- ✅ **Must** log configuration errors at WARNING level
 - ✅ **Must** include correlation ID in all log messages
 
 ## Key Directives
 
-- **Exception hierarchy**: Use `WebScrapeError` base with specific exception types
+- **Exception hierarchy**: Use `SupacrawlError` base with specific exception types
 - **Correlation IDs**: Include in all exceptions and log messages
 - **Provider errors**: Wrap provider exceptions in `ProviderError` with context
 - **User-friendly**: Show friendly messages to users, log details internally
@@ -225,9 +239,8 @@ if not value:
 ## References
 
 - `.cursor/rules/master/70-error-handling-basics.mdc` - Universal error handling principles
-- `.cursor/rules/50-scraper-provider-patterns-supacrawl.mdc` - Provider error handling patterns
 - `.cursor/rules/20-cli-patterns-supacrawl.mdc` - CLI error presentation patterns
 
 ---
-*Generated: 2025-12-22 21:05:15 UTC*
+*Generated: 2025-12-26*
 *Source rules: 20-cli-patterns-supacrawl.mdc, 70-error-handling-supacrawl.mdc*
