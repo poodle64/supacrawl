@@ -7,6 +7,16 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2025.12.6] - 2025-12-26
+
+### Fixed
+
+- Fixed stale references to old command names (`scrape-url`, `map-url`, `crawl-url`) in code and documentation
+- Rewrote `docs/README.md` to reflect simplified CLI
+- Rewrote `docs/40-usage/USAGE_GUIDE.md` to remove site config and corpus references
+- Rewrote `docs/70-reliability/testing-supacrawl.md` for new service patterns
+- Rewrote `docs/30-architecture/snapshot-contract.md` to describe simplified crawl output format
+
 ## [2025.12.5] - 2025-12-26
 
 ### Breaking Changes

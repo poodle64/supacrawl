@@ -1,83 +1,123 @@
 # Supacrawl Usage Guide
 
-This guide explains how to run the crawler with the quality-focused defaults and how to tune behavior via environment variables.
+This guide explains how to run the scraper with quality-focused defaults and tune behaviour via environment variables.
 
 ## Quick Start
 
-1) Install and set up browsers once:
+1) Install and set up browsers:
 ```bash
 pip install -e .
 playwright install chromium
 ```
+
 2) Copy and edit `.env` if needed:
 ```bash
 cp .env.example .env
 ```
-3) Run a crawl from a site YAML (e.g., `sites/meta.yaml`):
+
+3) Scrape a URL:
 ```bash
-supacrawl crawl meta
+supacrawl scrape https://example.com
 ```
-Snapshots are written to `corpora/<site_id>/<snapshot_id>/`.
+
+4) Crawl a website:
+```bash
+supacrawl crawl https://example.com --output corpus/ --limit 50
+```
 
 ## Defaults That Maximise Quality
 
 - **Stealth + realistic headers** with Chrome 131 user agent and realistic browser headers (Accept, Accept-Encoding, DNT, Connection, Upgrade-Insecure-Requests).
 - **Smart wait strategies**: `networkidle` wait for JavaScript-heavy pages to ensure content is fully loaded.
-- **Main content extraction**: Removes navigation, headers, footers when `only_main_content: true`.
+- **Main content extraction**: Removes navigation, headers, footers with `--only-main-content` (default: true).
 - **Markdown fidelity**: Preserves links, tables, code blocks using markdownify converter.
 - **Retry/backoff** on transient errors; skips retries on 4xx failures.
-- **Snapshot versioning**: Each crawl creates a timestamped snapshot for reproducibility.
 
-## Key Environment Toggles
+## Key Environment Variables
 
 ### Browser Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SUPACRAWL_HEADLESS` | `true` | Visible browser when `false` (good for debugging) |
-| `SUPACRAWL_USER_AGENT` | Chrome 131 | Custom user agent string (default: Chrome 131) |
+| `SUPACRAWL_USER_AGENT` | Chrome 131 | Custom user agent string |
 | `SUPACRAWL_ACCEPT_LANGUAGE` | `en-US,en;q=0.8` | Accept-Language header |
 | `SUPACRAWL_PROXY` | _unset_ | Proxy URL for geo/anti-bot |
-| `SUPACRAWL_USE_MANAGED_BROWSER` | `false` | Reuse a persistent profile (set `SUPACRAWL_USER_DATA_DIR`) |
+| `SUPACRAWL_USE_MANAGED_BROWSER` | `false` | Reuse a persistent profile |
 | `SUPACRAWL_VIEWPORT_WIDTH` / `SUPACRAWL_VIEWPORT_HEIGHT` | `1280` / `720` | Viewport sizing |
 
 ### Wait Strategies
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SUPACRAWL_WAIT_UNTIL` | `networkidle` | Wait strategy: `domcontentloaded`, `networkidle`, `load` (default: `networkidle` for better JavaScript handling) |
+| `SUPACRAWL_WAIT_UNTIL` | `networkidle` | Wait strategy: `domcontentloaded`, `networkidle`, `load` |
 
-### Other Configuration
+### Cache Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SUPACRAWL_CACHE_ENABLED` | `false` | Enable cache when content is stable |
-| `SUPACRAWL_RETRY_ATTEMPTS` | `3` | Crawl retries; base delay/backoff/jitter via `SUPACRAWL_RETRY_BASE_DELAY`, `SUPACRAWL_RETRY_BACKOFF`, `SUPACRAWL_RETRY_JITTER` |
+| `SUPACRAWL_CACHE_DIR` | `~/.supacrawl/cache` | Cache directory location |
 
-## Running the Meta Docs Example
+### Retry Configuration
 
-```bash
-# optional: persistent profile for authenticated or strict sites
-SUPACRAWL_USE_MANAGED_BROWSER=true \
-SUPACRAWL_USER_DATA_DIR=/path/to/profile \
-supacrawl crawl meta
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SUPACRAWL_RETRY_ATTEMPTS` | `3` | Number of retry attempts |
+| `SUPACRAWL_RETRY_BASE_DELAY` | `1.0` | Base delay in seconds |
+| `SUPACRAWL_RETRY_BACKOFF` | `2.0` | Backoff multiplier |
+| `SUPACRAWL_RETRY_JITTER` | `0.1` | Jitter factor |
+
+## Crawl Output
+
+The `crawl` command writes markdown files to the output directory:
+
+```
+output/
+  manifest.json    # Tracks scraped URLs for resume
+  index.md         # Content with YAML frontmatter
+  about.md
+  blog_post-1.md
 ```
 
-Tips:
-- Leave cache off for changing docs; enable it for stable references.
-- If pages are blocked, set `SUPACRAWL_PROXY` and/or use a managed profile.
-- Use `only_main_content: true` in site config to extract main content and remove boilerplate.
+Each markdown file includes YAML frontmatter with metadata:
+```markdown
+---
+source_url: https://example.com/about
+title: About Us
+---
+# About Us
+...
+```
 
-## Snapshot Layout
-
-Each run writes a manifest and markdown pages under `corpora/<site_id>/<snapshot_id>/`. Use `supacrawl chunk <site_id> <snapshot_id>` to produce JSONL chunks for downstream LLM consumption.
+Use `--resume` to continue an interrupted crawl.
 
 ## Content Extraction
 
-When `only_main_content: true` in site configuration, the scraper extracts main content only (cleaned content with boilerplate removed). When `only_main_content: false`, it uses full page content. The extraction process removes navigation, headers, footers, and other boilerplate while preserving main content (headings, code blocks, tables, examples).
+When `--only-main-content` is enabled (default), the scraper:
+- Extracts main content only (removes boilerplate)
+- Removes navigation, headers, footers
+- Preserves headings, code blocks, tables, examples
+
+Use `--no-only-main-content` to keep full page content.
+
+## Using Cache
+
+Enable caching for repeated requests:
+```bash
+supacrawl scrape https://example.com --max-age 3600
+```
+
+Manage cache:
+```bash
+supacrawl cache stats   # Show statistics
+supacrawl cache clear   # Clear all entries
+supacrawl cache prune   # Remove expired entries
+```
 
 ## Troubleshooting
 
 - Run `playwright install chromium` to verify Playwright browsers are installed.
 - For 4xx client errors, fix cookies/auth/proxy; retries are skipped by design.
-- For rate limits, adjust `SUPACRAWL_RETRY_*` environment variables for crawl retries.
+- For rate limits, adjust `SUPACRAWL_RETRY_*` environment variables.
+- Use `--stealth` for bot-protected sites (requires `pip install supacrawl[stealth]`).
+- Use `--solve-captcha` for CAPTCHA-protected sites (requires `pip install supacrawl[captcha]` and `CAPTCHA_API_KEY`).

@@ -8,21 +8,20 @@ Supacrawl uses pytest for testing with patterns for:
 
 - **Unit Tests**: Test individual components in isolation
 - **Integration Tests**: Test component interactions
-- **Scraper Tests**: Test scraper services and error handling
-- **CLI Tests**: Test command-line interface
+- **E2E Tests**: Test real browser/network operations
 
 ## Test Categories
 
 Tests are organised into directories with automatic marker assignment:
 
 - **`tests/unit/`**: Pure logic tests, no I/O or browser (marker: `unit`)
-- **`tests/integration/`**: Filesystem operations, mocks, local HTTP server (marker: `integration`)
+- **`tests/integration/`**: Filesystem operations, mocks (marker: `integration`)
 - **`tests/e2e/`**: Real Playwright browser tests, slow (marker: `e2e`)
 
 Run specific categories:
 
 ```bash
-# Fast tests only (unit + integration)
+# Fast tests only (unit + integration, excludes e2e)
 pytest -q -m "not e2e"
 
 # End-to-end tests only
@@ -32,25 +31,11 @@ pytest -q -m "e2e"
 pytest -q
 ```
 
-### Live Network Tests
-
-Two e2e baseline quality tests require live internet access to external websites. These tests are automatically skipped unless the `SUPACRAWL_TEST_ENABLED=1` environment variable is set:
-
-```bash
-# Run all tests including live network tests
-SUPACRAWL_TEST_ENABLED=1 pytest -q
-
-# Skip live network tests (default)
-pytest -q
-```
-
-All other tests are fully offline-safe and use local fixtures only.
-
 ## Unit Testing Patterns
 
 ### Testing Service Classes
 
-Test service initialization and error handling:
+Test service initialization:
 
 ```python
 def test_scrape_service_initialization():
@@ -60,112 +45,17 @@ def test_scrape_service_initialization():
     assert service is not None
 ```
 
-### Testing Site Configuration Loading
+### Testing Pure Logic
 
-Test configuration loading and validation:
-
-```python
-def test_load_site_config_valid(tmp_path):
-    """Test loading valid site configuration."""
-    config_file = tmp_path / "test-site.yaml"
-    config_file.write_text("""
-id: test-site
-name: Test Site
-entrypoints:
-  - https://example.com
-include:
-  - https://example.com/**
-exclude: []
-max_pages: 10
-formats:
-  - html
-only_main_content: true
-include_subdomains: false
-""")
-    config = load_site_config(config_file)
-    assert config.id == "test-site"
-```
-
-### Testing Validation
-
-Test validation rules:
+Test URL pattern matching:
 
 ```python
-def test_site_config_empty_entrypoints():
-    """Test site configuration rejects empty entrypoints."""
-    with pytest.raises(ValidationError) as exc_info:
-        SiteConfig(
-            id="test-site",
-            name="Test Site",
-            entrypoints=[],  # Empty entrypoints
-            include=["https://example.com/**"],
-            exclude=[],
-            max_pages=10,
-            formats=["html"],
-            only_main_content=True,
-            include_subdomains=False,
-        )
-    assert exc_info.value.field == "entrypoints"
-    assert exc_info.value.correlation_id is not None
-```
-
-## Integration Testing Patterns
-
-### Testing End-to-End Crawl Flow
-
-Test complete crawl workflow:
-
-```python
-async def test_crawl_flow(tmp_path):
-    """Test end-to-end crawl flow."""
-    from supacrawl.services import ScrapeService
-    from supacrawl.config import load_site_config
-    from supacrawl.corpus.writer import write_snapshot
-
-    # Setup
-    sites_dir = tmp_path / "sites"
-    sites_dir.mkdir()
-    config_file = sites_dir / "test-site.yaml"
-    config_file.write_text("...")
-
-    corpora_dir = tmp_path / "corpora"
-
-    # Execute
-    config = load_site_config(config_file)
-    scrape_service = ScrapeService()
-    pages = await scrape_service.scrape_urls(config.entrypoints)
-    snapshot_id = write_snapshot(corpora_dir, config, pages)
-
-    # Verify
-    manifest_path = corpora_dir / config.id / snapshot_id / "manifest.json"
-    assert manifest_path.exists()
-    manifest = json.loads(manifest_path.read_text())
-    assert manifest["total_pages"] == len(pages)
-```
-
-### Testing Corpus Writer
-
-Test snapshot creation and manifest structure:
-
-```python
-def test_write_snapshot_creates_manifest(tmp_path):
-    """Test writing snapshot creates manifest.json."""
-    from supacrawl.config import SiteConfig
-    from supacrawl.models import Page
-    from supacrawl.corpus.writer import write_snapshot
-
-    corpora_dir = tmp_path / "corpora"
-    config = SiteConfig(...)
-    pages = [Page(...), Page(...)]
-
-    snapshot_id = write_snapshot(corpora_dir, config, pages)
-
-    manifest_path = corpora_dir / config.id / snapshot_id / "manifest.json"
-    assert manifest_path.exists()
-    manifest = json.loads(manifest_path.read_text())
-    assert manifest["site_id"] == config.id
-    assert manifest["total_pages"] == len(pages)
-    assert len(manifest["pages"]) == len(pages)
+def test_matches_patterns():
+    """Test URL pattern matching."""
+    from supacrawl.services.crawl import CrawlService
+    service = CrawlService()
+    assert service._matches_patterns("https://example.com/api/v1", ["*/api/*"])
+    assert not service._matches_patterns("https://example.com/docs", ["*/api/*"])
 ```
 
 ## Service Testing Patterns
@@ -190,10 +80,10 @@ async def test_scrape_service_success(mock_browser_context):
     """Test scrape service successfully scrapes page."""
     from supacrawl.services import ScrapeService
 
-    service = ScrapeService(browser_context=mock_browser_context)
+    service = ScrapeService(browser=mock_browser_context)
     result = await service.scrape("https://example.com")
     assert result.success
-    assert result.content is not None
+    assert result.data.markdown is not None
 ```
 
 ### Testing Service Error Handling
@@ -204,78 +94,47 @@ Test error wrapping:
 async def test_scrape_service_error_handling():
     """Test scrape service error handling."""
     from supacrawl.services import ScrapeService
-    from supacrawl.exceptions import ScraperError
 
     service = ScrapeService()
+    result = await service.scrape("https://invalid-domain-12345.com")
 
-    with pytest.raises(ScraperError) as exc_info:
-        await service.scrape("invalid://url")
-
-    assert exc_info.value.correlation_id is not None
-    assert "original_error" in exc_info.value.context
-```
-
-### Testing Retry Logic
-
-Test retry behavior:
-
-```python
-async def test_scrape_service_retry_logic(mock_browser_retry):
-    """Test scrape service retry logic."""
-    from supacrawl.services import ScrapeService
-
-    # First two calls fail, third succeeds
-    call_count = 0
-    async def side_effect(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count < 3:
-            raise TimeoutError("Transient error")
-        return "<html><body>Success</body></html>"
-
-    mock_browser_retry.new_page().goto = AsyncMock(side_effect=side_effect)
-
-    service = ScrapeService(browser_context=mock_browser_retry)
-    result = await service.scrape("https://example.com")
-
-    assert result.success
-    assert call_count == 3
+    assert not result.success
+    assert result.error is not None
 ```
 
 ## CLI Testing Patterns
 
 ### Testing CLI Commands
 
-Use Click test client:
+Use subprocess for E2E CLI tests:
 
 ```python
-from click.testing import CliRunner
-
-def test_list_sites_command(tmp_path):
-    """Test list-sites command."""
-    runner = CliRunner()
-    sites_dir = tmp_path / "sites"
-    sites_dir.mkdir()
-    (sites_dir / "test-site.yaml").write_text("...")
-    
-    result = runner.invoke(app, ["list-sites", "--base-path", str(tmp_path)])
-    assert result.exit_code == 0
-    assert "test-site" in result.output
+def test_scrape_command():
+    """Test scrape command returns markdown."""
+    result = subprocess.run(
+        ["python", "-m", "supacrawl", "scrape", "https://example.com"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0
+    assert len(result.stdout) > 100
 ```
 
-### Testing CLI Error Handling
-
-Test error messages and exit codes:
+### Testing CLI with Output Files
 
 ```python
-def test_crawl_command_invalid_site(tmp_path):
-    """Test crawl command with invalid site."""
-    runner = CliRunner()
-    
-    result = runner.invoke(app, ["crawl", "nonexistent-site", "--base-path", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "Error:" in result.output
-    assert "correlation_id=" in result.output
+def test_scrape_with_output(tmp_path):
+    """Test scrape saves to file."""
+    output_file = tmp_path / "page.md"
+    result = subprocess.run(
+        ["python", "-m", "supacrawl", "scrape", "https://example.com", "--output", str(output_file)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0
+    assert output_file.exists()
 ```
 
 ## Test Fixtures
@@ -286,53 +145,29 @@ Create reusable test fixtures:
 
 ```python
 @pytest.fixture
-def sample_site_config():
-    """Sample site configuration for testing."""
-    from supacrawl.config import SiteConfig
+def sample_scrape_result():
+    """Sample scrape result for testing."""
+    from supacrawl.models import ScrapeResult, ScrapeData, PageMetadata
 
-    return SiteConfig(
-        id="test-site",
-        name="Test Site",
-        entrypoints=["https://example.com"],
-        include=["https://example.com/**"],
-        exclude=[],
-        max_pages=10,
-        formats=["html"],
-        only_main_content=True,
-        include_subdomains=False,
+    return ScrapeResult(
+        success=True,
+        data=ScrapeData(
+            markdown="# Test Page\n\nContent here.",
+            metadata=PageMetadata(
+                title="Test Page",
+                source_url="https://example.com",
+            ),
+        ),
     )
-
-
-@pytest.fixture
-def sample_pages():
-    """Sample pages for testing."""
-    from supacrawl.models import Page
-
-    return [
-        Page(
-            url="https://example.com/page1",
-            title="Page 1",
-            content="Content 1",
-            content_hash="hash1",
-            path="/page1",
-        ),
-        Page(
-            url="https://example.com/page2",
-            title="Page 2",
-            content="Content 2",
-            content_hash="hash2",
-            path="/page2",
-        ),
-    ]
 ```
 
 ## Best Practices
 
 1. **Isolation**: Each test should be independent
 2. **Fixtures**: Use fixtures for common test data
-3. **Mocking**: Mock external dependencies (providers, file system)
+3. **Mocking**: Mock external dependencies (browser, network)
 4. **Coverage**: Test error paths, not just happy paths
-5. **Correlation IDs**: Verify correlation IDs in error tests
+5. **Markers**: Use `@pytest.mark.e2e` for slow network tests
 6. **Cleanup**: Clean up test artifacts (temp files, directories)
 
 ## Running Tests
@@ -343,10 +178,16 @@ def sample_pages():
 pytest -q
 ```
 
+### Run Fast Tests Only
+
+```bash
+pytest -q -m "not e2e"
+```
+
 ### Run Specific Test File
 
 ```bash
-pytest tests/unit/test_guardrails.py -q
+pytest tests/unit/test_converter.py -q
 ```
 
 ### Run with Coverage

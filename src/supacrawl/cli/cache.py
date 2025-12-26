@@ -15,7 +15,7 @@ def cache() -> None:
     """Manage the local scrape cache.
 
     The cache stores scraped content locally for faster repeated requests.
-    Use --max-age with scrape-url to enable caching.
+    Use --max-age with scrape to enable caching.
 
     Examples:
         supacrawl cache stats           # Show cache statistics

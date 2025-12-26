@@ -19,7 +19,7 @@ COST WARNING:
 
 USAGE:
     # CLI
-    supacrawl scrape-url --stealth --solve-captcha https://protected-site.com
+    supacrawl scrape --stealth --solve-captcha https://protected-site.com
 
     # Python
     from supacrawl.services.captcha import CaptchaSolver
