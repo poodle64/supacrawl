@@ -362,36 +362,6 @@ class CrawlEvent(BaseModel):
     error: str | None = None
 
 
-class BatchItem(BaseModel):
-    """Result for a single URL in a batch (Firecrawl-compatible)."""
-
-    url: str
-    success: bool
-    data: ScrapeData | None = None
-    error: str | None = None
-
-
-class BatchEvent(BaseModel):
-    """Event emitted during batch processing (Firecrawl-compatible)."""
-
-    type: Literal["progress", "item", "complete"]
-    url: str | None = None
-    item: BatchItem | None = None
-    completed: int = 0
-    total: int = 0
-
-
-class BatchResult(BaseModel):
-    """Final result of a batch operation (Firecrawl-compatible)."""
-
-    success: bool
-    completed: int
-    total: int
-    successful: int
-    failed: int
-    data: list[BatchItem]
-
-
 # =============================================================================
 # Search Models (Firecrawl-compatible)
 # =============================================================================
