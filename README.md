@@ -173,7 +173,7 @@ supacrawl chunk <site-id> <snapshot-id> [OPTIONS]
   --max-chars <int>    Maximum characters per chunk (default: 1200)
   --use-ollama         Enable Ollama for AI processing
   --ollama-summarize   Add AI-generated summaries to chunks
-  --ollama-model <m>   Override Ollama model (default: llama3.2)
+  --ollama-model <m>   Override Ollama model (default: qwen3:8b)
 ```
 
 ## Site Configuration
@@ -260,7 +260,7 @@ supacrawl chunk <site-id> <snapshot-id> --use-ollama --ollama-summarize
 
 **Configuration**:
 - `OLLAMA_HOST`: Ollama server URL (default: `http://localhost:11434`)
-- `OLLAMA_MODEL`: Model to use (default: `llama3.2`)
+- `OLLAMA_MODEL`: Model to use (default: `qwen3:8b`)
 
 See [Ollama documentation](https://ollama.com/) for installation and model management.
 
@@ -280,7 +280,7 @@ All configuration is optional. Sensible defaults are built in. Copy `.env.exampl
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
-| `OLLAMA_MODEL` | `llama3.2` | Model to use for summaries |
+| `OLLAMA_MODEL` | `qwen3:8b` | Model to use for summaries |
 
 See `.env.example` for advanced settings (content filtering thresholds, LLM configuration).
 

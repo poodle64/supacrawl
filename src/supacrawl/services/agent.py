@@ -2,21 +2,18 @@
 Autonomous web agent service for supacrawl.
 
 Navigates the web autonomously to gather data based on a prompt.
-Uses LLM for planning and decision making.
+Provider configuration is via environment variables (LLM_PROVIDER, LLM_MODEL, etc).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Literal
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-import httpx
-
-from supacrawl.exceptions import ProviderError, generate_correlation_id
+from supacrawl.exceptions import generate_correlation_id
+from supacrawl.llm import LLMClient, load_llm_config
 from supacrawl.models import AgentEvent, AgentResult
-from supacrawl.prep.ollama_client import OllamaClient
 from supacrawl.utils import log_with_correlation
 
 if TYPE_CHECKING:
@@ -33,6 +30,11 @@ class AgentService:
     Combines search, scrape, and extraction to autonomously
     gather data based on natural language prompts.
 
+    Requires LLM configuration via environment variables:
+        LLM_PROVIDER=ollama|openai|anthropic
+        LLM_MODEL=<model-name>
+        LLM_API_KEY=<api-key>  (for cloud providers)
+
     Example usage:
         >>> from supacrawl.services.scrape import ScrapeService
         >>> from supacrawl.services.search import SearchService
@@ -47,59 +49,30 @@ class AgentService:
         self,
         scrape_service: "ScrapeService",
         search_service: "SearchService",
-        provider: Literal["ollama", "openai", "anthropic"] = "ollama",
-        model: str | None = None,
-        ollama_host: str | None = None,
-    ):
+    ) -> None:
         """
         Initialise agent service.
 
         Args:
             scrape_service: ScrapeService for page scraping.
             search_service: SearchService for web search.
-            provider: LLM provider ("ollama", "openai", "anthropic").
-            model: Model name. Defaults vary by provider.
-            ollama_host: Ollama server URL (for ollama provider).
         """
         self._scrape_service = scrape_service
         self._search_service = search_service
-        self._provider = provider
-        self._model = model or self._default_model()
-        self._ollama_host = ollama_host
+        self._llm_client: LLMClient | None = None
 
-        # Clients (lazily initialised)
-        self._ollama_client: OllamaClient | None = None
-        self._http_client: httpx.AsyncClient | None = None
-
-    def _default_model(self) -> str:
-        """Get default model for current provider."""
-        defaults = {
-            "ollama": os.getenv("OLLAMA_MODEL", "llama3.2"),
-            "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
-        }
-        return defaults.get(self._provider, "llama3.2")
-
-    async def _get_ollama_client(self) -> OllamaClient:
-        """Get or create Ollama client."""
-        if self._ollama_client is None:
-            self._ollama_client = OllamaClient(
-                host=self._ollama_host,
-                model=self._model,
-            )
-        return self._ollama_client
-
-    async def _get_http_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client for cloud providers."""
-        if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=120.0)
-        return self._http_client
+    async def _get_llm_client(self) -> LLMClient:
+        """Get or create LLM client."""
+        if self._llm_client is None:
+            config = load_llm_config()
+            self._llm_client = LLMClient(config)
+        return self._llm_client
 
     async def close(self) -> None:
-        """Close HTTP client."""
-        if self._http_client:
-            await self._http_client.aclose()
-            self._http_client = None
+        """Close LLM client."""
+        if self._llm_client:
+            await self._llm_client.close()
+            self._llm_client = None
 
     async def run(
         self,
@@ -119,11 +92,17 @@ class AgentService:
 
         Yields:
             AgentEvent objects tracking progress.
+
+        Raises:
+            LLMNotConfiguredError: If LLM environment variables are not set.
         """
         correlation_id = generate_correlation_id()
         visited_urls: list[str] = []
         gathered_data: list[dict] = []
         step = 0
+
+        # Get client early to fail fast if not configured
+        client = await self._get_llm_client()
 
         log_with_correlation(
             LOGGER,
@@ -212,6 +191,7 @@ class AgentService:
                     schema=schema,
                     url=url,
                     correlation_id=correlation_id,
+                    client=client,
                 )
 
                 if extracted:
@@ -226,7 +206,7 @@ class AgentService:
             # Compile final result
             if schema:
                 final_data = await self._compile_results(
-                    gathered_data, prompt, schema, correlation_id
+                    gathered_data, prompt, schema, correlation_id, client
                 )
             else:
                 final_data = {"items": gathered_data}
@@ -315,6 +295,7 @@ class AgentService:
         schema: dict[str, Any] | None,
         url: str,
         correlation_id: str,
+        client: LLMClient,
     ) -> dict[str, Any] | None:
         """Extract relevant data from page content."""
         system_prompt = (
@@ -344,7 +325,11 @@ Extract relevant information as JSON:
 """
 
         try:
-            return await self._call_llm(system_prompt, user_prompt, correlation_id)
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            return await client.chat_json(messages)
         except Exception as e:
             log_with_correlation(
                 LOGGER,
@@ -360,6 +345,7 @@ Extract relevant information as JSON:
         prompt: str,
         schema: dict[str, Any],
         correlation_id: str,
+        client: LLMClient,
     ) -> dict[str, Any]:
         """Compile gathered data into final structured result."""
         if not gathered_data:
@@ -389,171 +375,10 @@ Compile into a single structured result:
 """
 
         try:
-            return await self._call_llm(system_prompt, user_prompt, correlation_id)
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            return await client.chat_json(messages)
         except Exception:
             return {"items": gathered_data}
-
-    async def _call_llm(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        correlation_id: str,
-    ) -> dict[str, Any]:
-        """Call LLM and parse JSON response."""
-        if self._provider == "ollama":
-            return await self._call_ollama(system_prompt, user_prompt, correlation_id)
-        elif self._provider == "openai":
-            return await self._call_openai(system_prompt, user_prompt, correlation_id)
-        elif self._provider == "anthropic":
-            return await self._call_anthropic(system_prompt, user_prompt, correlation_id)
-        else:
-            raise ProviderError(
-                f"Unsupported provider: {self._provider}",
-                provider=self._provider,
-                correlation_id=correlation_id,
-            )
-
-    async def _call_ollama(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        correlation_id: str,
-    ) -> dict[str, Any]:
-        """Call Ollama via OllamaClient."""
-        client = await self._get_ollama_client()
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-
-        try:
-            return await client.chat_json(messages, model=self._model)
-        except Exception as e:
-            # Return empty dict as fallback for agent (more lenient than extract)
-            log_with_correlation(
-                LOGGER,
-                logging.WARNING,
-                f"Ollama call failed, returning empty: {e}",
-                correlation_id=correlation_id,
-            )
-            return {}
-
-    async def _call_openai(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        correlation_id: str,
-    ) -> dict[str, Any]:
-        """Call OpenAI API."""
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ProviderError(
-                "OPENAI_API_KEY not set",
-                provider="openai",
-                correlation_id=correlation_id,
-            )
-
-        client = await self._get_http_client()
-
-        response = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": self._model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "response_format": {"type": "json_object"},
-            },
-        )
-        response.raise_for_status()
-
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
-
-        return self._parse_json_response(content, correlation_id)
-
-    async def _call_anthropic(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        correlation_id: str,
-    ) -> dict[str, Any]:
-        """Call Anthropic API."""
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ProviderError(
-                "ANTHROPIC_API_KEY not set",
-                provider="anthropic",
-                correlation_id=correlation_id,
-            )
-
-        client = await self._get_http_client()
-
-        response = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-            },
-            json={
-                "model": self._model,
-                "max_tokens": 4096,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": user_prompt}],
-            },
-        )
-        response.raise_for_status()
-
-        data = response.json()
-        content = data["content"][0]["text"]
-
-        return self._parse_json_response(content, correlation_id)
-
-    def _parse_json_response(
-        self,
-        content: str,
-        correlation_id: str,
-    ) -> dict[str, Any]:
-        """Parse JSON from LLM response."""
-        content = content.strip()
-
-        # Try direct parse
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            pass
-
-        # Try extracting from markdown code block
-        if "```json" in content:
-            start = content.find("```json") + 7
-            end = content.find("```", start)
-            if end > start:
-                try:
-                    return json.loads(content[start:end].strip())
-                except json.JSONDecodeError:
-                    pass
-
-        # Try extracting from generic code block
-        if "```" in content:
-            start = content.find("```") + 3
-            newline = content.find("\n", start)
-            if newline > start:
-                start = newline + 1
-            end = content.find("```", start)
-            if end > start:
-                try:
-                    return json.loads(content[start:end].strip())
-                except json.JSONDecodeError:
-                    pass
-
-        # Agent is more lenient - return empty dict as fallback
-        log_with_correlation(
-            LOGGER,
-            logging.WARNING,
-            f"Failed to parse JSON, returning empty: {content[:100]}...",
-            correlation_id=correlation_id,
-        )
-        return {}

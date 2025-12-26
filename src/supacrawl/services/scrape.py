@@ -659,7 +659,7 @@ class ScrapeService:
             markdown: Markdown content to summarise
 
         Returns:
-            2-3 sentence summary or None on failure
+            2-3 sentence summary or None if LLM not configured or on failure
         """
         if not markdown.strip():
             return None
@@ -670,11 +670,18 @@ class ScrapeService:
         if len(markdown) > max_content:
             content += "\n\n[Content truncated...]"
 
-        from supacrawl.prep.ollama_client import OllamaClient
+        from supacrawl.llm import LLMClient, LLMNotConfiguredError, load_llm_config
+
+        # Load config - return None if LLM not configured (summary is optional)
+        try:
+            config = load_llm_config()
+        except LLMNotConfiguredError:
+            LOGGER.warning("LLM not configured, skipping summary generation")
+            return None
+
+        client = LLMClient(config)
 
         try:
-            client = OllamaClient()
-
             messages = [
                 {
                     "role": "system",
@@ -713,6 +720,8 @@ class ScrapeService:
         except Exception as e:
             LOGGER.warning(f"Summary generation failed: {e}")
             return None
+        finally:
+            await client.close()
 
     def _process_action_results(
         self,

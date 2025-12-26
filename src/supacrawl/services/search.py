@@ -18,6 +18,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -229,8 +230,19 @@ class SearchService:
 
             href_attr = link_cell.get("href", "")
             href = href_attr[0] if isinstance(href_attr, list) else href_attr
-            if not href or not isinstance(href, str) or href.startswith("//duckduckgo.com"):
+            if not href or not isinstance(href, str):
                 continue
+
+            # DDG Lite uses redirect URLs like //duckduckgo.com/l/?uddg=<encoded_url>
+            # Extract the actual URL from the uddg parameter
+            if href.startswith("//duckduckgo.com"):
+                parsed = urlparse(href)
+                params = parse_qs(parsed.query)
+                if "uddg" in params:
+                    href = params["uddg"][0]
+                else:
+                    # Skip if we can't extract the actual URL
+                    continue
 
             title = link_cell.get_text(strip=True)
 

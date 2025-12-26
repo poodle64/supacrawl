@@ -7,6 +7,18 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2025.12.4] - 2025-12-26
+
+### Changed
+
+- **CLI modularised**: Split monolithic `cli.py` (2274 lines) into `cli/` package with separate modules for each command group (scrape, crawl, map, sites, corpus, agent, cache)
+- **LLM client extracted**: Moved `ollama_client.py` to dedicated `llm/` package with separate config module
+
+### Internal
+
+- Services updated to use new `llm.client` module
+- Preparation for CLI simplification (removing dual command pattern)
+
 ## [2025.12.3] - 2025-12-26
 
 ### Added

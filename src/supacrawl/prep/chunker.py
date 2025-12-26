@@ -12,7 +12,6 @@ from typing import Any
 import aiofiles
 
 from supacrawl.exceptions import FileNotFoundError, generate_correlation_id
-from supacrawl.prep.ollama_client import OllamaClient
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -264,9 +263,7 @@ def _chunk_text(text: str, max_chars: int) -> list[tuple[str, int]]:
 async def chunk_snapshot(
     snapshot_path: Path,
     max_chars: int = 1200,
-    use_ollama: bool = False,
-    ollama_model: str | None = None,
-    ollama_summarize: bool = False,
+    summarize: bool = False,
 ) -> Path:
     """
     Create chunked output for a snapshot.
@@ -274,112 +271,124 @@ async def chunk_snapshot(
     Args:
         snapshot_path: Path to the snapshot directory.
         max_chars: Maximum characters per chunk. Defaults to 1200.
-        use_ollama: Whether to use Ollama for processing. Defaults to False.
-        ollama_model: Ollama model to use. Defaults to client default.
-        ollama_summarize: Whether to add summaries to chunks using Ollama. Defaults to False.
+        summarize: Whether to add summaries to chunks using LLM. Defaults to False.
+                   Requires LLM environment variables to be set.
 
     Returns:
         Path to the created chunks.jsonl file.
 
     Raises:
         FileNotFoundError: If the manifest file does not exist.
+        LLMNotConfiguredError: If summarize=True but LLM is not configured.
     """
+    from supacrawl.llm import LLMClient, is_llm_configured, load_llm_config
+
     correlation_id = generate_correlation_id()
     manifest = await _load_manifest(snapshot_path)
     pages = manifest.get("pages", [])
     chunks_path = snapshot_path / "chunks.jsonl"
     count = 0
 
-    # Initialise Ollama client if needed
-    ollama_client: OllamaClient | None = None
-    if use_ollama:
+    # Initialise LLM client if summarisation is requested
+    llm_client: LLMClient | None = None
+    if summarize:
+        if not is_llm_configured():
+            # Let load_llm_config raise with helpful error message
+            load_llm_config()
+
         try:
-            ollama_client = OllamaClient(model=ollama_model)
-            # Check if Ollama is accessible
-            if not await ollama_client.check_health():
+            config = load_llm_config()
+            llm_client = LLMClient(config)
+            # Check if LLM is accessible
+            if not await llm_client.check_health():
                 log_with_correlation(
                     LOGGER,
                     logging.WARNING,
-                    "Ollama server not accessible, continuing without Ollama processing",
+                    "LLM provider not accessible, continuing without summarisation",
                     correlation_id=correlation_id,
                 )
-                ollama_client = None
+                await llm_client.close()
+                llm_client = None
         except Exception as exc:
             log_with_correlation(
                 LOGGER,
                 logging.WARNING,
-                f"Failed to initialise Ollama client: {exc}, continuing without Ollama processing",
+                f"Failed to initialise LLM client: {exc}, continuing without summarisation",
                 correlation_id=correlation_id,
                 error=str(exc),
             )
-            ollama_client = None
+            llm_client = None
 
-    async with aiofiles.open(chunks_path, "w", encoding="utf-8") as handle:
-        for page_idx, page in enumerate(pages):
-            page_text = await _load_page_text(snapshot_path, page["path"])
-            text_chunks = _chunk_text(page_text, max_chars)
+    try:
+        async with aiofiles.open(chunks_path, "w", encoding="utf-8") as handle:
+            for page_idx, page in enumerate(pages):
+                page_text = await _load_page_text(snapshot_path, page["path"])
+                text_chunks = _chunk_text(page_text, max_chars)
 
-            for idx, (chunk_text, chunk_position) in enumerate(text_chunks):
-                # Generate unique chunk ID
-                chunk_id = f"{manifest['site_id']}-{manifest['snapshot_id']}-{page_idx:04d}-c{idx}"
+                for idx, (chunk_text, chunk_position) in enumerate(text_chunks):
+                    # Generate unique chunk ID
+                    chunk_id = f"{manifest['site_id']}-{manifest['snapshot_id']}-{page_idx:04d}-c{idx}"
 
-                # Get heading hierarchy at this position
-                heading_hierarchy = _get_heading_hierarchy(page_text, chunk_position)
-                parent_heading = heading_hierarchy[-1] if heading_hierarchy else ""
+                    # Get heading hierarchy at this position
+                    heading_hierarchy = _get_heading_hierarchy(page_text, chunk_position)
+                    parent_heading = heading_hierarchy[-1] if heading_hierarchy else ""
 
-                # Detect chunk type
-                chunk_type = _detect_chunk_type(chunk_text)
+                    # Detect chunk type
+                    chunk_type = _detect_chunk_type(chunk_text)
 
-                # Approximate token count
-                token_count = _count_tokens_approx(chunk_text)
+                    # Approximate token count
+                    token_count = _count_tokens_approx(chunk_text)
 
-                # Content hash for deduplication
-                chunk_hash = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()[:16]
+                    # Content hash for deduplication
+                    chunk_hash = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()[:16]
 
-                record: dict[str, Any] = {
-                    "chunk_id": chunk_id,
-                    "site_id": manifest["site_id"],
-                    "snapshot_id": manifest["snapshot_id"],
-                    "page_url": page["url"],
-                    "page_title": page["title"],
-                    "chunk_index": idx,
-                    "text": chunk_text,
-                    "token_count": token_count,
-                    "chunk_type": chunk_type,
-                    "parent_heading": parent_heading,
-                    "heading_hierarchy": heading_hierarchy,
-                    "content_hash": chunk_hash,
-                }
+                    record: dict[str, Any] = {
+                        "chunk_id": chunk_id,
+                        "site_id": manifest["site_id"],
+                        "snapshot_id": manifest["snapshot_id"],
+                        "page_url": page["url"],
+                        "page_title": page["title"],
+                        "chunk_index": idx,
+                        "text": chunk_text,
+                        "token_count": token_count,
+                        "chunk_type": chunk_type,
+                        "parent_heading": parent_heading,
+                        "heading_hierarchy": heading_hierarchy,
+                        "content_hash": chunk_hash,
+                    }
 
-                # Add language from page metadata if available
-                if page.get("language"):
-                    record["language"] = page["language"]
+                    # Add language from page metadata if available
+                    if page.get("language"):
+                        record["language"] = page["language"]
 
-                # Add Ollama summarization if enabled
-                if ollama_client and ollama_summarize:
-                    try:
-                        summary = await ollama_client.summarize(chunk_text, model=ollama_model)
-                        record["summary"] = summary
-                    except Exception as exc:
-                        log_with_correlation(
-                            LOGGER,
-                            logging.WARNING,
-                            f"Failed to generate summary for chunk {idx}: {exc}",
-                            correlation_id=correlation_id,
-                            chunk_index=idx,
-                            error=str(exc),
-                        )
+                    # Add LLM summarisation if enabled
+                    if llm_client:
+                        try:
+                            summary = await llm_client.summarize(chunk_text)
+                            record["summary"] = summary
+                        except Exception as exc:
+                            log_with_correlation(
+                                LOGGER,
+                                logging.WARNING,
+                                f"Failed to generate summary for chunk {idx}: {exc}",
+                                correlation_id=correlation_id,
+                                chunk_index=idx,
+                                error=str(exc),
+                            )
 
-                await handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-                count += 1
+                    await handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    count += 1
 
-    log_with_correlation(
-        LOGGER,
-        logging.INFO,
-        f"Wrote {count} chunks for snapshot {manifest.get('snapshot_id', 'unknown')}",
-        correlation_id=correlation_id,
-        chunk_count=count,
-        snapshot_id=manifest.get("snapshot_id", "unknown"),
-        used_ollama=ollama_client is not None,
-    )
-    return chunks_path
+        log_with_correlation(
+            LOGGER,
+            logging.INFO,
+            f"Wrote {count} chunks for snapshot {manifest.get('snapshot_id', 'unknown')}",
+            correlation_id=correlation_id,
+            chunk_count=count,
+            snapshot_id=manifest.get("snapshot_id", "unknown"),
+            used_llm=llm_client is not None,
+        )
+        return chunks_path
+    finally:
+        if llm_client:
+            await llm_client.close()
