@@ -13,6 +13,7 @@ from supacrawl.models import CrawlEvent
 class TestCrawlService:
     """Tests for CrawlService."""
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_crawl_yields_events(self, tmp_path: Path):
         """Test that crawl yields events."""
@@ -32,6 +33,7 @@ class TestCrawlService:
         assert any(e.type == "progress" for e in events)
         assert any(e.type == "complete" for e in events)
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_crawl_saves_to_output_dir(self, tmp_path: Path):
         """Test that crawl saves pages to output directory."""
@@ -51,6 +53,7 @@ class TestCrawlService:
         # Check manifest exists
         assert (tmp_path / "manifest.json").exists()
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_crawl_respects_limit(self, tmp_path: Path):
         """Test that crawl respects page limit."""
@@ -77,6 +80,7 @@ class TestCrawlService:
             "https://example.com/docs/guide", ["*/docs/*", "*/api/*"]
         )
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_crawl_creates_manifest(self, tmp_path: Path):
         """Test that crawl creates manifest with scraped URLs."""
@@ -99,6 +103,7 @@ class TestCrawlService:
             assert "scraped_urls" in manifest
             assert len(manifest["scraped_urls"]) > 0
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_crawl_allow_external_links_accepted(self, tmp_path: Path):
         """Test that allow_external_links parameter is accepted."""

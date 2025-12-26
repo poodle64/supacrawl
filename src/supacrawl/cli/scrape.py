@@ -10,7 +10,7 @@ from supacrawl.cli._common import app
 
 
 
-@app.command("scrape-url", help="Scrape a single URL (Firecrawl-compatible API).")
+@app.command("scrape", help="Scrape a single URL (Firecrawl-compatible API).")
 @click.argument("url")
 @click.option(
     "--format",
@@ -181,28 +181,28 @@ def scrape_url(
         ]
 
     Examples:
-        supacrawl scrape-url https://example.com
-        supacrawl scrape-url https://example.com --output page.md
-        supacrawl scrape-url https://example.com --output page.json
-        supacrawl scrape-url https://example.com --format markdown --format html
-        supacrawl scrape-url https://example.com --format images --output images.json
-        supacrawl scrape-url https://example.com --format markdown --format images
-        supacrawl scrape-url https://example.com --format branding --output branding.json
-        supacrawl scrape-url https://example.com --format summary --output summary.txt
-        supacrawl scrape-url https://example.com --format markdown --format summary
-        supacrawl scrape-url https://example.com --format screenshot --output page.png
-        supacrawl scrape-url https://example.com --format pdf --output page.pdf
-        supacrawl scrape-url https://example.com --format json --prompt "Extract product name and price"
-        supacrawl scrape-url https://example.com --format json --schema schema.json
-        supacrawl scrape-url https://example.com --actions actions.json
-        supacrawl scrape-url https://example.com --include-tags article --include-tags .post-content
-        supacrawl scrape-url https://example.com --exclude-tags nav --exclude-tags .sidebar --exclude-tags footer
-        supacrawl scrape-url https://example.com --country AU
-        supacrawl scrape-url https://example.com --language en-AU --timezone Australia/Sydney
-        supacrawl scrape-url https://example.com --max-age 3600  # Use cache if fresh within 1 hour
-        supacrawl scrape-url https://example.com --max-age 3600 --cache-dir ~/.my-cache
-        supacrawl scrape-url https://protected-site.com --stealth  # Force stealth mode
-        supacrawl scrape-url https://captcha-site.com --stealth --solve-captcha  # Solve CAPTCHAs
+        supacrawl scrape https://example.com
+        supacrawl scrape https://example.com --output page.md
+        supacrawl scrape https://example.com --output page.json
+        supacrawl scrape https://example.com --format markdown --format html
+        supacrawl scrape https://example.com --format images --output images.json
+        supacrawl scrape https://example.com --format markdown --format images
+        supacrawl scrape https://example.com --format branding --output branding.json
+        supacrawl scrape https://example.com --format summary --output summary.txt
+        supacrawl scrape https://example.com --format markdown --format summary
+        supacrawl scrape https://example.com --format screenshot --output page.png
+        supacrawl scrape https://example.com --format pdf --output page.pdf
+        supacrawl scrape https://example.com --format json --prompt "Extract product name and price"
+        supacrawl scrape https://example.com --format json --schema schema.json
+        supacrawl scrape https://example.com --actions actions.json
+        supacrawl scrape https://example.com --include-tags article --include-tags .post-content
+        supacrawl scrape https://example.com --exclude-tags nav --exclude-tags .sidebar --exclude-tags footer
+        supacrawl scrape https://example.com --country AU
+        supacrawl scrape https://example.com --language en-AU --timezone Australia/Sydney
+        supacrawl scrape https://example.com --max-age 3600  # Use cache if fresh within 1 hour
+        supacrawl scrape https://example.com --max-age 3600 --cache-dir ~/.my-cache
+        supacrawl scrape https://protected-site.com --stealth  # Force stealth mode
+        supacrawl scrape https://captcha-site.com --stealth --solve-captcha  # Solve CAPTCHAs
     """
     import asyncio
     import base64
@@ -360,160 +360,3 @@ def scrape_url(
         else:
             click.echo("No markdown content available", err=True)
             raise SystemExit(1)
-
-@app.command(
-    "batch-scrape", help="Scrape multiple URLs concurrently (Firecrawl-compatible API)."
-)
-@click.argument(
-    "urls_file",
-    type=click.Path(file_okay=True, dir_okay=False, path_type=Path),
-)
-@click.option(
-    "--concurrency",
-    "-c",
-    type=int,
-    default=5,
-    show_default=True,
-    help="Maximum concurrent requests",
-)
-@click.option(
-    "--format",
-    "-f",
-    "formats",
-    multiple=True,
-    type=click.Choice(["markdown", "html", "rawHtml", "links"], case_sensitive=False),
-    default=["markdown"],
-    show_default=True,
-    help="Output formats to include",
-)
-@click.option(
-    "--only-main-content/--no-only-main-content",
-    default=True,
-    show_default=True,
-    help="Extract main content area only",
-)
-@click.option(
-    "--timeout",
-    type=int,
-    default=30000,
-    show_default=True,
-    help="Per-page timeout in ms",
-)
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-    default=None,
-    help="Output directory for results (optional)",
-)
-def batch_scrape(
-    urls_file: Path,
-    concurrency: int,
-    formats: tuple[str, ...],
-    only_main_content: bool,
-    timeout: int,
-    output: Path | None,
-) -> None:
-    """Scrape multiple URLs from a file concurrently (Firecrawl-compatible).
-
-    URLs should be one per line in the input file. Lines starting with # are ignored.
-    JSON input (from map output) is also supported.
-
-    Examples:
-        supacrawl batch-scrape urls.txt --concurrency 10
-        supacrawl batch-scrape urls.txt --output results/
-        cat urls.txt | supacrawl batch-scrape - --output results/
-        supacrawl map-url https://example.com --format json | supacrawl batch-scrape - --output results/
-    """
-    import asyncio
-    import hashlib
-    import json
-    import sys
-    from urllib.parse import urlparse
-
-    from supacrawl.services.batch import BatchService
-
-    # Read URLs from file or stdin
-    if str(urls_file) == "-":
-        content = sys.stdin.read()
-        source = "stdin"
-    else:
-        if not urls_file.exists():
-            click.echo(f"Error: File not found: {urls_file}", err=True)
-            raise SystemExit(1)
-        with open(urls_file) as f:
-            content = f.read()
-        source = str(urls_file)
-
-    # Try to parse as JSON (from map output)
-    urls: list[str] = []
-    try:
-        data = json.loads(content)
-        # Handle Firecrawl map output format: {"links": [{"url": "..."}]}
-        if isinstance(data, dict) and "links" in data:
-            urls = [link.get("url") for link in data["links"] if link.get("url")]
-        # Handle simple list of URLs
-        elif isinstance(data, list):
-            urls = [
-                item if isinstance(item, str) else item.get("url", "") for item in data
-            ]
-            urls = [u for u in urls if u]
-    except json.JSONDecodeError:
-        # Not JSON, treat as plain text (one URL per line)
-        urls = [
-            line.strip()
-            for line in content.splitlines()
-            if line.strip() and not line.startswith("#")
-        ]
-
-    if not urls:
-        click.echo("Error: No URLs found in input", err=True)
-        raise SystemExit(1)
-
-    click.echo(f"Loaded {len(urls)} URLs from {source}")
-
-    formats_list = list(formats) if formats else ["markdown"]
-
-    async def run():
-        service = BatchService()
-        async for event in service.batch_scrape(
-            urls=urls,
-            concurrency=concurrency,
-            formats=formats_list,  # type: ignore[arg-type]
-            only_main_content=only_main_content,
-            timeout=timeout,
-        ):
-            if event.type == "item" and event.item:
-                status = "✓" if event.item.success else "✗"
-                click.echo(f"[{event.completed}/{event.total}] {status} {event.url}")
-
-                # Save to output directory if requested
-                if output and event.item.success and event.item.data:
-                    output.mkdir(parents=True, exist_ok=True)
-
-                    parsed = urlparse(event.url)
-                    path = parsed.path.strip("/").replace("/", "_") or "index"
-                    url_hash = hashlib.sha256(event.url.encode()).hexdigest()[:8]
-
-                    # Save each requested format
-                    if "markdown" in formats_list and event.item.data.markdown:
-                        with open(output / f"{path}_{url_hash}.md", "w") as f:
-                            f.write("---\n")
-                            f.write(f"source_url: {event.url}\n")
-                            if event.item.data.metadata and event.item.data.metadata.title:
-                                f.write(f"title: {event.item.data.metadata.title}\n")
-                            f.write("---\n\n")
-                            f.write(event.item.data.markdown)
-
-                    if "html" in formats_list and event.item.data.html:
-                        with open(output / f"{path}_{url_hash}.html", "w") as f:
-                            f.write(event.item.data.html)
-
-                    if "rawHtml" in formats_list and event.item.data.raw_html:
-                        with open(output / f"{path}_{url_hash}_raw.html", "w") as f:
-                            f.write(event.item.data.raw_html)
-
-            elif event.type == "complete":
-                click.echo(f"\nComplete: {event.completed}/{event.total}", err=True)
-
-    asyncio.run(run())

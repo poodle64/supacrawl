@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import AsyncGenerator
 from urllib.parse import urlparse
 
 from supacrawl.models import CrawlEvent, ScrapeData
@@ -14,9 +14,6 @@ from supacrawl.services.browser import BrowserManager
 from supacrawl.services.map import MapService
 from supacrawl.services.scrape import ScrapeService
 from supacrawl.utils import normalise_url_for_dedupe
-
-if TYPE_CHECKING:
-    from supacrawl.corpus.adapter import OutputAdapter
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +46,6 @@ class CrawlService:
         output_dir: Path | None = None,
         resume: bool = False,
         formats: list[str] | None = None,
-        output_adapter: OutputAdapter | None = None,
         deduplicate_similar_urls: bool = False,
         allow_external_links: bool = False,
         locale_config: object | None = None,  # LocaleConfig
@@ -67,7 +63,6 @@ class CrawlService:
             output_dir: Directory to save scraped content (simple flat output)
             resume: Resume from previous crawl state
             formats: Output formats to save (default: ["markdown"])
-            output_adapter: Optional OutputAdapter for corpus output with manifests
             deduplicate_similar_urls: Deduplicate URLs that differ only by
                 tracking parameters or fragments (default: False)
             allow_external_links: Follow and scrape links to external domains
@@ -80,13 +75,8 @@ class CrawlService:
             CrawlEvent for each page and progress update
         """
         self._formats = formats or ["markdown"]
-        self._output_adapter = output_adapter
 
         try:
-            # Start output adapter if provided
-            if output_adapter:
-                await output_adapter.start()
-
             # Initialize browser and services with locale config and stealth mode
             async with BrowserManager(locale_config=locale_config, stealth=stealth, proxy=proxy) as browser:
                 self._browser = browser
@@ -95,15 +85,10 @@ class CrawlService:
 
                 # Load resume state
                 scraped_urls: set[str] = set()
-                if output_adapter:
-                    # Get resume URLs from adapter (handles corpus resume)
-                    scraped_urls = output_adapter.get_resume_urls()
+                if resume and output_dir:
+                    scraped_urls = self._load_resume_state(output_dir)
                     if scraped_urls:
                         LOGGER.info(f"Resuming crawl with {len(scraped_urls)} already scraped")
-                elif resume and output_dir:
-                    # Legacy: load from simple manifest
-                    scraped_urls = self._load_resume_state(output_dir)
-                    LOGGER.info(f"Resuming crawl with {len(scraped_urls)} already scraped")
 
                 # Discover URLs
                 LOGGER.info(f"Mapping URLs from {url}")
@@ -181,10 +166,8 @@ class CrawlService:
                         )
 
                         if result.success and result.data:
-                            # Save to output adapter (corpus) or directory (simple)
-                            if output_adapter:
-                                await output_adapter.write_page(url_to_scrape, result)
-                            elif output_dir:
+                            # Save to output directory
+                            if output_dir:
                                 self._save_page(output_dir, url_to_scrape, result.data)
 
                             yield CrawlEvent(
@@ -230,14 +213,8 @@ class CrawlService:
                     total=total,
                 )
 
-                # Finalize output adapter
-                if output_adapter:
-                    await output_adapter.complete()
-
         except Exception as e:
             LOGGER.error(f"Crawl failed: {e}", exc_info=True)
-            if output_adapter:
-                await output_adapter.abort(str(e))
             yield CrawlEvent(
                 type="error",
                 error=str(e),

@@ -8,8 +8,9 @@ from supacrawl.models import ScrapeResult
 from supacrawl.services.scrape import ScrapeService
 
 
+@pytest.mark.e2e
 class TestScrapeService:
-    """Tests for ScrapeService."""
+    """Tests for ScrapeService (E2E - require browser/network)."""
 
     @pytest.mark.asyncio
     async def test_scrape_returns_markdown(self):

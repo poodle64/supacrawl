@@ -5,15 +5,15 @@ See `.cursor/rules/` for constraints and requirements. See `docs/` for implement
 
 ## Project Goal
 
-**Build a local-first web scraper that produces Firecrawl-compatible markdown output.**
+**Firecrawl-compatible local web scraping CLI tool.**
 
 **What This Means**:
-- **Output Format**: Same markdown structure as Firecrawl (clean markdown, manifests, chunks)
-- **Deployment Model**: Local CLI tool (NOT a SaaS API replacement)
-- **Quality Target**: 95%+ similarity to Firecrawl on all page types
-- **Unique Features**: Snapshot versioning, auto-resume, local execution
+- **API Compatibility**: Mirrors Firecrawl's API commands (scrape, crawl, map, search, extract)
+- **Deployment Model**: Local CLI tool with optional local LLM support
+- **Quality Target**: High-quality markdown extraction matching Firecrawl output
+- **Key Features**: Caching, LLM extraction, autonomous agent, web search
 
-**Current Status**: Firecrawl-compatible output using Playwright + markdownify
+**Current Status**: Full Firecrawl-compatible CLI with Playwright + markdownify
 
 ## Development Environment
 
@@ -25,14 +25,25 @@ See `.cursor/rules/` for constraints and requirements. See `docs/` for implement
 
 - **Backend**: Python 3.12, Click (CLI), Pydantic, asyncio
 - **Scraping**: Playwright, httpx, BeautifulSoup, markdownify
-- **LLM**: Ollama (local models)
-- **Storage**: Filesystem-based (corpora/ directory)
+- **LLM**: Ollama, OpenAI, Anthropic (configurable providers)
+- **Storage**: Local cache (`.supacrawl/cache/`)
+
+## CLI Commands
+
+The CLI provides Firecrawl-compatible commands:
+- `scrape` - Scrape a single URL
+- `crawl` - Crawl a website from a starting URL
+- `map` - Map URLs from a website
+- `search` - Search the web
+- `llm-extract` - Extract structured data using LLM
+- `agent` - Autonomous web agent
+- `cache` - Manage local cache
 
 ## Key Reminders
 
 - Do NOT create summary markdown documents
 - Do NOT create deprecated or legacy code
-- **Quality First**: Maintain 95%+ parity with Firecrawl output
+- **Quality First**: Maintain high-quality markdown output
 
 ## Task Tracking
 
@@ -54,7 +65,7 @@ All detailed development rules are organized in `.cursor/rules/` and automatical
 Key rule files include:
 - **00-project-foundations-supacrawl.mdc** - Project foundations and non-negotiable constraints
 - **20-development-environment-supacrawl.mdc** - Development environment standards
-- **50-corpus-layout-patterns-supacrawl.mdc** - Corpus layout patterns
+- **20-cli-patterns-supacrawl.mdc** - CLI patterns and conventions
 - **70-error-handling-supacrawl.mdc** - Error handling patterns
 
 See `.cursor/rules/` for complete reference.

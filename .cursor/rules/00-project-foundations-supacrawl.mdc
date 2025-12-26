@@ -13,25 +13,24 @@ priority: 1
 
 ## Purpose
 
-Create a production-ready website ingestion pipeline that loads site configurations, runs crawls using Playwright, writes normalised corpora, and optionally chunks content for LLM use.
+Provide a Firecrawl-compatible local CLI tool for web scraping, URL mapping, search, and LLM-based data extraction.
 
 ## Project Scope
 
 ### What This Project Does
 
-- ✅ Loads YAML-driven site configurations
-- ✅ Uses Playwright SDK for web crawling
-- ✅ Writes snapshot-based corpus layouts with manifests
-- ✅ Optionally chunks content to JSONL for downstream consumers
-- ✅ Provides CLI interface for site management and crawling
+- ✅ Provides Firecrawl-compatible CLI commands (scrape, crawl, map, search, llm-extract, agent)
+- ✅ Uses Playwright for web scraping with high-quality markdown output
+- ✅ Supports multiple LLM providers (Ollama, OpenAI, Anthropic) for extraction
+- ✅ Provides local caching for scraped content
+- ✅ Offers autonomous web agent for complex data gathering tasks
 
 ### What This Project Does NOT Do
 
-- ❌ Does NOT implement scraping logic (uses Playwright SDK)
-- ❌ Does NOT store scraped content in databases (writes to filesystem)
-- ❌ Does NOT provide web UI or API (CLI-only)
-- ❌ Does NOT handle authentication/authorization (Playwright-specific)
-- ❌ Does NOT perform content analysis or transformation (downstream processing)
+- ❌ Does NOT provide web UI or REST API (CLI-only)
+- ❌ Does NOT store scraped content in databases (outputs to stdout/files)
+- ❌ Does NOT handle authentication/authorization (Playwright browser-level only)
+- ❌ Does NOT provide a hosted service (local execution only)
 
 ## Authority Note
 
@@ -45,38 +44,37 @@ This rule documents project-specific practice and relies on master rules for req
 - **CLI Framework**: Click
 - **Data Validation**: Pydantic v2 only
 - **Dependencies**: `pyproject.toml` (PEP 621) - NOT requirements.txt
-- **Configuration**: YAML files in `sites/` directory
-- **Output**: Corpus snapshots in `corpora/` directory
+- **Scraping**: Playwright, httpx, BeautifulSoup, markdownify
+- **LLM Providers**: Ollama (local), OpenAI, Anthropic
+- **Cache**: Local filesystem (`.supacrawl/cache/`)
 
 ### Architecture
 
 ```
-Site Config (YAML) → Playwright Scraper → Pages → Corpus Writer → Snapshot
-                                                      ↓
-                                                 Chunker → JSONL
+CLI Command → Service Layer → Playwright/httpx → Content Processing → Output
+                  ↓
+             LLM Provider (optional) → Structured Extraction
 ```
 
-Supacrawl **uses** the Playwright SDK, it does **not implement** scraping logic itself.
+Supacrawl **uses** the Playwright SDK for browser automation and content extraction.
 
 ### Core Philosophy
 
-Supacrawl must be designed around **configuration-driven** workflows.
+Supacrawl is designed around **Firecrawl API compatibility** with local execution.
 
-- Crawler: Uses Playwright SDK via `Scraper` base class interface
-- Configuration-driven: Site configurations define crawl parameters
-- Snapshot-based: Each crawl creates a timestamped snapshot
-- Idempotent: Re-running same config creates new snapshot (doesn't overwrite)
+- **URL-based**: Commands operate on URLs directly, no configuration files required
+- **Firecrawl-compatible**: Command structure and output format mirrors Firecrawl
+- **Local-first**: All processing happens locally, with optional local LLM support
+- **Cached**: Scraped content is cached locally to avoid redundant requests
 
 ## Non-Negotiable Constraints
 
 ### Design Constraints
 
-- Supacrawl uses Playwright SDK via `Scraper` base class interface
-- Supacrawl must use YAML-based site configurations (not code-based)
-- Site configurations must live in `sites/` directory
-- Corpus output must use snapshot-based layout (`corpora/{site_id}/{snapshot_id}/`)
-- Snapshot IDs must be timestamp-based (ISO 8601 format)
-- Crawler uses Playwright SDK with `crawl(config: SiteConfig) -> list[Page]` interface
+- CLI commands must mirror Firecrawl's API structure where applicable
+- All commands must support both stdout and file output
+- LLM extraction must support multiple providers (not locked to one)
+- Cache must be user-controllable (clear, prune, stats)
 
 ### Technology Constraints
 
@@ -84,26 +82,27 @@ Supacrawl must be designed around **configuration-driven** workflows.
 - Click for CLI
 - Pydantic v2 only
 - `pyproject.toml` for dependencies (NOT requirements.txt)
-- YAML for site configurations
-- JSON for manifests and metadata
+- JSON for structured output
 
 ### Output Contract
 
-Every supacrawl run must produce:
-- Site configuration validation (loads and validates YAML)
-- Scraped pages (from Playwright)
-- Corpus snapshot with manifest (`manifest.json`)
-- Optional chunked output (JSONL format)
+Commands produce:
+- **scrape**: Markdown content (or HTML/links as requested)
+- **crawl**: JSONL of scraped pages
+- **map**: List of discovered URLs
+- **search**: Search results with optional content scraping
+- **llm-extract**: Structured JSON data extracted by LLM
+- **agent**: JSON result from autonomous agent execution
 
 ## Sources of Truth
 
 - **Master rules**: `.cursor/rules/master/` (via symlink) - Universal principles
-- **Site configurations**: `sites/*.yaml` - User-provided site configs
-- **Corpus output**: `corpora/{site_id}/{snapshot_id}/` - Generated snapshots
+- **CLI modules**: `src/supacrawl/cli/` - Command implementations
+- **Services**: `src/supacrawl/services/` - Business logic
 
 ## Rule Interpretation Notes
 
-- When forming plans, prioritise configuration-driven design
-- Crawling is handled by Playwright SDK, never implemented directly in supacrawl
+- When forming plans, prioritise Firecrawl API compatibility
+- Scraping is handled by Playwright SDK via service layer
 - Universal restrictions are covered in master 90-code-quality-principles
 - Project-specific behavioural rules are defined in numbered rule files (10+, 20+, 30+, etc.)

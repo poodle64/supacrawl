@@ -11,6 +11,7 @@ from supacrawl.services.map import MapService
 class TestMapService:
     """Tests for MapService."""
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_map_returns_result(self):
         """Test that map returns a MapResult."""
@@ -19,6 +20,7 @@ class TestMapService:
         assert isinstance(result, MapResult)
         assert result.success is True or result.error is not None
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_map_returns_links(self):
         """Test that map returns discovered links."""
@@ -29,6 +31,7 @@ class TestMapService:
             assert len(result.links) > 0
             assert all(isinstance(link, MapLink) for link in result.links)
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_map_respects_limit(self):
         """Test that map respects URL limit."""
@@ -37,6 +40,7 @@ class TestMapService:
         if result.success:
             assert len(result.links) <= 5
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_map_extracts_titles(self):
         """Test that map extracts page titles."""
@@ -62,6 +66,7 @@ class TestMapService:
         assert service._is_same_domain("https://example.com/page", "example.com", True)
         assert not service._is_same_domain("https://other.com/page", "example.com", True)
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_search_filter(self):
         """Test URL filtering with search."""
@@ -74,6 +79,7 @@ class TestMapService:
                     "about" in link.url.lower()
                 ), f"URL '{link.url}' does not contain 'about'"
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_sitemap_only_mode(self):
         """Test sitemap-only discovery mode."""
@@ -84,6 +90,7 @@ class TestMapService:
         # Should succeed or fail gracefully
         assert isinstance(result, MapResult)
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_sitemap_skip_mode(self):
         """Test sitemap skip mode (BFS only)."""
@@ -92,6 +99,7 @@ class TestMapService:
         # Should succeed or fail gracefully
         assert isinstance(result, MapResult)
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_allow_external_links_default_false(self):
         """Test that external links are excluded by default."""
@@ -102,6 +110,7 @@ class TestMapService:
             for link in result.links:
                 assert "example.com" in link.url, f"External link found: {link.url}"
 
+    @pytest.mark.e2e
     @pytest.mark.asyncio
     async def test_allow_external_links_enabled(self):
         """Test that external links are allowed when enabled."""

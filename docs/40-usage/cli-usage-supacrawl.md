@@ -4,26 +4,13 @@ This guide covers using the supacrawl command-line interface.
 
 ## Command Overview
 
-The `supacrawl` CLI provides commands for managing site configurations, running crawls, and processing corpus output.
+The `supacrawl` CLI provides Firecrawl-compatible commands for web scraping, URL mapping, search, and LLM-based data extraction.
 
 ### Available Commands
 
-**Site Configuration-based:**
-- `list-sites` - List available site configurations
-- `show-site` - Show site configuration summary
-- `map` - Map site URLs that would be crawled (config-based)
-- `crawl` - Run a crawl for a site (config-based)
-- `list-snapshots` - List snapshots for a site
-- `init` - Create a new site configuration
-- `chunk` - Chunk an existing snapshot
-- `compress` - Compress a snapshot for archival
-- `extract` - Extract a compressed snapshot archive
-
-**URL-based (Firecrawl-compatible):**
-- `scrape-url` - Scrape a single URL
-- `batch-scrape` - Scrape multiple URLs concurrently
-- `crawl-url` - Crawl a website from a starting URL
-- `map-url` - Map URLs from a website
+- `scrape` - Scrape a single URL to markdown
+- `crawl` - Crawl a website from a starting URL
+- `map` - Map URLs from a website
 - `search` - Search the web using DuckDuckGo or Brave
 - `llm-extract` - Extract structured data using LLM
 - `agent` - Run autonomous web agent
@@ -31,214 +18,13 @@ The `supacrawl` CLI provides commands for managing site configurations, running 
 
 ## Command Reference
 
-### list-sites
-
-List all available site configuration files.
-
-**Usage:**
-```bash
-supacrawl list-sites [--base-path PATH]
-```
-
-**Options:**
-- `--base-path PATH` - Base directory containing `sites/` folder (optional)
-
-**Example:**
-```bash
-$ supacrawl list-sites
-example-site
-meta
-another-site
-```
-
-### show-site
-
-Display a summary of a site configuration.
-
-**Usage:**
-```bash
-supacrawl show-site SITE_NAME [--base-path PATH]
-```
-
-**Arguments:**
-- `SITE_NAME` - Site identifier (filename without `.yaml`)
-
-**Options:**
-- `--base-path PATH` - Base directory containing `sites/` folder (optional)
-
-**Example:**
-```bash
-$ supacrawl show-site example-site
-Site: example-site
-Name: Example Site
-Entrypoints:
-  - https://example.com
-Max Pages: 100
-Formats: html
-```
-
-### map
-
-Map a site to discover all URLs that would be crawled, without actually crawling.
-
-**Usage:**
-```bash
-supacrawl map SITE_NAME [OPTIONS]
-```
-
-**Arguments:**
-- `SITE_NAME` - Site identifier (filename without `.yaml`)
-
-**Options:**
-- `--base-path PATH` - Base directory containing `sites/` folder (optional)
-- `--max-urls INT` - Maximum number of URLs to return (default: 200)
-- `--format FORMAT` - Output format: `json` or `jsonl` (default: `jsonl`)
-- `--output PATH` - Output file path (default: stdout)
-- `--use-sitemap/--no-sitemap` - Override config.sitemap.enabled
-- `--use-robots/--no-robots` - Override config.robots.respect
-- `--include-entrypoints-only` - Return only entrypoints, no discovery
-
-**Example:**
-```bash
-$ supacrawl map example-site --format jsonl --output urls.jsonl
-Mapped 42 URLs to urls.jsonl
-```
-
-**Output Format:**
-Each URL entry contains:
-- `url` - Normalised URL
-- `source` - Discovery source (`entrypoint`, `sitemap`, or `html_links`)
-- `depth` - Crawl depth (0 for entrypoints/sitemap, 1 for HTML links)
-- `allowed` - Whether robots.txt allows this URL
-- `included` - Whether URL matches include/exclude patterns
-- `excluded_reason` - Reason if excluded (`robots_disallow`, `exclude_pattern`, `not_in_include`, or `null`)
-
-### crawl
-
-Run a crawl for a site configuration, creating a new corpus snapshot.
-
-**Usage:**
-```bash
-supacrawl crawl SITE_NAME [OPTIONS]
-```
-
-**Arguments:**
-- `SITE_NAME` - Site identifier (filename without `.yaml`)
-
-**Options:**
-- `--base-path PATH` - Base directory containing `sites/` and `corpora/` folders (optional)
-- `--verbose/--no-verbose` - Show crawl progress logs (default: false)
-- `--fresh` - Start a fresh crawl (ignore incomplete snapshots)
-- `--dry-run` - Show URLs that would be crawled without fetching content
-- `--chunks` - Generate chunks.jsonl after crawl completes
-- `--formats FORMATS` - Comma-separated output formats (markdown, html, text, json). Overrides config.
-- `--from-map PATH` - Crawl only the URLs in a map output file (json or jsonl). URLs are filtered to include only entries where `included=true` and `allowed=true` (if present).
-- `--concurrency INT` - Maximum concurrent page crawls (1-20). Overrides config.politeness.max_concurrent.
-- `--delay FLOAT` - Minimum delay between requests in seconds. Overrides config.politeness.delay_between_requests.
-- `--timeout FLOAT` - Page timeout in seconds (5-600). Overrides config.politeness.page_timeout.
-- `--retries INT` - Maximum retry attempts (0-10). Overrides config.politeness.max_retries.
-
-**Example:**
-```bash
-$ supacrawl crawl example-site
-Starting crawl for example-site...
-Crawled 42 pages
-Output: corpora/example-site/latest/
-```
-
-**Auto-Resume:**
-Crawls automatically resume from incomplete snapshots. If a previous crawl was interrupted, running the same command will continue from where it left off. Use `--fresh` to force a new snapshot instead.
-
-**With Politeness Overrides:**
-```bash
-# Slower, more polite crawl
-$ supacrawl crawl example-site --concurrency 2 --delay 3.0 --timeout 180
-
-# Faster crawl for known-safe targets
-$ supacrawl crawl example-site --concurrency 10 --delay 0.5
-```
-
-**Crawl from Map:**
-```bash
-# Step 1: Generate map
-supacrawl map example-site --format jsonl --output urls.jsonl
-
-# Step 2: Crawl using map
-supacrawl crawl example-site --from-map urls.jsonl
-```
-
-**Output:**
-- Creates snapshot directory: `corpora/{site_id}/{snapshot_id}/`
-- Writes manifest: `corpora/{site_id}/{snapshot_id}/manifest.json`
-- Writes pages by format: `corpora/{site_id}/{snapshot_id}/{format}/*`
-- Updates symlink: `corpora/{site_id}/latest/` → `{snapshot_id}/`
-
-### list-snapshots
-
-List all snapshots for a site with status and metadata.
-
-**Usage:**
-```bash
-supacrawl list-snapshots SITE_NAME [--base-path PATH]
-```
-
-**Arguments:**
-- `SITE_NAME` - Site identifier (same as used for crawl)
-
-**Options:**
-- `--base-path PATH` - Base directory containing `corpora/` folder (optional)
-
-**Example:**
-```bash
-$ supacrawl list-snapshots meta
-2025-12-15_0847  completed   42 pages    15 chunks  2025-12-15T08:47:00+10:00
-2025-12-14_1200  aborted     12 pages     - chunks  2025-12-14T12:00:00+10:00
-```
-
-**Output columns:**
-- Snapshot ID (timestamp format)
-- Status (completed, in_progress, aborted)
-- Page count
-- Chunk count (or `-` if no chunks)
-- Created timestamp
-
-### chunk
-
-Chunk an existing snapshot into JSONL format for LLM consumption.
-
-**Usage:**
-```bash
-supacrawl chunk SITE_NAME SNAPSHOT_ID [--base-path PATH]
-```
-
-**Arguments:**
-- `SITE_NAME` - Site identifier
-- `SNAPSHOT_ID` - Snapshot identifier (timestamp format: `YYYY-MM-DD_HHMM`)
-
-**Options:**
-- `--base-path PATH` - Base directory containing `corpora/` folder (optional)
-
-**Example:**
-```bash
-$ supacrawl chunk example-site 2025-01-15_1430
-Chunking snapshot 2025-01-15_1430...
-Chunks written: corpora/example-site/2025-01-15_1430/chunks.jsonl
-```
-
-**Output:**
-- Creates chunks file: `corpora/{site_id}/{snapshot_id}/chunks.jsonl`
-
-## URL-Based Commands (Firecrawl-compatible)
-
-These commands work with raw URLs instead of site configuration files, providing Firecrawl-compatible APIs for ad-hoc scraping.
-
-### scrape-url
+### scrape
 
 Scrape a single URL and output content.
 
 **Usage:**
 ```bash
-supacrawl scrape-url URL [OPTIONS]
+supacrawl scrape URL [OPTIONS]
 ```
 
 **Arguments:**
@@ -253,56 +39,26 @@ supacrawl scrape-url URL [OPTIONS]
 
 **Example:**
 ```bash
-$ supacrawl scrape-url https://example.com --format markdown
+$ supacrawl scrape https://example.com --format markdown
 # Outputs markdown content to stdout
 
-$ supacrawl scrape-url https://example.com --output result.json
+$ supacrawl scrape https://example.com --output result.json
 # Writes JSON result to file
 
-$ supacrawl scrape-url https://example.com --format markdown --format html --output page.md
+$ supacrawl scrape https://example.com --format markdown --format html --output page.md
 # Scrapes both formats, writes markdown to file
 
-$ supacrawl scrape-url https://example.com --no-only-main-content --wait-for 2000
+$ supacrawl scrape https://example.com --no-only-main-content --wait-for 2000
 # Scrapes full page, waits 2 seconds after load
 ```
 
-### batch-scrape
-
-Scrape multiple URLs concurrently from a file.
-
-**Usage:**
-```bash
-supacrawl batch-scrape URLS_FILE [OPTIONS]
-```
-
-**Arguments:**
-- `URLS_FILE` - File containing URLs (one per line, or JSON/JSONL format)
-
-**Options:**
-- `--concurrency INT` - Maximum concurrent requests (default: 5)
-- `--only-main-content/--no-only-main-content` - Extract main content area only (default: true)
-- `--timeout INT` - Per-page timeout in milliseconds (default: 30000)
-- `--output PATH` - Output directory for results (optional)
-
-**Example:**
-```bash
-$ echo -e "https://example.com\nhttps://example.org" > urls.txt
-$ supacrawl batch-scrape urls.txt --concurrency 3
-
-$ supacrawl batch-scrape urls.txt --output results/ --timeout 60000
-# Writes each page to results/ as markdown files with 60 second timeout
-
-$ supacrawl map-url https://example.com --format json | supacrawl batch-scrape - --output results/
-# Pipe map output directly to batch-scrape
-```
-
-### crawl-url
+### crawl
 
 Crawl a website starting from a URL.
 
 **Usage:**
 ```bash
-supacrawl crawl-url URL [OPTIONS]
+supacrawl crawl URL [OPTIONS]
 ```
 
 **Arguments:**
@@ -313,19 +69,28 @@ supacrawl crawl-url URL [OPTIONS]
 - `--output PATH` - Output directory or file
 - `--format FORMAT` - Output format: `json` or `jsonl` (default: `jsonl`)
 - `--depth INT` - Maximum crawl depth (default: 3)
+- `--concurrency INT` - Maximum concurrent requests (default: 5)
+- `--delay FLOAT` - Delay between requests in seconds (default: 0.5)
 
 **Example:**
 ```bash
-$ supacrawl crawl-url https://docs.example.com --limit 50
+$ supacrawl crawl https://docs.example.com --limit 50
+# Crawl up to 50 pages
+
+$ supacrawl crawl https://example.com --output results.jsonl --depth 2
+# Crawl with limited depth, output to file
+
+$ supacrawl crawl https://example.com --concurrency 3 --delay 1.0
+# Slower, more polite crawl
 ```
 
-### map-url
+### map
 
 Map URLs from a website without scraping content.
 
 **Usage:**
 ```bash
-supacrawl map-url URL [OPTIONS]
+supacrawl map URL [OPTIONS]
 ```
 
 **Arguments:**
@@ -342,16 +107,16 @@ supacrawl map-url URL [OPTIONS]
 
 **Example:**
 ```bash
-$ supacrawl map-url https://example.com --limit 100 --format json
+$ supacrawl map https://example.com --limit 100 --format json
 # Output full JSON result with link metadata
 
-$ supacrawl map-url https://example.com --search about --output urls.txt
+$ supacrawl map https://example.com --search about --output urls.txt
 # Find all URLs containing "about", output as text list
 
-$ supacrawl map-url https://example.com --sitemap only --format json --output sitemap.json
+$ supacrawl map https://example.com --sitemap only --format json --output sitemap.json
 # Extract only sitemap URLs in JSON format
 
-$ supacrawl map-url https://docs.example.com --depth 5 --include-subdomains
+$ supacrawl map https://docs.example.com --depth 5 --include-subdomains
 # Deep crawl including subdomains
 ```
 
@@ -381,11 +146,14 @@ $ supacrawl search "python web scraping" --limit 5 --source web
 
 $ supacrawl search "AI news 2025" --source news --scrape --output results.json
 # Search news and scrape content from result pages
+
+$ supacrawl search "machine learning tutorials" --provider brave --limit 10
+# Use Brave search provider
 ```
 
 ### llm-extract
 
-Extract structured data from URLs using a local LLM (via Ollama).
+Extract structured data from URLs using an LLM.
 
 **Usage:**
 ```bash
@@ -409,6 +177,9 @@ $ supacrawl llm-extract https://example.com/products --prompt "Extract product n
 
 $ supacrawl llm-extract https://example.com/about --prompt "Extract company info" --schema schema.json
 # Extract structured data according to a schema
+
+$ supacrawl llm-extract https://example.com --prompt "Get main topics" --provider openai --model gpt-4
+# Use OpenAI instead of Ollama
 ```
 
 ### agent
@@ -439,6 +210,9 @@ $ supacrawl agent "Find the pricing for Firecrawl API"
 
 $ supacrawl agent "Extract all team member names and roles" --url https://example.com/about
 # Start from a specific URL
+
+$ supacrawl agent "Find Python tutorial websites" --max-steps 5 --quiet
+# Limit steps and suppress progress output
 ```
 
 ### cache
@@ -472,129 +246,91 @@ $ supacrawl cache prune
 
 ## Common Workflows
 
-### Initial Setup
+### Quick Scrape
 
-1. **List available sites:**
-   ```bash
-   supacrawl list-sites
-   ```
-
-2. **View site configuration:**
-   ```bash
-   supacrawl show-site example-site
-   ```
-
-3. **Run test crawl:**
-   ```bash
-   supacrawl crawl example-site
-   ```
-
-4. **Check corpus output:**
-   ```bash
-   ls corpora/example-site/
-   ```
-
-### Production Crawl
-
-1. **Verify configuration:**
-   ```bash
-   supacrawl show-site production-site
-   ```
-
-2. **Run crawl:**
-   ```bash
-   supacrawl crawl production-site
-   ```
-
-3. **Note snapshot ID from output** (e.g., `2025-01-15_1430`)
-
-4. **Chunk snapshot:**
-   ```bash
-   supacrawl chunk production-site 2025-01-15_1430
-   ```
-
-### Map Then Crawl Workflow
-
-1. **Generate map:**
-   ```bash
-   supacrawl map example-site --format jsonl --output urls.jsonl
-   ```
-
-2. **Review mapped URLs:**
-   ```bash
-   cat urls.jsonl | jq '.url, .included, .excluded_reason'
-   ```
-
-3. **Crawl using map:**
-   ```bash
-   supacrawl crawl example-site --from-map urls.jsonl
-   ```
-
-This workflow provides deterministic URL discovery and crawling, useful for:
-- Reproducible crawls (same URLs every time)
-- Pre-filtering URLs before crawling
-- Separating discovery from crawling phases
-
-### Processing Multiple Sites
+Scrape a single page to markdown:
 
 ```bash
-for site in $(supacrawl list-sites); do
-  echo "Crawling $site..."
-  supacrawl crawl "$site"
-done
+supacrawl scrape https://example.com/article
 ```
 
-## Interruption Handling
+### Discover and Crawl
 
-If you interrupt a crawl with Ctrl+C, supacrawl handles it gracefully:
+1. **Map the site first:**
+   ```bash
+   supacrawl map https://docs.example.com --format text --output urls.txt
+   ```
 
-1. **Progress is saved**: All pages crawled so far are written to the snapshot
-2. **Manifest is updated**: The manifest shows `status: aborted`
-3. **State is preserved**: Crawl state file is saved for resumption
+2. **Review discovered URLs:**
+   ```bash
+   cat urls.txt | head -20
+   ```
 
-**Resuming an interrupted crawl:**
+3. **Crawl the site:**
+   ```bash
+   supacrawl crawl https://docs.example.com --limit 50 --output docs.jsonl
+   ```
 
-Crawls automatically resume from incomplete snapshots. Simply run the same command again:
+### Search and Extract
+
+1. **Search for relevant pages:**
+   ```bash
+   supacrawl search "company pricing page" --limit 5
+   ```
+
+2. **Extract structured data:**
+   ```bash
+   supacrawl llm-extract https://example.com/pricing --prompt "Extract pricing tiers and features"
+   ```
+
+### Autonomous Research
+
+Let the agent find and extract information:
 
 ```bash
-# Run again to resume from where it left off
-$ supacrawl crawl example-site
-Resuming Example Site (42 completed, 58 pending)...
+supacrawl agent "Find the top 5 Python web frameworks and their GitHub stars" --output frameworks.json
 ```
 
-The resumed crawl will skip already-completed URLs and continue from where it left off. Use `--fresh` to start a new snapshot instead.
+## Environment Variables
+
+### LLM Configuration
+
+- `OLLAMA_HOST` - Ollama server URL (default: `http://localhost:11434`)
+- `OPENAI_API_KEY` - OpenAI API key (for `--provider openai`)
+- `ANTHROPIC_API_KEY` - Anthropic API key (for `--provider anthropic`)
+
+### Search Configuration
+
+- `BRAVE_API_KEY` - Brave Search API key (for `--provider brave`)
+
+### Browser Configuration
+
+See `.env.example` for available Playwright browser configuration options.
 
 ## Error Handling
 
 ### Common Errors
 
-**Configuration Not Found:**
+**URL Not Reachable:**
 ```
-Error: Site configuration not found: sites/example-site.yaml [correlation_id=abc12345]
-```
-
-**Solution:** Check filename matches site name, verify file exists in `sites/` directory.
-
-**Validation Error:**
-```
-Error: At least one entrypoint is required. [correlation_id=abc12345]
+Error: Failed to fetch URL: https://example.com [correlation_id=abc12345]
 ```
 
-**Solution:** Check site configuration YAML, ensure all required fields are present.
+**Solution:** Check the URL is correct and accessible. The site may be blocking automated requests.
 
-**Scraper Error:**
+**LLM Provider Error:**
 ```
-Error: Failed to crawl site [correlation_id=abc12345]
-```
-
-**Solution:** Check Playwright installation (`playwright install chromium`), review error logs.
-
-**Missing Snapshot:**
-```
-Error: Snapshot not found: corpora/example-site/2025-01-15_1430 [correlation_id=abc12345]
+Error: LLM extraction failed: Connection refused [correlation_id=abc12345]
 ```
 
-**Solution:** Verify snapshot ID is correct, check snapshot directory exists.
+**Solution:** Ensure Ollama is running (`ollama serve`) or check API keys for cloud providers.
+
+**Timeout Error:**
+```
+Error: Page load timeout exceeded [correlation_id=abc12345]
+```
+
+**Solution:** Increase timeout with `--timeout` option or check if the page is slow to load.
 
 ### Debugging with Correlation IDs
 
@@ -604,45 +340,15 @@ All errors include correlation IDs for debugging:
 2. Check logs for entries with same correlation ID
 3. Review error context in logs
 
-## Output Interpretation
-
-### Crawl Output
-
-```
-Starting crawl for example-site...
-Crawl completed: 42 pages
-Snapshot created: corpora/example-site/2025-01-15_1430/
-```
-
-- **Pages**: Number of pages scraped
-- **Snapshot**: Snapshot directory path
-
-### Chunk Output
-
-```
-Chunking snapshot 2025-01-15_1430...
-Chunks written: corpora/example-site/2025-01-15_1430/chunks.jsonl
-```
-
-- **Chunks**: JSONL file path containing chunked content
-
-## Environment Variables
-
-### Playwright Configuration
-
-See `.env.example` for available browser configuration options.
-
 ## Best Practices
 
-1. **Validate First**: Use `show-site` to validate configurations before crawling
-2. **Test Crawls**: Start with small `max_pages` limits for testing
-3. **Check Output**: Verify corpus output after each crawl
-4. **Use Correlation IDs**: Use correlation IDs from errors for debugging
-5. **Monitor Logs**: Check logs for provider-specific issues
-6. **Version Control**: Track site configurations in git
+1. **Start with map**: Use `map` to discover URLs before crawling large sites
+2. **Respect rate limits**: Use `--delay` and `--concurrency` for polite crawling
+3. **Use caching**: The cache reduces redundant requests; use `cache stats` to monitor
+4. **Test with limits**: Start with low `--limit` values when exploring new sites
+5. **Choose the right provider**: Use Ollama for local/private data, cloud providers for better quality
 
 ## References
 
 - `.cursor/rules/20-cli-patterns-supacrawl.mdc` - CLI pattern requirements
 - `.cursor/rules/70-error-handling-supacrawl.mdc` - Error handling patterns
-- `docs/40-usage/creating-site-configs-supacrawl.md` - Site configuration guide

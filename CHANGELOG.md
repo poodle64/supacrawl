@@ -7,6 +7,31 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2025.12.5] - 2025-12-26
+
+### Breaking Changes
+
+- **Removed commands**: `init`, `list-sites`, `show-site`, `list-snapshots`, `chunk`, `compress`, `extract`, `batch-scrape` have been removed. The CLI is now Firecrawl-aligned with 7 commands only.
+- **Renamed commands**: `scrape-url` → `scrape`, `crawl-url` → `crawl`, `map-url` → `map`. No backwards-compatible aliases are provided.
+- **Removed site config system**: Site YAML configuration files (`sites/*.yaml`) and related commands are no longer supported. Use URL-based commands directly.
+- **Removed corpus system**: Structured corpus output with manifests, snapshots, and chunking has been removed. Crawl output is now a simple directory of markdown files with a basic `manifest.json` for resume support.
+- **Removed BatchService**: The batch scraping service has been removed. Use `crawl` for multi-page scraping or shell loops for batch operations.
+
+### Changed
+
+- **Simplified CLI**: 7 commands aligned with Firecrawl: `scrape`, `crawl`, `map`, `search`, `llm-extract`, `agent`, `cache`
+- **Simplified crawl output**: Output is now a flat directory of markdown files with YAML frontmatter, plus `manifest.json` for resume tracking
+
+### Internal
+
+- Removed `src/supacrawl/sites/` directory (site loader)
+- Removed `src/supacrawl/corpus/` directory (corpus writer, state, adapter)
+- Removed `src/supacrawl/init.py` (site scaffolding)
+- Removed `src/supacrawl/prep/chunker.py` (snapshot chunking)
+- Removed `src/supacrawl/services/batch.py` (batch service)
+- Removed obsolete tests and fixtures
+- Added e2e markers to slow service tests for faster CI runs
+
 ## [2025.12.4] - 2025-12-26
 
 ### Changed

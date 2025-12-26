@@ -81,8 +81,8 @@ except PlaywrightError as e:
 
 ### Configuration Error Handling
 
-- ✅ **Must** raise `ConfigurationError` when site configuration loading fails
-- ✅ **Must** include config path in `ConfigurationError` context
+- ✅ **Must** raise `ConfigurationError` when configuration loading fails
+- ✅ **Must** include config details in `ConfigurationError` context
 - ✅ **Must** include validation errors in context
 - ✅ **Must** provide helpful error messages with examples
 

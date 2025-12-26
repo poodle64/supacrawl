@@ -22,28 +22,24 @@ This rule extends `.cursor/rules/master/20-development-environment-basics.mdc` w
 
 ## Directory Structure
 
-- ✅ **Must** keep site configurations in `sites/` directory
-- ✅ **Must** use YAML format for site configurations (`sites/{name}.yaml`)
-- ✅ **Must** keep corpus output in `corpora/` directory
-- ✅ **Must** use snapshot-based layout: `corpora/{site_id}/{snapshot_id}/`
-- ✅ **Must** create `corpora/` directory if it doesn't exist (with `.gitkeep`)
+- ✅ **Must** keep CLI modules in `src/supacrawl/cli/` directory
+- ✅ **Must** keep service modules in `src/supacrawl/services/` directory
+- ✅ **Must** keep LLM provider modules in `src/supacrawl/llm/` directory
+- ✅ **Must** use cache directory at `.supacrawl/cache/` for scraped content
 
 ## Environment Variables
 
 - ✅ **Must** use `.env` file for local development configuration
 - ✅ **Must** document all required environment variables in README
-- ✅ **May** set `SUPACRAWL_*` environment variables to configure browser behavior (headless mode, locale, timezone, user agent, wait conditions, SPA delay)
+- ✅ **May** set `SUPACRAWL_*` environment variables to configure browser behaviour (headless mode, locale, timezone, user agent, wait conditions, SPA delay)
+- ✅ **May** set `OLLAMA_HOST` for Ollama server URL
+- ✅ **May** set `OPENAI_API_KEY` for OpenAI API access
+- ✅ **May** set `ANTHROPIC_API_KEY` for Anthropic API access
+- ✅ **May** set `BRAVE_API_KEY` for Brave Search API access
 - ❌ **Must NOT** commit `.env` files to version control
 - ❌ **Must NOT** hardcode API keys or URLs in code
-
-## Site Configuration Structure
-
-- ✅ **Must** use YAML format for site configurations
-- ✅ **Must** follow `SiteConfig` model schema (see `.cursor/rules/50-site-config-patterns-supacrawl.mdc`)
-- ✅ **Must** use filename (without `.yaml`) as site identifier in CLI commands
-- ✅ **Must** validate site configurations on load (Pydantic validation)
 
 ## References
 
 - `.cursor/rules/master/20-development-environment-basics.mdc` - Universal development environment mechanics
-- `.cursor/rules/50-site-config-patterns-supacrawl.mdc` - Site configuration schema and validation
+- `.cursor/rules/50-scraper-provider-patterns-supacrawl.mdc` - Playwright scraper patterns

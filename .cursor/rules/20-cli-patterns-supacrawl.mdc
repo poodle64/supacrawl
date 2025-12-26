@@ -16,9 +16,13 @@ agentMapping:
     - click
     - terminal
     - command-line
-    - list-sites
-    - show-site
+    - scrape
     - crawl
+    - map
+    - search
+    - llm-extract
+    - agent
+    - cache
   allowedTools:
     - Read
     - Write
@@ -80,27 +84,37 @@ All CLI commands must follow consistent Click patterns for command structure, er
 
 **Good command structure:**
 ```python
-@app.command("list-sites", help="List available site configuration files.")
+@app.command("scrape", help="Scrape a single URL to markdown.")
+@click.argument("url")
 @click.option(
-    "--base-path",
-    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
-    help="Base directory containing sites/ and corpora/ folders.",
+    "--format",
+    "formats",
+    type=click.Choice(["markdown", "html", "rawHtml", "links"]),
+    multiple=True,
+    default=["markdown"],
+    help="Output format(s).",
 )
-def list_sites(base_path: Path | None) -> None:
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path),
+    help="Output file path. If omitted, prints to stdout.",
+)
+def scrape(url: str, formats: tuple[str, ...], output: Path | None) -> None:
     """
-    List available site configuration files.
+    Scrape a single URL and output content.
 
     Args:
-        base_path: Optional base directory containing sites/ folder.
+        url: The URL to scrape.
+        formats: Output format(s) to generate.
+        output: Optional output file path.
     """
     try:
-        sites_dir = default_sites_dir(base_path)
-        configs = list_site_configs(sites_dir)
-        if not configs:
-            click.echo(f"No site configurations found in {sites_dir}")
-            return
-        for config in configs:
-            click.echo(config.name)
+        result = asyncio.run(scrape_service.scrape(url, formats=list(formats)))
+        if output:
+            output.write_text(result.markdown)
+            click.echo(f"Scraped to {output}")
+        else:
+            click.echo(result.markdown)
     except SupacrawlError as e:
         click.echo(f"Error: {e.message} [correlation_id={e.correlation_id}]", err=True)
         raise SystemExit(1)
