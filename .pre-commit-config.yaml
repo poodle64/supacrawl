@@ -1,0 +1,82 @@
+# Pre-commit hooks configuration for supacrawl
+
+# Install with: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+# Update hooks: pre-commit autoupdate
+
+default_language_version:
+  python: python3.12
+
+repos:
+  # ---------------------------------------------------------------------------- #
+  #                              🔒 Security Scanning                            #
+  # ---------------------------------------------------------------------------- #
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        name: "🔒 security · Detect hardcoded secrets"
+
+  # ---------------------------------------------------------------------------- #
+  #                              📁 File Validation                              #
+  # ---------------------------------------------------------------------------- #
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # File content fixes
+      - id: end-of-file-fixer
+        name: "📁 files · Fix end of files"
+      - id: trailing-whitespace
+        name: "📁 files · Trim trailing whitespace"
+        args: [--markdown-linebreak-ext=md]
+
+      # File format validation
+      - id: check-yaml
+        name: "📁 yaml · Validate YAML syntax"
+        args: [--unsafe]
+      - id: check-toml
+        name: "📁 toml · Validate TOML syntax"
+      - id: check-json
+        name: "📁 json · Validate JSON syntax"
+
+      # Git quality
+      - id: check-merge-conflict
+        name: "🌳 git · Detect conflict markers"
+      - id: check-added-large-files
+        name: "🌳 git · Block large file commits"
+        args: ["--maxkb=5000"]
+
+      # Filesystem safety
+      - id: check-case-conflict
+        name: "📁 filesystem · Check case sensitivity"
+      - id: detect-private-key
+        name: "🔒 security · Detect private keys"
+
+  # ---------------------------------------------------------------------------- #
+  #                              🐍 Python Tools                                 #
+  # ---------------------------------------------------------------------------- #
+
+  # Code formatting and linting (Ruff replaces black, isort, flake8, etc.)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.8
+    hooks:
+      - id: ruff-format
+        name: "🐍 python · Format with Ruff"
+        files: ^.*\.py$
+      - id: ruff
+        name: "🐍 python · Lint with Ruff"
+        args: ["--fix", "--exit-non-zero-on-fix"]
+        files: ^.*\.py$
+
+  # Type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.0
+    hooks:
+      - id: mypy
+        name: "🐍 python · Type check with mypy"
+        additional_dependencies: [types-pytz, types-aiofiles, types-PyYAML]
+        args: ["--ignore-missing-imports"]
+        files: ^.*\.py$
+        exclude: ^(tests/|.*/tests/|.*/migrations/|.*/__pycache__/|.*/cache/)
