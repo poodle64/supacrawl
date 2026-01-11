@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_CONCURRENCY = 10
 
 # Type alias for wait_until options
-WaitUntilType = Literal["commit", "domcontentloaded", "load", "networkidle"]
+type WaitUntilType = Literal["commit", "domcontentloaded", "load", "networkidle"]
 
 
 class MapService:

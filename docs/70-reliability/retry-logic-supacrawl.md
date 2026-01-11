@@ -57,10 +57,10 @@ Typical backoff intervals:
 
 ### Why Jitter?
 
-Jitter prevents synchronized retries:
+Jitter prevents synchronised retries:
 
-- **Without jitter**: All clients retry at same time (thundering herd)
-- **With jitter**: Retries spread over time (reduces load spikes)
+- **Without jitter**: All clients retry at same time (thundering herd), synchronised retries
+- **With jitter**: Retries spread over time (reduces load spikes), desynchronised
 
 ## Retry Implementation Patterns
 
@@ -201,6 +201,6 @@ for attempt in range(_max_attempts):
 
 ## References
 
-- `.cursor/rules/master/70-error-handling-basics.mdc` - Universal retry requirements
-- `.cursor/rules/50-scraper-provider-patterns-supacrawl.mdc` - Provider retry patterns
+- `.claude/rules/master/70-reliability.md` - Universal retry requirements
+- `.claude/rules/50-scraper-provider-patterns.md` - Provider retry patterns
 - `docs/70-reliability/error-handling-supacrawl.md` - Error handling patterns

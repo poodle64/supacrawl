@@ -7,6 +7,23 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.1.8] - 2026-01-11
+
+### Features
+
+- **Python 3.12 support** - Lowered minimum Python requirement from 3.14 to 3.12, dramatically increasing compatibility. The codebase now uses PEP 695 `type` statement syntax for type aliases. Users on Python 3.12, 3.13, and 3.14 are all supported
+- **Async context manager support** - `SearchService`, `AgentService`, and `ExtractService` now support `async with` for automatic resource cleanup
+- **Content quality tracking** - New `ContentStats` and `ProcessMetadata` models provide insights into scrape quality (word count, extracted elements, page load time, stealth mode usage). `ScrapeResult` gains a `warnings` field for content quality issues
+
+### Documentation
+
+- **README caching section** - Added documentation for cache configuration, management commands, and behaviour
+
+### Internal
+
+- Type aliases converted to PEP 695 `type` statement syntax
+- Fixed Python 3.14-only bracketless `except` syntax for 3.12 compatibility
+
 ## [2026.1.7] - 2026-01-10
 
 ### Features

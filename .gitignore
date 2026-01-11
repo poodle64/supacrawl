@@ -21,6 +21,7 @@ desktop.ini
 .claude/settings.local.json
 .claude/CLAUDE.local.md
 .claude/.sessions/
+.claude/ralph-loop.local.md
 
 # Master symlinks (user-specific absolute paths)
 .claude/commands

@@ -7,8 +7,7 @@
 
 ## Usage
 
-- **`40-usage/cli-usage-supacrawl.md`** - Complete CLI command reference
-- **`40-usage/USAGE_GUIDE.md`** - Operator-focused guide: defaults, environment variables, troubleshooting
+- **`40-usage/cli-usage-supacrawl.md`** - Complete CLI command reference with environment variables and troubleshooting
 
 ## Reliability
 

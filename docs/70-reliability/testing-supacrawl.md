@@ -35,11 +35,11 @@ pytest -q
 
 ### Testing Service Classes
 
-Test service initialization:
+Test service initialisation:
 
 ```python
-def test_scrape_service_initialization():
-    """Test scrape service initialization."""
+def test_scrape_service_initialisation():
+    """Test scrape service initialisation."""
     from supacrawl.services import ScrapeService
     service = ScrapeService()
     assert service is not None
@@ -198,6 +198,6 @@ pytest --cov=supacrawl --cov-report=html
 
 ## References
 
-- `.cursor/rules/71-testing-patterns-supacrawl.mdc` - Testing pattern requirements
-- `.cursor/rules/master/71-testing-patterns-basics.mdc` - Universal testing requirements
+- `.claude/rules/71-testing-patterns.md` - Testing pattern requirements
+- `.claude/rules/master/71-testing-patterns.md` - Universal testing requirements
 - `docs/70-reliability/error-handling-supacrawl.md` - Error handling patterns

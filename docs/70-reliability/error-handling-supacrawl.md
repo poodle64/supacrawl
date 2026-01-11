@@ -258,6 +258,6 @@ Logs include correlation IDs in structured format:
 
 ## References
 
-- `.cursor/rules/70-error-handling-supacrawl.mdc` - Error handling requirements
-- `.cursor/rules/master/70-error-handling-basics.mdc` - Universal error handling principles
+- `.claude/rules/70-error-handling.md` - Error handling requirements
+- `.claude/rules/master/70-reliability.md` - Universal error handling principles
 - `docs/70-reliability/retry-logic-supacrawl.md` - Retry logic patterns

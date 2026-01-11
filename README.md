@@ -103,6 +103,32 @@ Required for `llm-extract`, `agent`, and `--summarize`:
 |----------|-------------|
 | `BRAVE_API_KEY` | Optional: use Brave Search instead of DuckDuckGo |
 
+### Caching
+
+Supacrawl caches scraped content locally for faster repeated requests. Enable with `--max-age`:
+
+```bash
+# Cache for 1 hour
+supacrawl scrape https://example.com --max-age 3600
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SUPACRAWL_CACHE_DIR` | `~/.supacrawl/cache` | Cache directory |
+
+**Cache Management:**
+
+```bash
+supacrawl cache stats   # View cache size and entry count
+supacrawl cache prune   # Remove expired entries
+supacrawl cache clear   # Clear all cache (with confirmation)
+```
+
+**Cache Behaviour:**
+- No automatic eviction — run `cache prune` periodically to clean expired entries
+- No size limits — cache grows unbounded; use `cache clear` if disk space is a concern
+- Files stored as `<hash>.json` where hash is SHA256 of normalised URL
+
 ### Optional Extras
 
 ```bash

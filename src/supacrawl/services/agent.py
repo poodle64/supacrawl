@@ -72,6 +72,15 @@ class AgentService:
             await self._llm_client.close()
             self._llm_client = None
 
+    async def __aenter__(self) -> "AgentService":
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        """Exit async context manager, ensuring cleanup."""
+        await self.close()
+        return False
+
     async def run(
         self,
         prompt: str,

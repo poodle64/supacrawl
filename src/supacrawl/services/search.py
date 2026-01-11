@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 # Type alias for source types
-SourceType = Literal["web", "images", "news"]
+type SourceType = Literal["web", "images", "news"]
 
 
 @dataclass
@@ -88,6 +88,15 @@ class SearchService:
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
+
+    async def __aenter__(self) -> "SearchService":
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        """Exit async context manager, ensuring cleanup."""
+        await self.close()
+        return False
 
     async def search(
         self,

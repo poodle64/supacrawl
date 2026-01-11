@@ -36,7 +36,7 @@ from supacrawl.services.converter import MarkdownConverter
 LOGGER = logging.getLogger(__name__)
 
 # Type alias for wait_until options
-WaitUntilType = Literal["commit", "domcontentloaded", "load", "networkidle"]
+type WaitUntilType = Literal["commit", "domcontentloaded", "load", "networkidle"]
 
 # Patterns that indicate bot detection or blocking
 BOT_DETECTION_PATTERNS = [

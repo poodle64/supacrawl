@@ -267,6 +267,30 @@ class BrandingProfile(BaseModel):
     images: dict[str, str] | None = None
 
 
+class ContentStats(BaseModel):
+    """Content quality statistics for a scraped page.
+
+    Provides metrics to help identify content extraction issues like
+    bot detection, JS-heavy pages, or failed extraction.
+    """
+
+    word_count: int = 0
+    extracted_elements: int = 0  # Count of meaningful HTML elements extracted
+    possible_issues: list[str] = Field(default_factory=list)
+
+
+class ProcessMetadata(BaseModel):
+    """Metadata about the scraping process.
+
+    Provides insight into how the scrape was executed, useful for
+    debugging and adjusting scrape settings.
+    """
+
+    page_load_time_ms: int | None = None  # Time to fetch and render page
+    extraction_method: Literal["main_content", "full_page", "custom_selectors"] = "main_content"
+    stealth_mode_used: bool = False  # Whether stealth mode was activated
+
+
 class ScrapeActionResult(BaseModel):
     """Result of a mid-workflow scrape action.
 
@@ -304,16 +328,24 @@ class ScrapeData(BaseModel):
     images: list[str] | None = None  # Image URLs extracted from page
     branding: BrandingProfile | None = None  # Brand identity information
     actions: ActionsOutput | None = None  # Results from action sequence
+    content_stats: ContentStats | None = None  # Content quality statistics
+    process_metadata: ProcessMetadata | None = None  # Scraping process metadata
 
     model_config = ConfigDict(populate_by_name=True)
 
 
 class ScrapeResult(BaseModel):
-    """Result of a scrape operation."""
+    """Result of a scrape operation.
+
+    The `warnings` field contains content quality warnings when extraction
+    succeeded but the result may be incomplete or problematic. Check warnings
+    when `success=True` but content seems minimal or unexpected.
+    """
 
     success: bool
     data: ScrapeData | None = None
     error: str | None = None
+    warnings: list[str] | None = None
 
 
 class CrawlEvent(BaseModel):

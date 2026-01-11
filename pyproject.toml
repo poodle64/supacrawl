@@ -4,10 +4,10 @@
 
 [project]
 name = "supacrawl"
-version = "2026.1.7"
+version = "2026.1.8"
  description = "Zero-infrastructure CLI web scraper with LLM extraction."
  readme = "README.md"
- requires-python = ">=3.14"
+ requires-python = ">=3.12"
  license = { text = "MIT" }
 authors = [
     {name = "poodle64"}
@@ -18,6 +18,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
@@ -72,7 +74,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py314"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -92,7 +94,7 @@ ignore = [
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 
 [[tool.mypy.overrides]]
 module = "twocaptcha.*"

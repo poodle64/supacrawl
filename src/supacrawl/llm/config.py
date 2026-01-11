@@ -6,7 +6,7 @@ from typing import Literal
 
 from supacrawl.exceptions import ConfigurationError, generate_correlation_id
 
-LLMProvider = Literal["ollama", "openai", "anthropic"]
+type LLMProvider = Literal["ollama", "openai", "anthropic"]
 
 DEFAULT_BASE_URLS: dict[LLMProvider, str] = {
     "ollama": "http://localhost:11434",
@@ -127,5 +127,5 @@ def is_llm_configured() -> bool:
     try:
         load_llm_config()
         return True
-    except LLMNotConfiguredError, ConfigurationError:
+    except (LLMNotConfiguredError, ConfigurationError):
         return False

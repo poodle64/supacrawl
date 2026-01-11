@@ -16,7 +16,7 @@ from supacrawl.utils import normalise_url_for_dedupe
 LOGGER = logging.getLogger(__name__)
 
 # Type alias for wait_until options
-WaitUntilType = Literal["commit", "domcontentloaded", "load", "networkidle"]
+type WaitUntilType = Literal["commit", "domcontentloaded", "load", "networkidle"]
 
 
 class CrawlService:
