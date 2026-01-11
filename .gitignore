@@ -63,3 +63,4 @@ build/
 htmlcov/
 .cache/
 .git-backup
+issues-archive-*.json
