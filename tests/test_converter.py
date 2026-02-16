@@ -37,6 +37,53 @@ class TestMarkdownConverter:
         md = converter.convert(html, only_main_content=False)
         assert "[Link](https://example.com)" in md
 
+    def test_strips_javascript_links(self):
+        """Test that javascript: links are removed entirely (UI controls)."""
+        converter = MarkdownConverter()
+        html = '<a href="javascript:window.print()">Print this page</a>'
+        md = converter.convert(html, only_main_content=False)
+        assert md.strip() == ""
+        assert "Print this page" not in md
+        assert "javascript:" not in md
+
+    def test_strips_javascript_void_links(self):
+        """Test that javascript:void(0) links are removed entirely."""
+        converter = MarkdownConverter()
+        html = '<a href="javascript:void(0)">Click me</a>'
+        md = converter.convert(html, only_main_content=False)
+        assert md.strip() == ""
+        assert "Click me" not in md
+
+    def test_preserves_non_javascript_protocols(self):
+        """Test that other protocols like mailto: are preserved."""
+        converter = MarkdownConverter()
+        html = '<a href="mailto:test@example.com">Email</a>'
+        md = converter.convert(html, only_main_content=False)
+        assert "[Email](mailto:test@example.com)" in md
+
+    def test_strips_javascript_case_insensitive(self):
+        """Test that javascript: links are removed regardless of case."""
+        converter = MarkdownConverter()
+        # Uppercase
+        html1 = '<a href="JAVASCRIPT:alert(1)">Uppercase</a>'
+        md1 = converter.convert(html1, only_main_content=False)
+        assert md1.strip() == ""
+        assert "Uppercase" not in md1
+
+        # Mixed case
+        html2 = '<a href="JavaScript:void(0)">Mixed</a>'
+        md2 = converter.convert(html2, only_main_content=False)
+        assert md2.strip() == ""
+        assert "Mixed" not in md2
+
+    def test_strips_javascript_with_whitespace(self):
+        """Test that javascript: links with leading/trailing whitespace are removed."""
+        converter = MarkdownConverter()
+        html = '<a href=" javascript:void(0) ">Whitespace</a>'
+        md = converter.convert(html, only_main_content=False)
+        assert md.strip() == ""
+        assert "Whitespace" not in md
+
     def test_preserves_code_blocks(self):
         """Test that code blocks are preserved."""
         converter = MarkdownConverter()

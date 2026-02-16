@@ -264,13 +264,12 @@ class AbsoluteUrlConverter(BaseMarkdownConverter):
         self.base_url = base_url
 
     def convert_a(self, el, text, parent_tags):
-        """Convert anchor tags, resolving relative URLs."""
+        """Convert anchor tags, resolving relative URLs.
+
+        Strips javascript: pseudo-protocol links (UI interactions with no semantic meaning).
+        """
         href = el.get("href", "")
         title = el.get("title", "")
-
-        # Resolve relative URL to absolute
-        if href and self.base_url and not urlparse(href).netloc:
-            href = urljoin(self.base_url, href)
 
         # Clean up text - preserve content even if whitespace-only
         text = text.strip() if text else ""
@@ -279,6 +278,15 @@ class AbsoluteUrlConverter(BaseMarkdownConverter):
             text = el.get_text(strip=True)
         if not text:
             return ""
+
+        # Strip javascript: pseudo-protocol links (case-insensitive) - remove entirely
+        # These are UI controls (print, share, etc.) with no semantic content value
+        if href.lower().strip().startswith("javascript:"):
+            return ""
+
+        # Resolve relative URL to absolute
+        if href and self.base_url and not urlparse(href).netloc:
+            href = urljoin(self.base_url, href)
 
         if title:
             return f'[{text}]({href} "{title}")'
