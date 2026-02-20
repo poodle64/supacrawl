@@ -290,9 +290,16 @@ class ScrapeService:
         """
         formats = formats or ["markdown"]
 
+        # Build cache variant for screenshot settings that affect output.
+        # Different screenshot_full_page values produce different images, so
+        # they must map to separate cache entries.
+        cache_variant: str | None = None
+        if "screenshot" in formats and not screenshot_full_page:
+            cache_variant = "screenshot_full_page=False"
+
         # Check cache if max_age > 0 and cache is configured
         if max_age > 0 and self._cache:
-            cached = self._cache.get(url, max_age)
+            cached = self._cache.get(url, max_age, variant=cache_variant)
             if cached:
                 LOGGER.debug(f"Cache hit for {url}")
                 result = ScrapeResult.model_validate(cached)
@@ -522,7 +529,7 @@ class ScrapeService:
 
                 # Store in cache if max_age > 0 and cache is configured
                 if max_age > 0 and self._cache:
-                    self._cache.set(url, result.model_dump(), max_age)
+                    self._cache.set(url, result.model_dump(), max_age, variant=cache_variant)
 
                 return result
 

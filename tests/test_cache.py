@@ -204,6 +204,41 @@ class TestCacheManager:
         normalised_url = cache_manager._normalise_url(url)
         assert normalised_url in index
 
+    def test_variant_produces_different_cache_keys(self, cache_manager: CacheManager) -> None:
+        """Test that different variants produce different cache keys."""
+        url = "https://example.com/page"
+        key_default = cache_manager._cache_key(url)
+        key_variant = cache_manager._cache_key(url, variant="screenshot_full_page=False")
+
+        assert key_default != key_variant
+
+    def test_variant_cache_entries_are_independent(self, cache_manager: CacheManager) -> None:
+        """Test that variant and non-variant cache entries don't collide."""
+        url = "https://example.com/page"
+        response_default = {"screenshot": "full_page_b64"}
+        response_viewport = {"screenshot": "viewport_only_b64"}
+
+        cache_manager.set(url, response_default, max_age=3600)
+        cache_manager.set(url, response_viewport, max_age=3600, variant="screenshot_full_page=False")
+
+        cached_default = cache_manager.get(url, max_age=3600)
+        cached_variant = cache_manager.get(url, max_age=3600, variant="screenshot_full_page=False")
+
+        assert cached_default is not None
+        assert cached_variant is not None
+        assert cached_default["screenshot"] == "full_page_b64"
+        assert cached_variant["screenshot"] == "viewport_only_b64"
+
+    def test_variant_none_matches_no_variant(self, cache_manager: CacheManager) -> None:
+        """Test that variant=None is equivalent to no variant."""
+        url = "https://example.com/page"
+        cache_manager.set(url, {"data": "test"}, max_age=3600)
+
+        cached = cache_manager.get(url, max_age=3600, variant=None)
+
+        assert cached is not None
+        assert cached["data"] == "test"
+
     def test_url_with_different_tracking_params_use_same_cache(self, cache_manager: CacheManager) -> None:
         """Test that URLs with different tracking params use same cache."""
         base_url = "https://example.com/page"
