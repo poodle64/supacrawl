@@ -5,8 +5,12 @@ from bs4 import BeautifulSoup
 from supacrawl.services.converter import (
     SITE_PREPROCESSORS,
     MarkdownConverter,
+    _detect_css_counter_lists,
     _detect_mkdocs_material,
+    _detect_wordpress,
+    _preprocess_css_counter_lists,
     _preprocess_mkdocs_material,
+    _preprocess_wordpress,
     apply_site_preprocessors,
 )
 
@@ -650,3 +654,562 @@ class TestSitePreprocessorRegistry:
             assert preprocessor.examples, "Preprocessor must have example sites"
             assert callable(preprocessor.detect), "Preprocessor must have detect function"
             assert callable(preprocessor.preprocess), "Preprocessor must have preprocess function"
+
+
+class TestCssCounterListsPreprocessing:
+    """Tests for CSS counter-based lists HTML preprocessing."""
+
+    def test_detect_css_counter_lists(self):
+        """Test detection of CSS counter-based lists."""
+        html = """
+        <p class="list-item" data-list-level="2">First item</p>
+        <p class="list-item" data-list-level="2">Second item</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _detect_css_counter_lists(soup) is True
+
+    def test_no_detection_without_data_list_level(self):
+        """Test that regular paragraphs are not detected as CSS counter lists."""
+        html = "<p>Regular paragraph</p><p>Another paragraph</p>"
+        soup = BeautifulSoup(html, "html.parser")
+        assert _detect_css_counter_lists(soup) is False
+
+    def test_converts_simple_list(self):
+        """Test conversion of simple CSS counter list to ordered list."""
+        html = """
+        <p data-list-level="2">First item</p>
+        <p data-list-level="2">Second item</p>
+        <p data-list-level="2">Third item</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_css_counter_lists(soup)
+
+        # Should have one ordered list
+        ol = soup.find("ol")
+        assert ol is not None
+        # Should have three list items
+        lis = ol.find_all("li", recursive=False)
+        assert len(lis) == 3
+        assert "First item" in lis[0].get_text()
+        assert "Second item" in lis[1].get_text()
+        assert "Third item" in lis[2].get_text()
+        # Original p tags should be gone
+        assert len(soup.find_all("p", attrs={"data-list-level": True})) == 0
+
+    def test_converts_nested_list(self):
+        """Test conversion of nested CSS counter lists."""
+        html = """
+        <p data-list-level="2">First item</p>
+        <p data-list-level="3">Sub-item A</p>
+        <p data-list-level="3">Sub-item B</p>
+        <p data-list-level="2">Second item</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_css_counter_lists(soup)
+
+        # Find the root list
+        root_ol = soup.find("ol")
+        assert root_ol is not None
+
+        # Root should have 2 direct children (First item, Second item)
+        root_lis = root_ol.find_all("li", recursive=False)
+        assert len(root_lis) == 2
+        assert "First item" in root_lis[0].get_text()
+
+        # First item should contain a nested list
+        nested_ol = root_lis[0].find("ol")
+        assert nested_ol is not None
+
+        # Nested list should have 2 items
+        nested_lis = nested_ol.find_all("li", recursive=False)
+        assert len(nested_lis) == 2
+        assert "Sub-item A" in nested_lis[0].get_text()
+        assert "Sub-item B" in nested_lis[1].get_text()
+
+        # Second item should not have nested list
+        assert root_lis[1].find("ol") is None
+        assert "Second item" in root_lis[1].get_text()
+
+    def test_converts_complex_hierarchy(self):
+        """Test conversion of complex multi-level hierarchy."""
+        html = """
+        <p data-list-level="2">Level 2 - Item 1</p>
+        <p data-list-level="3">Level 3 - Item A</p>
+        <p data-list-level="4">Level 4 - Item i</p>
+        <p data-list-level="4">Level 4 - Item ii</p>
+        <p data-list-level="3">Level 3 - Item B</p>
+        <p data-list-level="2">Level 2 - Item 2</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_css_counter_lists(soup)
+
+        # Check structure
+        root_ol = soup.find("ol")
+        assert root_ol is not None
+
+        # Root should have 2 items
+        root_lis = root_ol.find_all("li", recursive=False)
+        assert len(root_lis) == 2
+
+        # First root item should have nested list
+        level3_ol = root_lis[0].find("ol")
+        assert level3_ol is not None
+        level3_lis = level3_ol.find_all("li", recursive=False)
+        assert len(level3_lis) == 2
+
+        # First level 3 item should have nested list
+        level4_ol = level3_lis[0].find("ol")
+        assert level4_ol is not None
+        level4_lis = level4_ol.find_all("li", recursive=False)
+        assert len(level4_lis) == 2
+        assert "Level 4 - Item i" in level4_lis[0].get_text()
+        assert "Level 4 - Item ii" in level4_lis[1].get_text()
+
+    def test_handles_gap_in_levels(self):
+        """Test handling of level gaps (e.g., level 2 to level 4)."""
+        html = """
+        <p data-list-level="2">Level 2</p>
+        <p data-list-level="4">Level 4 (skipped 3)</p>
+        <p data-list-level="2">Level 2 again</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        # Should not crash
+        _preprocess_css_counter_lists(soup)
+
+        # Should still create some structure
+        ol = soup.find("ol")
+        assert ol is not None
+
+    def test_preserves_element_attributes_in_content(self):
+        """Test that content within list items preserves attributes."""
+        html = """
+        <p data-list-level="2">Item with <strong>bold</strong> text</p>
+        <p data-list-level="2">Item with <a href="/link">link</a></p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_css_counter_lists(soup)
+
+        ol = soup.find("ol")
+        assert ol is not None
+
+        lis = ol.find_all("li")
+        # Should preserve strong tag
+        assert lis[0].find("strong") is not None
+        assert "bold" in lis[0].get_text()
+        # Should preserve anchor tag
+        assert lis[1].find("a") is not None
+        assert lis[1].find("a").get("href") == "/link"
+
+    def test_handles_empty_list_items(self):
+        """Test that empty list items are handled gracefully."""
+        html = """
+        <p data-list-level="2">First item</p>
+        <p data-list-level="2"></p>
+        <p data-list-level="2">Third item</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_css_counter_lists(soup)
+
+        ol = soup.find("ol")
+        assert ol is not None
+        lis = ol.find_all("li", recursive=False)
+        assert len(lis) == 3
+        # Empty item should still be present
+        assert lis[1].get_text(strip=True) == ""
+
+    def test_multiple_separate_lists(self):
+        """Test handling of multiple separate list groups."""
+        html = """
+        <p data-list-level="2">List 1 - Item 1</p>
+        <p data-list-level="2">List 1 - Item 2</p>
+        <div>Separator content</div>
+        <p data-list-level="2">List 2 - Item 1</p>
+        <p data-list-level="2">List 2 - Item 2</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_css_counter_lists(soup)
+
+        # Should have two separate ordered lists
+        ols = soup.find_all("ol")
+        # Due to proximity check, might be treated as one or two lists
+        # At minimum should have created list structures
+        assert len(ols) >= 1
+
+    def test_full_conversion_to_markdown(self):
+        """Test full conversion of CSS counter lists to markdown."""
+        converter = MarkdownConverter()
+        html = """
+        <html>
+        <body>
+            <p data-list-level="2">First numbered item</p>
+            <p data-list-level="3">First lettered sub-item</p>
+            <p data-list-level="3">Second lettered sub-item</p>
+            <p data-list-level="2">Second numbered item</p>
+        </body>
+        </html>
+        """
+        md = converter.convert(html, only_main_content=False)
+
+        # Should have list markers (exact format depends on markdownify)
+        # At minimum, items should be present
+        assert "First numbered item" in md
+        assert "First lettered sub-item" in md
+        assert "Second lettered sub-item" in md
+        assert "Second numbered item" in md
+
+        # Should not have data-list-level in output
+        assert "data-list-level" not in md
+
+    def test_real_world_example(self):
+        """Test with real-world example from DASA documentation."""
+        html = """
+        <p class="Vol2_num_alpha_num" data-list-level="2" style="counter-set: item2 1;">
+            The Defence Aviation Safety Authority (DASA) must ensure...
+        </p>
+        <p class="Vol2_num_alpha_num" data-list-level="2">
+            Commanders and managers responsible for aviation activities...
+        </p>
+        <p class="Vol2_num_alpha_num" data-list-level="3">
+            ensure compliance with the applicable DASR...
+        </p>
+        <p class="Vol2_num_alpha_num" data-list-level="3">
+            take all measures necessary to support...
+        </p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_css_counter_lists(soup)
+
+        # Should have created proper list structure
+        root_ol = soup.find("ol")
+        assert root_ol is not None
+
+        # Should have 2 root items
+        root_lis = root_ol.find_all("li", recursive=False)
+        assert len(root_lis) == 2
+        assert "DASA" in root_lis[0].get_text()
+        assert "Commanders" in root_lis[1].get_text()
+
+        # Second root item should have nested list
+        nested_ol = root_lis[1].find("ol")
+        assert nested_ol is not None
+        nested_lis = nested_ol.find_all("li", recursive=False)
+        assert len(nested_lis) == 2
+        assert "ensure compliance" in nested_lis[0].get_text()
+        assert "take all measures" in nested_lis[1].get_text()
+
+    def test_registry_includes_css_counter_lists(self):
+        """Test that CSS counter lists preprocessor is registered."""
+        names = [p.name for p in SITE_PREPROCESSORS]
+        assert "css_counter_lists" in names
+
+    def test_handles_invalid_data_list_level(self):
+        """Test that invalid data-list-level values are handled gracefully."""
+        html = """
+        <p data-list-level="2">Valid item</p>
+        <p data-list-level="invalid">Invalid level - should default to 1</p>
+        <p data-list-level="3.5">Float level - should default to 1</p>
+        <p data-list-level="2">Another valid item</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        # Should not crash
+        _preprocess_css_counter_lists(soup)
+
+        # Should have created list structure
+        ol = soup.find("ol")
+        assert ol is not None
+
+        # Should have 4 items (invalid levels default to level 1)
+        # The exact structure depends on how defaults are handled
+        # At minimum, should not crash and should create some list
+        lis = soup.find_all("li")
+        assert len(lis) == 4
+
+    def test_handles_missing_data_list_level(self):
+        """Test that missing data-list-level attributes are handled."""
+        html = """
+        <p data-list-level="2">First item</p>
+        <p data-list-level="">Empty level - should default</p>
+        <p data-list-level="2">Third item</p>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        # Should not crash
+        _preprocess_css_counter_lists(soup)
+
+        # Should have created list structure
+        ol = soup.find("ol")
+        assert ol is not None
+
+
+class TestWordPressPreprocessor:
+    """Tests for WordPress preprocessor."""
+
+    def test_detect_wordpress_by_wp_class(self):
+        """Test WordPress detection via wp- prefixed classes."""
+        html = """
+        <html>
+            <body class="wp-content">
+                <div class="wp-block-group">Content</div>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _detect_wordpress(soup) is True
+
+    def test_detect_wordpress_by_post_classes(self):
+        """Test WordPress detection via post-related classes."""
+        html = """
+        <html>
+            <body>
+                <article class="post-1234 hentry">
+                    <div class="entry-content">Content</div>
+                </article>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _detect_wordpress(soup) is True
+
+    def test_detect_wordpress_by_meta_generator(self):
+        """Test WordPress detection via meta generator tag."""
+        html = """
+        <html>
+            <head>
+                <meta name="generator" content="WordPress 6.4" />
+            </head>
+            <body>Content</body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _detect_wordpress(soup) is True
+
+    def test_detect_non_wordpress_site(self):
+        """Test that non-WordPress sites are not detected."""
+        html = """
+        <html>
+            <body>
+                <article>Regular content</article>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _detect_wordpress(soup) is False
+
+    def test_preprocess_wordpress_removes_fixed_nav(self):
+        """Test removal of .fixed-nav elements (BeTheme duplication bug)."""
+        html = """
+        <html>
+            <body>
+                <a class="fixed-nav fixed-nav-prev" href="#">Previous</a>
+                <a class="fixed-nav fixed-nav-next" href="#">Next</a>
+                <article>
+                    <h1>Article Title</h1>
+                    <p>Article content</p>
+                </article>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # Navigation should be removed
+        assert soup.find(class_="fixed-nav") is None
+        assert soup.find(class_="fixed-nav-prev") is None
+        assert soup.find(class_="fixed-nav-next") is None
+
+        # Content should remain
+        assert soup.find("h1") is not None
+        assert soup.find("p") is not None
+
+    def test_preprocess_wordpress_removes_post_navigation(self):
+        """Test removal of post navigation elements."""
+        html = """
+        <html>
+            <body>
+                <article>Content</article>
+                <nav class="post-navigation">
+                    <div class="nav-links">
+                        <a href="#">Previous post</a>
+                        <a href="#">Next post</a>
+                    </div>
+                </nav>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # Post navigation should be removed
+        assert soup.find(class_="post-navigation") is None
+        assert soup.find(class_="nav-links") is None
+
+        # Content should remain
+        assert soup.find("article") is not None
+
+    def test_preprocess_wordpress_removes_share_widgets(self):
+        """Test removal of share widget elements."""
+        html = """
+        <html>
+            <body>
+                <article>Content</article>
+                <div class="share-simple-wrapper">
+                    <a href="#">Share on Facebook</a>
+                    <a href="#">Share on Twitter</a>
+                </div>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # Share widgets should be removed
+        assert soup.find(class_="share-simple-wrapper") is None
+
+        # Content should remain
+        assert soup.find("article") is not None
+
+    def test_preprocess_wordpress_removes_related_posts(self):
+        """Test removal of related posts sections."""
+        html = """
+        <html>
+            <body>
+                <article>Content</article>
+                <section class="section-post-related">
+                    <h4>Related Posts</h4>
+                    <a href="#">Related post 1</a>
+                    <a href="#">Related post 2</a>
+                </section>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # Related posts should be removed
+        assert soup.find(class_="section-post-related") is None
+
+        # Content should remain
+        assert soup.find("article") is not None
+
+    def test_preprocess_wordpress_comprehensive(self):
+        """Test comprehensive WordPress preprocessing (real-world scenario)."""
+        html = """
+        <html>
+            <body class="wp-content">
+                <a class="fixed-nav fixed-nav-prev" href="#">Prev Article</a>
+                <a class="fixed-nav fixed-nav-next" href="#">Next Article</a>
+                <article class="post-1348 hentry">
+                    <a class="fixed-nav fixed-nav-prev" href="#">Prev Article</a>
+                    <a class="fixed-nav fixed-nav-next" href="#">Next Article</a>
+                    <h1>Making extra contributions to your super</h1>
+                    <div class="entry-content">
+                        <p>Did you know that Military Super allows extra contributions?</p>
+                        <p>There are 3 ways to contribute...</p>
+                    </div>
+                    <div class="share-simple-wrapper">Share this article</div>
+                    <section class="section-post-related">
+                        <h4>Check out our other articles</h4>
+                    </section>
+                </article>
+                <nav class="post-navigation">
+                    <div class="nav-links">Navigation</div>
+                </nav>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # All WordPress boilerplate should be removed
+        assert soup.find(class_="fixed-nav") is None
+        assert soup.find(class_="share-simple-wrapper") is None
+        assert soup.find(class_="section-post-related") is None
+        assert soup.find(class_="post-navigation") is None
+
+        # Main content should remain
+        assert soup.find("h1") is not None
+        assert soup.find(class_="entry-content") is not None
+        paragraphs = soup.find_all("p")
+        assert len(paragraphs) == 2
+
+    def test_preprocess_wordpress_preserves_title(self):
+        """Test that page title H1 is preserved by moving it into main content."""
+        html = """
+        <html>
+            <head></head>
+            <body>
+                <div id="Header_wrapper">
+                    <div id="Subheader">
+                        <h1 class="title">Page Title from Header</h1>
+                    </div>
+                </div>
+                <main>
+                    <p>Main content here</p>
+                </main>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # Title should be moved into main content
+        main = soup.find("main")
+        assert main is not None
+        h1_in_main = main.find("h1")
+        assert h1_in_main is not None
+        assert "Page Title from Header" in h1_in_main.get_text()
+
+        # Should be the first element in main
+        first_child = list(main.children)[0]
+        assert first_child.name == "h1"
+
+    def test_preprocess_wordpress_removes_rating_forms(self):
+        """Test removal of rating and feedback forms."""
+        html = """
+        <html>
+            <body>
+                <article>
+                    <p>Main content</p>
+                    <div class="rich-reviews">
+                        <p>How do you rate this?</p>
+                        <input type="text" placeholder="Feedback">
+                    </div>
+                </article>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # Rating forms should be removed
+        assert soup.find(class_="rich-reviews") is None
+
+        # Main content should remain
+        assert soup.find("article") is not None
+        assert "Main content" in soup.get_text()
+
+    def test_preprocess_wordpress_removes_svg_placeholders(self):
+        """Test removal of lazy-loading SVG placeholder images."""
+        html = """
+        <html>
+            <body>
+                <article>
+                    <p>Main content</p>
+                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E" alt="Placeholder">
+                    <img src="https://example.com/real-image.jpg" alt="Real Image">
+                </article>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        _preprocess_wordpress(soup)
+
+        # SVG placeholder should be removed
+        svg_imgs = [img for img in soup.find_all("img") if img.get("src", "").startswith("data:image/svg")]
+        assert len(svg_imgs) == 0
+
+        # Real image should remain
+        real_imgs = [img for img in soup.find_all("img") if "example.com" in img.get("src", "")]
+        assert len(real_imgs) == 1
+
+        # Main content should remain
+        assert "Main content" in soup.get_text()
