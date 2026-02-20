@@ -153,6 +153,9 @@ class ScrapeMetadata(BaseModel):
     source_url: str | None = None
     status_code: int | None = None
 
+    # Detected timezone (IANA format, e.g. "America/New_York")
+    timezone: str | None = None
+
     # Content metrics (computed)
     word_count: int | None = None
 
@@ -208,6 +211,10 @@ class ScrapeMetadata(BaseModel):
             lines.append(f"snapshot_id: {snapshot_id}")
         if provider:
             lines.append(f"provider: {provider}")
+
+        # Add detected timezone
+        if self.timezone:
+            lines.append(f"timezone: {self.timezone}")
 
         # Add optional core metadata
         if self.description:

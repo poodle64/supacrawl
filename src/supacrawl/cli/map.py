@@ -88,6 +88,12 @@ from supacrawl.cli._common import app
     default=None,
     help="Page load strategy. Default: load. Use 'networkidle' for JS-heavy sites. Also reads SUPACRAWL_WAIT_UNTIL env.",
 )
+@click.option(
+    "--ignore-cache",
+    is_flag=True,
+    default=False,
+    help="Bypass cached results and perform fresh URL discovery.",
+)
 def map_cmd(
     url: str,
     limit: int,
@@ -102,6 +108,7 @@ def map_cmd(
     proxy: str | None,
     concurrency: int,
     wait_until: str | None,
+    ignore_cache: bool,
 ) -> None:
     """Map a website to discover all URLs.
 
@@ -134,6 +141,7 @@ def map_cmd(
             include_subdomains=include_subdomains,
             search=search,
             ignore_query_params=ignore_query_params,
+            ignore_cache=ignore_cache,
         ):
             if event.type == "complete":
                 result = event.result

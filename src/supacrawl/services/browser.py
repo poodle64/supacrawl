@@ -31,8 +31,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -277,6 +279,49 @@ class PageMetadata:
     og_image: str | None
     og_url: str | None
     og_site_name: str | None
+
+    # Detected timezone (IANA format, e.g. "America/New_York")
+    timezone: str | None = None
+
+
+def _extract_timezone_from_jsonld(data: Any, iana_tz_pattern: re.Pattern[str]) -> str | None:
+    """Recursively search JSON-LD data for IANA timezone values.
+
+    Args:
+        data: Parsed JSON-LD data (dict, list, or primitive)
+        iana_tz_pattern: Compiled regex for IANA timezone identifiers
+
+    Returns:
+        IANA timezone string or None
+    """
+    if isinstance(data, dict):
+        # Check timezone-related keys directly
+        for key in ("timezone", "timeZone", "time_zone"):
+            val = data.get(key)
+            if isinstance(val, str):
+                match = iana_tz_pattern.search(val)
+                if match:
+                    return match.group(0)
+        # Check address/location for timezone
+        for key in ("address", "location", "geo"):
+            val = data.get(key)
+            if isinstance(val, dict):
+                result = _extract_timezone_from_jsonld(val, iana_tz_pattern)
+                if result:
+                    return result
+        # Check @graph for nested items
+        graph = data.get("@graph")
+        if isinstance(graph, list):
+            for item in graph:
+                result = _extract_timezone_from_jsonld(item, iana_tz_pattern)
+                if result:
+                    return result
+    elif isinstance(data, list):
+        for item in data:
+            result = _extract_timezone_from_jsonld(item, iana_tz_pattern)
+            if result:
+                return result
+    return None
 
 
 class BrowserManager:
@@ -781,19 +826,85 @@ class BrowserManager:
         og_url = get_meta_content(property="og:url")
         og_site_name = get_meta_content(property="og:site_name")
 
+        # Extract Twitter Card tags
+        twitter_title = get_meta_content(name="twitter:title")
+        twitter_description = get_meta_content(name="twitter:description")
+        twitter_image = get_meta_content(name="twitter:image")
+
+        # Apply title fallback: <title> → og:title → twitter:title
+        effective_title = title or og_title or twitter_title
+
+        # Apply description fallback: <meta description> → og:description → twitter:description
+        effective_description = description or og_description or twitter_description
+
+        # Detect timezone from structured data
+        detected_timezone = self._detect_timezone(soup)
+
         return PageMetadata(
-            title=title,
-            description=description,
+            title=effective_title,
+            description=effective_description,
             language=language,
             keywords=keywords,
             robots=robots,
             canonical_url=canonical_url,
             og_title=og_title,
             og_description=og_description,
-            og_image=og_image,
+            og_image=og_image or twitter_image,
             og_url=og_url,
             og_site_name=og_site_name,
+            timezone=detected_timezone,
         )
+
+    @staticmethod
+    def _detect_timezone(soup: BeautifulSoup) -> str | None:
+        """Detect timezone from page structured data.
+
+        Checks JSON-LD structured data and meta tags for IANA timezone identifiers.
+
+        Args:
+            soup: Parsed HTML
+
+        Returns:
+            IANA timezone string (e.g. "America/New_York") or None
+        """
+        # Pattern for IANA timezone identifiers (e.g. America/New_York, Europe/London)
+        iana_tz_pattern = re.compile(
+            r"\b(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)"
+            r"/[A-Z][a-zA-Z_]+(?:/[A-Z][a-zA-Z_]+)?\b"
+        )
+
+        # 1. Check JSON-LD structured data for timezone fields
+        for script_tag in soup.find_all("script", {"type": "application/ld+json"}):
+            try:
+                text = script_tag.get_text(strip=True)
+                if not text:
+                    continue
+                data = json.loads(text)
+                tz = _extract_timezone_from_jsonld(data, iana_tz_pattern)
+                if tz:
+                    return tz
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        # 2. Check meta tags for timezone info
+        for tag in soup.find_all("meta"):
+            name = (tag.get("name") or tag.get("property") or "").lower()
+            content = tag.get("content", "")
+            if isinstance(content, list):
+                content = content[0] if content else ""
+            if not content:
+                continue
+
+            # Check for timezone-related meta names
+            if "timezone" in name or "tz" == name:
+                match = iana_tz_pattern.search(content)
+                if match:
+                    return match.group(0)
+                # Accept raw value if it looks like an IANA timezone
+                if "/" in content and len(content) < 40:
+                    return content.strip()
+
+        return None
 
     async def _wait_for_spa_stability(
         self,

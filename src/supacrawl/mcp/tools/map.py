@@ -22,6 +22,7 @@ async def supacrawl_map(
     search: str | None = None,
     ignore_query_params: bool = False,
     allow_external_links: bool = False,
+    ignore_cache: bool = False,
 ) -> dict:
     """
     Map a website to discover all URLs without scraping content.
@@ -63,6 +64,7 @@ async def supacrawl_map(
         ignore_query_params: Remove query parameters from URLs for deduplication
             (e.g., treat /page?utm_source=x and /page as the same URL)
         allow_external_links: Follow and include links to external domains
+        ignore_cache: Bypass cached results and perform fresh URL discovery
 
     Returns:
         Firecrawl-compatible map result:
@@ -114,6 +116,7 @@ async def supacrawl_map(
             search=search,
             ignore_query_params=ignore_query_params,
             allow_external_links=allow_external_links,
+            ignore_cache=ignore_cache,
         )
 
         return result.model_dump()

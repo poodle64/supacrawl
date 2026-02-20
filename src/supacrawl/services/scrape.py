@@ -508,6 +508,8 @@ class ScrapeService:
                             # Source information
                             source_url=url,
                             status_code=page_content.status_code,
+                            # Detected timezone
+                            timezone=metadata.timezone,
                             # Content metrics
                             word_count=word_count,
                         ),
@@ -937,6 +939,7 @@ class ScrapeService:
                                     og_site_name=metadata.og_site_name,
                                     source_url=url,
                                     status_code=200,
+                                    timezone=metadata.timezone,
                                     word_count=len(markdown.split()) if markdown else None,
                                 ),
                             ),
