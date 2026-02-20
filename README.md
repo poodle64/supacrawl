@@ -2,11 +2,12 @@
 
 [![Python](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)](https://python.org)
 [![Playwright](https://img.shields.io/badge/Playwright-2ea44f?logo=playwright&logoColor=white)](https://playwright.dev)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-8A2BE2)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <h1>Supacrawl</h1>
 
-<em>Zero-infrastructure web scraping for the terminal.</em>
+<em>Zero-infrastructure web scraping for the terminal and AI assistants.</em>
 
 </div>
 
@@ -16,6 +17,7 @@ There are excellent web scraping tools available. Supacrawl takes a different ap
 
 - **Zero infrastructure**: `pip install` and go, no Docker/databases/Redis
 - **Terminal-first**: Designed for shell workflows and pipelines
+- **MCP server**: Give AI assistants direct access to web scraping
 - **Clean markdown**: Playwright renders JS, outputs readable markdown
 - **LLM-ready**: Built-in extraction with Ollama, OpenAI, or Anthropic
 - **Stealth mode**: Patchright for anti-bot evasion, 2Captcha for CAPTCHAs
@@ -45,6 +47,98 @@ supacrawl llm-extract https://example.com/pricing -p "Extract pricing tiers"
 
 # Autonomous agent for complex tasks
 supacrawl agent "Find the pricing for all plans on example.com"
+```
+
+## MCP Server
+
+Supacrawl includes an embedded [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server, giving AI assistants like Claude, Cursor, and VS Code Copilot direct access to web scraping.
+
+### Install
+
+```bash
+pip install supacrawl[mcp]
+playwright install chromium
+```
+
+### Add to your MCP client
+
+**Claude Desktop**: edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "supacrawl": {
+      "command": "supacrawl-mcp",
+      "args": ["--transport", "stdio"]
+    }
+  }
+}
+```
+
+**Claude Code**: add to `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "supacrawl": {
+      "command": "supacrawl-mcp",
+      "args": ["--transport", "stdio"]
+    }
+  }
+}
+```
+
+**Cursor / VS Code**: add to your editor's MCP settings with the same config.
+
+### Available Tools
+
+| Tool                 | Description                                          |
+| -------------------- | ---------------------------------------------------- |
+| `supacrawl_scrape`   | Scrape a URL to markdown, HTML, screenshot, or PDF   |
+| `supacrawl_crawl`    | Crawl multiple pages from a site                     |
+| `supacrawl_map`      | Discover URLs on a website without fetching content   |
+| `supacrawl_search`   | Web search (DuckDuckGo or Brave)                     |
+| `supacrawl_extract`  | Scrape pages for LLM-powered structured extraction   |
+| `supacrawl_summary`  | Scrape a page for LLM-powered summarisation          |
+| `supacrawl_diagnose` | Diagnose scraping issues (CDN, bot detection, etc.)  |
+| `supacrawl_health`   | Server health check and capability report            |
+
+The CLI's `agent` command is intentionally omitted. When used via MCP, your LLM orchestrates the primitives directly; it *is* the agent. For standalone agentic workflows, use `supacrawl agent` from the CLI.
+
+The server also exposes MCP **resources** (format references, search providers, capabilities) and **prompts** (workflow guides for scraping, extraction, research, and error handling).
+
+### Environment Variables
+
+Pass environment variables via your MCP client config to customise behaviour:
+
+```json
+{
+  "mcpServers": {
+    "supacrawl": {
+      "command": "supacrawl-mcp",
+      "args": ["--transport", "stdio"],
+      "env": {
+        "SUPACRAWL_STEALTH": "true",
+        "SUPACRAWL_LOCALE": "en-AU",
+        "SUPACRAWL_TIMEZONE": "Australia/Sydney",
+        "BRAVE_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+All [configuration](#configuration) environment variables apply. The MCP server also supports `SUPACRAWL_LOG_LEVEL` (default: `INFO`).
+
+### Troubleshooting
+
+If scrapes return empty or minimal content, use `supacrawl_diagnose` to identify the cause (CDN protection, JS framework, bot detection). Common fixes: increase `wait_for` for JS-heavy sites, enable `SUPACRAWL_STEALTH=true` for bot-protected sites, or try `only_main_content=false` if the wrong content is extracted.
+
+### Optional Extras
+
+```bash
+pip install supacrawl[mcp,stealth]   # Add anti-bot evasion
+pip install supacrawl[mcp,captcha]   # Add CAPTCHA solving
 ```
 
 ## Commands
@@ -180,6 +274,7 @@ Supacrawl does one thing well: get clean markdown from the web.
 |                          | Supacrawl                 | crawl4ai                  | Firecrawl (self-hosted)        | Firecrawl (cloud) |
 | ------------------------ | ------------------------- | ------------------------- | ------------------------------ | ----------------- |
 | **Infrastructure**       | `pip install`             | `pip install`             | Docker + PostgreSQL + Redis    | Hosted API        |
+| **MCP Server**           | Built-in (`[mcp]` extra)  | Not included              | Not included                   | Yes               |
 | **Web Search**           | Built-in (DuckDuckGo)     | Not included              | Via SearXNG                    | Yes               |
 | **LLM Providers**        | Ollama, OpenAI, Anthropic | Any via LiteLLM           | OpenAI (Ollama experimental)   | OpenAI            |
 | **Intelligent Crawling** | Yes (agent command)       | Yes (adaptive crawling)   | No                             | Yes (/agent)      |
