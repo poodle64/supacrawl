@@ -79,6 +79,258 @@ def _detect_mkdocs_material(soup: BeautifulSoup) -> bool:
     return mkdocs_indicators >= 2
 
 
+def _detect_css_counter_lists(soup: BeautifulSoup) -> bool:
+    """Detect if the page uses CSS counter-based lists.
+
+    Checks for <p> elements with data-list-level attributes, which are used
+    by some documentation sites instead of native <ol>/<li> elements.
+    """
+    return bool(soup.select("p[data-list-level]"))
+
+
+def _preprocess_css_counter_lists(soup: BeautifulSoup) -> None:
+    """Preprocess CSS counter-based lists for better markdown conversion.
+
+    Converts <p> elements with data-list-level attributes to proper <ol>/<li> elements.
+    Handles nested hierarchies based on level values.
+
+    Args:
+        soup: BeautifulSoup object to modify in-place
+    """
+    list_items = soup.select("p[data-list-level]")
+    if not list_items:
+        return
+
+    # Process consecutive groups of list items
+    i = 0
+    while i < len(list_items):
+        # Find consecutive items (allowing for some non-list elements in between)
+        group = [list_items[i]]
+        current = list_items[i]
+
+        for j in range(i + 1, len(list_items)):
+            next_item = list_items[j]
+            # Check if next_item follows current within a reasonable distance
+            if _is_within_proximity(current, next_item, max_distance=10):
+                group.append(next_item)
+                current = next_item
+            else:
+                break
+
+        # Convert this group to nested lists
+        if group:
+            _build_nested_list(soup, group)
+            i += len(group)
+        else:
+            i += 1
+
+
+def _is_within_proximity(elem1, elem2, max_distance: int = 10) -> bool:
+    """Check if two elements are within proximity in the DOM.
+
+    Args:
+        elem1: First element
+        elem2: Second element
+        max_distance: Maximum number of siblings to check
+
+    Returns:
+        True if elem2 is within max_distance siblings of elem1
+    """
+    current = elem1
+    for _ in range(max_distance):
+        current = current.find_next_sibling()
+        if current is None:
+            return False
+        if current == elem2:
+            return True
+    return False
+
+
+def _get_list_level(item: Tag, default: int = 1) -> int:
+    """Safely extract list level from data-list-level attribute.
+
+    Args:
+        item: BeautifulSoup Tag element
+        default: Default level if parsing fails
+
+    Returns:
+        Integer level value, or default if invalid
+    """
+    try:
+        level_str = item.get("data-list-level", str(default))
+        return int(level_str)
+    except (ValueError, TypeError):
+        return default
+
+
+def _build_nested_list(soup: BeautifulSoup, items: list[Tag]) -> None:
+    """Build a nested list structure from CSS counter list items.
+
+    Args:
+        soup: BeautifulSoup object for creating new tags
+        items: List of <p> elements with data-list-level attributes
+    """
+    if not items:
+        return
+
+    # Track current list at each level
+    lists_by_level: dict[int, Tag] = {}
+    last_li_by_level: dict[int, Tag] = {}
+
+    # Find the root level (minimum level in the group)
+    root_level = min(_get_list_level(item) for item in items)
+
+    # Create root list
+    root_list = soup.new_tag("ol")
+    lists_by_level[root_level] = root_list
+    anchor = items[0]  # We'll replace this element with the root list
+
+    for item in items:
+        level = _get_list_level(item)
+
+        # Get or create the list for this level
+        if level not in lists_by_level:
+            # Need to create a nested list
+            # Find the parent level (highest level less than current)
+            parent_level = max(lvl for lvl in lists_by_level.keys() if lvl < level)
+            parent_li = last_li_by_level.get(parent_level)
+
+            # Create new nested list
+            nested_list = soup.new_tag("ol")
+            if parent_li is not None:
+                parent_li.append(nested_list)
+            else:
+                # Fallback: append to parent list
+                lists_by_level[parent_level].append(nested_list)
+
+            lists_by_level[level] = nested_list
+
+            # Clean up deeper levels that are now invalid
+            for lvl in list(lists_by_level.keys()):
+                if lvl > level:
+                    del lists_by_level[lvl]
+                    if lvl in last_li_by_level:
+                        del last_li_by_level[lvl]
+
+        # Create the list item
+        li = soup.new_tag("li")
+
+        # Move content from <p> to <li>
+        for child in list(item.children):
+            li.append(child.extract())
+
+        # Append to the appropriate list
+        lists_by_level[level].append(li)
+        last_li_by_level[level] = li
+
+        # Clean up levels deeper than current
+        for lvl in list(lists_by_level.keys()):
+            if lvl > level:
+                del lists_by_level[lvl]
+                if lvl in last_li_by_level:
+                    del last_li_by_level[lvl]
+
+    # Replace the first item with the complete list structure
+    anchor.replace_with(root_list)
+
+    # Remove the other items (their content has been moved)
+    for item in items[1:]:
+        item.decompose()
+
+
+def _detect_wordpress(soup: BeautifulSoup) -> bool:
+    """Detect if the page is a WordPress site.
+
+    Detection signals:
+    - Classes with wp- prefix (wp-content, wp-block, etc.)
+    - Post-related classes (post-, hentry, entry-content)
+    - WordPress meta generator tag
+
+    Args:
+        soup: BeautifulSoup object to analyze
+
+    Returns:
+        True if WordPress site detected, False otherwise
+    """
+    # Check for wp- prefixed classes
+    if soup.select("[class*='wp-']"):
+        return True
+
+    # Check for post-related classes
+    if soup.select("[class*='post-'], .hentry, .entry-content"):
+        return True
+
+    # Check for WordPress meta generator
+    meta_gen = soup.find("meta", attrs={"name": "generator"})
+    if meta_gen and "wordpress" in meta_gen.get("content", "").lower():
+        return True
+
+    return False
+
+
+def _preprocess_wordpress(soup: BeautifulSoup) -> None:
+    """Preprocess WordPress HTML for better markdown conversion.
+
+    Handles WordPress-specific elements:
+    - Preserves page title H1 by moving it into main content
+    - Fixed navigation elements (.fixed-nav, .fixed-nav-prev, .fixed-nav-next)
+    - Post navigation (.post-navigation, .nav-links)
+    - Share widgets (.share-simple-wrapper, .sharedaddy)
+    - Related posts sections (.related-posts, .section-post-related)
+
+    Args:
+        soup: BeautifulSoup object to modify in-place
+    """
+    # Preserve page title: move H1 from header into main content
+    # Look for H1 in common WordPress header locations
+    title_h1 = None
+    for selector in ["#Subheader h1.title", ".entry-title", ".page-title", "header h1"]:
+        title_h1 = soup.select_one(selector)
+        if title_h1:
+            break
+
+    if title_h1:
+        # Find main content area to prepend the title
+        main_content = (
+            soup.find("main") or soup.find("article") or soup.find(id="Content") or soup.find(class_="entry-content")
+        )
+
+        if main_content:
+            # Extract the title and prepend it to main content
+            title_copy = soup.new_tag("h1")
+            title_copy.string = title_h1.get_text(strip=True)
+            main_content.insert(0, title_copy)
+
+    # Remove fixed navigation (common in BeTheme and similar themes)
+    for selector in [".fixed-nav", ".fixed-nav-prev", ".fixed-nav-next"]:
+        for elem in soup.select(selector):
+            elem.decompose()
+
+    # Remove post navigation
+    for selector in [".post-navigation", ".nav-links", ".post-pager"]:
+        for elem in soup.select(selector):
+            elem.decompose()
+
+    # Remove share widgets
+    for selector in [".share-simple-wrapper", ".sharedaddy", ".social-share"]:
+        for elem in soup.select(selector):
+            elem.decompose()
+
+    # Remove related posts sections
+    for selector in [".related-posts", ".section-post-related", ".yarpp-related"]:
+        for elem in soup.select(selector):
+            elem.decompose()
+
+    # Remove rating/feedback forms
+    for selector in [".rich-reviews", ".feedback-form", "[class*='rating']", "[class*='review-form']"]:
+        for elem in soup.select(selector):
+            elem.decompose()
+
+    # Remove images with data:image/svg placeholder (lazy loading placeholders)
+    for img in soup.find_all("img", src=lambda x: x and x.startswith("data:image/svg+xml")):
+        img.decompose()
+
+
 def _preprocess_mkdocs_material(soup: BeautifulSoup) -> None:
     """Preprocess MkDocs Material HTML for better markdown conversion.
 
@@ -213,6 +465,33 @@ SITE_PREPROCESSORS: list[SitePreprocessor] = [
         ],
         detect=_detect_mkdocs_material,
         preprocess=_preprocess_mkdocs_material,
+    ),
+    SitePreprocessor(
+        name="css_counter_lists",
+        description=(
+            "CSS counter-based lists. Handles: <p> elements with data-list-level attributes "
+            "used instead of native <ol>/<li> elements, preserves hierarchy and nesting."
+        ),
+        examples=[
+            "dasa.defence.gov.au",
+            "Sites using CSS counters for list styling",
+        ],
+        detect=_detect_css_counter_lists,
+        preprocess=_preprocess_css_counter_lists,
+    ),
+    SitePreprocessor(
+        name="wordpress",
+        description=(
+            "WordPress sites (43% of the web). Handles: fixed navigation (.fixed-nav), "
+            "post navigation (.post-navigation), share widgets (.share-simple-wrapper), "
+            "related posts sections (.section-post-related)."
+        ),
+        examples=[
+            "adfconsumer.gov.au",
+            "Any WordPress site with BeTheme, Divi, Avada, or similar themes",
+        ],
+        detect=_detect_wordpress,
+        preprocess=_preprocess_wordpress,
     ),
     # Add new preprocessors here following the same pattern:
     # SitePreprocessor(

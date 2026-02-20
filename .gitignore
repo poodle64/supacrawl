@@ -26,6 +26,7 @@ desktop.ini
 # Master symlinks (user-specific absolute paths)
 .claude/commands
 .claude/hooks
+.claude/skills
 .claude/rules/master
 docs/master
 .mcp.json
@@ -43,6 +44,7 @@ docs/master
 # Supacrawl
 # ============================================================================
 .supacrawl/
+scraped-pages/
 
 # ============================================================================
 # Python
