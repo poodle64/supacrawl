@@ -56,15 +56,24 @@ stealth = [
 captcha = [
   "2captcha-python>=2.0.2",
 ]
+mcp = [
+  "anyio>=4.0.0",
+  "fastmcp>=2.14.0",
+  "pydantic-settings>=2.12.0",
+  "python-dotenv>=1.2.0",
+  "starlette>=0.46.0",
+]
 
 [project.scripts]
 supacrawl = "supacrawl.cli:app"
+supacrawl-mcp = "supacrawl.mcp.server:main"
 
 [tool.pytest.ini_options]
 markers = [
     "unit: Pure logic tests with no I/O, network, or browser",
     "integration: Filesystem-heavy tests, may use local HTTP server and Playwright",
     "e2e: End-to-end tests with live network and Playwright",
+    "mcp: MCP server tests (requires supacrawl[mcp])",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
