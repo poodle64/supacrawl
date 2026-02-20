@@ -184,7 +184,11 @@ async def create_supacrawl_services() -> SupacrawlServices:
         solve_captcha=settings.solve_captcha,
     )
     map_service = MapService(browser=browser_manager)
-    crawl_service = CrawlService()
+    crawl_service = CrawlService(
+        browser=browser_manager,
+        map_service=map_service,
+        scrape_service=scrape_service,
+    )
 
     # Create search service from supacrawl library
     search_service = SearchService(
