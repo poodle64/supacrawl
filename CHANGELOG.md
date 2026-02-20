@@ -7,6 +7,18 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.2.1] - 2026-02-21
+
+### Features
+
+- **Embedded MCP server**: the MCP server is now bundled as an optional extra (`pip install supacrawl[mcp]`), replacing the standalone server in `mcp-servers`. Includes all tools (scrape, crawl, map, search, extract, summary, diagnose, health), prompts, resources, structured logging, correlation IDs, exception mapping, and input validation. Install and run with `supacrawl-mcp --transport stdio`.
+- Docker support for running the MCP server (`Dockerfile.mcp`, `docker-compose.mcp.yaml`)
+
+### Fixed
+
+- Remove duplicate `supacrawl_health` tool registration in MCP server
+- MCP exception mapping gap: internal errors now correctly map to JSON-RPC error codes (Closes #69)
+
 ## [2026.2.0] - 2026-02-16
 
 ### Fixed
