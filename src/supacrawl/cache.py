@@ -64,19 +64,25 @@ class CacheManager:
         # Ensure directories exist
         self.pages_dir.mkdir(parents=True, exist_ok=True)
 
-    def _cache_key(self, url: str) -> str:
-        """Generate cache key from URL.
+    def _cache_key(self, url: str, variant: str | None = None) -> str:
+        """Generate cache key from URL and optional variant.
 
-        Uses SHA256 hash of normalised URL for the filename.
-        URL normalisation removes tracking parameters and fragments.
+        Uses SHA256 hash of normalised URL (plus variant suffix) for the
+        filename.  URL normalisation removes tracking parameters and fragments.
+        The *variant* differentiates cache entries for the same URL when
+        request parameters affect the output (e.g. screenshot settings).
 
         Args:
             url: URL to generate key for.
+            variant: Optional variant suffix to include in the hash (e.g.
+                ``"screenshot_full_page=False"``).
 
         Returns:
             16-character hex hash for cache filename.
         """
         normalised = self._normalise_url(url)
+        if variant:
+            normalised = f"{normalised}|{variant}"
         return hashlib.sha256(normalised.encode()).hexdigest()[:16]
 
     def _normalise_url(self, url: str) -> str:
@@ -153,12 +159,14 @@ class CacheManager:
         except OSError as e:
             LOGGER.warning(f"Failed to save cache index: {e}")
 
-    def get(self, url: str, max_age: int) -> dict[str, Any] | None:
+    def get(self, url: str, max_age: int, variant: str | None = None) -> dict[str, Any] | None:
         """Get cached result if fresh enough.
 
         Args:
             url: URL to look up.
             max_age: Maximum age in seconds for the cached result.
+            variant: Optional variant suffix that was used when storing the
+                entry (must match the value passed to :meth:`set`).
 
         Returns:
             Cached response dict (ScrapeResult format) or None if not found/expired.
@@ -166,7 +174,7 @@ class CacheManager:
         if max_age <= 0:
             return None
 
-        cache_key = self._cache_key(url)
+        cache_key = self._cache_key(url, variant=variant)
         cache_file = self.pages_dir / f"{cache_key}.json"
 
         if not cache_file.exists():
@@ -191,18 +199,20 @@ class CacheManager:
             LOGGER.warning(f"Failed to read cache entry for {url}: {e}")
             return None
 
-    def set(self, url: str, response: dict[str, Any], max_age: int) -> None:
+    def set(self, url: str, response: dict[str, Any], max_age: int, variant: str | None = None) -> None:
         """Cache a scrape result.
 
         Args:
             url: URL that was scraped.
             response: ScrapeResult as dict.
             max_age: Time-to-live in seconds.
+            variant: Optional variant suffix to differentiate cache entries
+                for the same URL with different request parameters.
         """
         if max_age <= 0:
             return
 
-        cache_key = self._cache_key(url)
+        cache_key = self._cache_key(url, variant=variant)
         cache_file = self.pages_dir / f"{cache_key}.json"
 
         now = datetime.now(timezone.utc)
