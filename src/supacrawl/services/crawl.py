@@ -31,8 +31,23 @@ class CrawlService:
                 print(f"Progress: {event.completed}/{event.total}")
     """
 
-    def __init__(self):
-        """Initialize crawl service."""
+    def __init__(
+        self,
+        browser: BrowserManager | None = None,
+        map_service: MapService | None = None,
+        scrape_service: ScrapeService | None = None,
+    ):
+        """Initialize crawl service.
+
+        Args:
+            browser: Optional shared BrowserManager. If provided, the service
+                uses it instead of creating its own (caller manages lifecycle).
+            map_service: Optional shared MapService. Created internally if not provided.
+            scrape_service: Optional shared ScrapeService. Created internally if not provided.
+        """
+        self._injected_browser = browser
+        self._injected_map_service = map_service
+        self._injected_scrape_service = scrape_service
         self._browser: BrowserManager | None = None
         self._map_service: MapService | None = None
         self._scrape_service: ScrapeService | None = None
@@ -88,159 +103,63 @@ class CrawlService:
         self._save_files = save_files
 
         try:
-            # Initialize browser and services with locale config and stealth mode
-            async with BrowserManager(locale_config=locale_config, stealth=stealth, proxy=proxy) as browser:
-                self._browser = browser
-                self._map_service = MapService(browser=browser, concurrency=concurrency, wait_until=wait_until)
-                self._scrape_service = ScrapeService(browser=browser, locale_config=locale_config)
-
-                # Load resume state
-                scraped_urls: set[str] = set()
-                if resume and output_dir:
-                    scraped_urls = self._load_resume_state(output_dir)
-                    if scraped_urls:
-                        LOGGER.info(f"Resuming crawl with {len(scraped_urls)} already scraped")
-
-                # Discover URLs with streaming progress
-                LOGGER.info(f"Mapping URLs from {url}")
-                if allow_external_links:
-                    LOGGER.info("External links enabled - will follow cross-domain links")
-
-                # Consume map generator and yield progress events
-                map_result = None
-                async for map_event in self._map_service.map(
+            if self._injected_browser is not None:
+                # Use injected services (caller manages browser lifecycle)
+                self._browser = self._injected_browser
+                self._map_service = self._injected_map_service or MapService(
+                    browser=self._browser,
+                    concurrency=concurrency,
+                    wait_until=wait_until,
+                )
+                self._scrape_service = self._injected_scrape_service or ScrapeService(
+                    browser=self._browser,
+                    locale_config=locale_config,
+                )
+                async for event in self._crawl_inner(
                     url=url,
                     limit=limit,
                     max_depth=max_depth,
+                    include_patterns=include_patterns,
+                    exclude_patterns=exclude_patterns,
+                    output_dir=output_dir,
+                    resume=resume,
+                    deduplicate_similar_urls=deduplicate_similar_urls,
                     allow_external_links=allow_external_links,
+                    concurrency=concurrency,
+                    wait_until=wait_until,
                 ):
-                    # Translate map events to crawl events
-                    if map_event.type == "complete":
-                        map_result = map_event.result
-                    elif map_event.type == "error":
-                        yield CrawlEvent(
-                            type="error",
-                            error=f"Map failed: {map_event.message}",
-                        )
-                        return
-                    else:
-                        # Yield mapping progress events
-                        yield CrawlEvent(
-                            type="mapping",
-                            completed=map_event.discovered,
-                            total=map_event.total or 0,
-                            message=map_event.message,
-                        )
-
-                if map_result is None or not map_result.success:
-                    yield CrawlEvent(
-                        type="error",
-                        error=f"Map failed: {map_result.error if map_result else 'No result'}",
+                    yield event
+            else:
+                # Create and manage own browser lifecycle
+                async with BrowserManager(
+                    locale_config=locale_config,
+                    stealth=stealth,
+                    proxy=proxy,
+                ) as browser:
+                    self._browser = browser
+                    self._map_service = MapService(
+                        browser=browser,
+                        concurrency=concurrency,
+                        wait_until=wait_until,
                     )
-                    return
-
-                # Filter URLs
-                urls_to_scrape = []
-                normalised_urls: set[str] = set()
-                dedupe_count = 0
-
-                for link in map_result.links:
-                    if link.url in scraped_urls:
-                        continue
-                    if include_patterns and not self._matches_patterns(link.url, include_patterns):
-                        continue
-                    if exclude_patterns and self._matches_patterns(link.url, exclude_patterns):
-                        continue
-
-                    # Deduplicate similar URLs if enabled
-                    if deduplicate_similar_urls:
-                        normalised = normalise_url_for_dedupe(link.url)
-                        if normalised in normalised_urls:
-                            LOGGER.debug(f"Deduplicated URL: {link.url}")
-                            dedupe_count += 1
-                            continue
-                        normalised_urls.add(normalised)
-
-                    urls_to_scrape.append(link.url)
-
-                total = len(urls_to_scrape)
-                if dedupe_count > 0:
-                    LOGGER.info(f"Deduplicated {dedupe_count} similar URLs")
-                LOGGER.info(f"Found {total} URLs to scrape")
-
-                yield CrawlEvent(
-                    type="progress",
-                    completed=0,
-                    total=total,
-                )
-
-                # Scrape each URL
-                completed = 0
-                errors = []
-
-                for url_to_scrape in urls_to_scrape:
-                    try:
-                        # Map output formats to scrape formats
-                        scrape_formats = []
-                        if "markdown" in self._formats or "json" in self._formats:
-                            scrape_formats.append("markdown")
-                        if "html" in self._formats or "json" in self._formats:
-                            scrape_formats.append("html")
-                        if not scrape_formats:
-                            scrape_formats = ["markdown"]
-
-                        result = await self._scrape_service.scrape(
-                            url_to_scrape,
-                            formats=scrape_formats,  # type: ignore[arg-type]
-                        )
-
-                        if result.success and result.data:
-                            # Save to output directory
-                            if output_dir:
-                                self._save_page(output_dir, url_to_scrape, result.data)
-
-                            yield CrawlEvent(
-                                type="page",
-                                url=url_to_scrape,
-                                data=result.data,
-                                completed=completed + 1,
-                                total=total,
-                            )
-                        else:
-                            errors.append(f"{url_to_scrape}: {result.error}")
-                            yield CrawlEvent(
-                                type="error",
-                                url=url_to_scrape,
-                                error=result.error,
-                                completed=completed + 1,
-                                total=total,
-                            )
-
-                    except Exception as e:
-                        errors.append(f"{url_to_scrape}: {str(e)}")
-                        LOGGER.error(f"Scrape failed for {url_to_scrape}: {e}")
-                        yield CrawlEvent(
-                            type="error",
-                            url=url_to_scrape,
-                            error=str(e),
-                            completed=completed + 1,
-                            total=total,
-                        )
-
-                    completed += 1
-
-                    yield CrawlEvent(
-                        type="progress",
-                        completed=completed,
-                        total=total,
+                    self._scrape_service = ScrapeService(
+                        browser=browser,
+                        locale_config=locale_config,
                     )
-
-                # Final complete event
-                yield CrawlEvent(
-                    type="complete",
-                    completed=completed,
-                    total=total,
-                )
+                    async for event in self._crawl_inner(
+                        url=url,
+                        limit=limit,
+                        max_depth=max_depth,
+                        include_patterns=include_patterns,
+                        exclude_patterns=exclude_patterns,
+                        output_dir=output_dir,
+                        resume=resume,
+                        deduplicate_similar_urls=deduplicate_similar_urls,
+                        allow_external_links=allow_external_links,
+                        concurrency=concurrency,
+                        wait_until=wait_until,
+                    ):
+                        yield event
 
         except Exception as e:
             LOGGER.error(f"Crawl failed: {e}", exc_info=True)
@@ -248,6 +167,172 @@ class CrawlService:
                 type="error",
                 error=str(e),
             )
+
+    async def _crawl_inner(
+        self,
+        url: str,
+        limit: int,
+        max_depth: int,
+        include_patterns: list[str] | None,
+        exclude_patterns: list[str] | None,
+        output_dir: Path | None,
+        resume: bool,
+        deduplicate_similar_urls: bool,
+        allow_external_links: bool,
+        concurrency: int,
+        wait_until: WaitUntilType | None,
+    ) -> AsyncGenerator[CrawlEvent, None]:
+        """Core crawl logic. Assumes _browser, _map_service, _scrape_service are set."""
+        assert self._map_service is not None
+        assert self._scrape_service is not None
+
+        # Load resume state
+        scraped_urls: set[str] = set()
+        if resume and output_dir:
+            scraped_urls = self._load_resume_state(output_dir)
+            if scraped_urls:
+                LOGGER.info(f"Resuming crawl with {len(scraped_urls)} already scraped")
+
+        # Discover URLs with streaming progress
+        LOGGER.info(f"Mapping URLs from {url}")
+        if allow_external_links:
+            LOGGER.info("External links enabled - will follow cross-domain links")
+
+        # Consume map generator and yield progress events
+        map_result = None
+        async for map_event in self._map_service.map(
+            url=url,
+            limit=limit,
+            max_depth=max_depth,
+            allow_external_links=allow_external_links,
+        ):
+            # Translate map events to crawl events
+            if map_event.type == "complete":
+                map_result = map_event.result
+            elif map_event.type == "error":
+                yield CrawlEvent(
+                    type="error",
+                    error=f"Map failed: {map_event.message}",
+                )
+                return
+            else:
+                # Yield mapping progress events
+                yield CrawlEvent(
+                    type="mapping",
+                    completed=map_event.discovered,
+                    total=map_event.total or 0,
+                    message=map_event.message,
+                )
+
+        if map_result is None or not map_result.success:
+            yield CrawlEvent(
+                type="error",
+                error=f"Map failed: {map_result.error if map_result else 'No result'}",
+            )
+            return
+
+        # Filter URLs
+        urls_to_scrape = []
+        normalised_urls: set[str] = set()
+        dedupe_count = 0
+
+        for link in map_result.links:
+            if link.url in scraped_urls:
+                continue
+            if include_patterns and not self._matches_patterns(link.url, include_patterns):
+                continue
+            if exclude_patterns and self._matches_patterns(link.url, exclude_patterns):
+                continue
+
+            # Deduplicate similar URLs if enabled
+            if deduplicate_similar_urls:
+                normalised = normalise_url_for_dedupe(link.url)
+                if normalised in normalised_urls:
+                    LOGGER.debug(f"Deduplicated URL: {link.url}")
+                    dedupe_count += 1
+                    continue
+                normalised_urls.add(normalised)
+
+            urls_to_scrape.append(link.url)
+
+        total = len(urls_to_scrape)
+        if dedupe_count > 0:
+            LOGGER.info(f"Deduplicated {dedupe_count} similar URLs")
+        LOGGER.info(f"Found {total} URLs to scrape")
+
+        yield CrawlEvent(
+            type="progress",
+            completed=0,
+            total=total,
+        )
+
+        # Scrape each URL
+        completed = 0
+        errors = []
+
+        for url_to_scrape in urls_to_scrape:
+            try:
+                # Map output formats to scrape formats
+                scrape_formats = []
+                if "markdown" in self._formats or "json" in self._formats:
+                    scrape_formats.append("markdown")
+                if "html" in self._formats or "json" in self._formats:
+                    scrape_formats.append("html")
+                if not scrape_formats:
+                    scrape_formats = ["markdown"]
+
+                result = await self._scrape_service.scrape(
+                    url_to_scrape,
+                    formats=scrape_formats,  # type: ignore[arg-type]
+                )
+
+                if result.success and result.data:
+                    # Save to output directory
+                    if output_dir:
+                        self._save_page(output_dir, url_to_scrape, result.data)
+
+                    yield CrawlEvent(
+                        type="page",
+                        url=url_to_scrape,
+                        data=result.data,
+                        completed=completed + 1,
+                        total=total,
+                    )
+                else:
+                    errors.append(f"{url_to_scrape}: {result.error}")
+                    yield CrawlEvent(
+                        type="error",
+                        url=url_to_scrape,
+                        error=result.error,
+                        completed=completed + 1,
+                        total=total,
+                    )
+
+            except Exception as e:
+                errors.append(f"{url_to_scrape}: {str(e)}")
+                LOGGER.error(f"Scrape failed for {url_to_scrape}: {e}")
+                yield CrawlEvent(
+                    type="error",
+                    url=url_to_scrape,
+                    error=str(e),
+                    completed=completed + 1,
+                    total=total,
+                )
+
+            completed += 1
+
+            yield CrawlEvent(
+                type="progress",
+                completed=completed,
+                total=total,
+            )
+
+        # Final complete event
+        yield CrawlEvent(
+            type="complete",
+            completed=completed,
+            total=total,
+        )
 
     def _matches_patterns(self, url: str, patterns: list[str]) -> bool:
         """Check if URL matches any pattern.
