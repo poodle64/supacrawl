@@ -96,6 +96,7 @@ async def supacrawl_summary(
                 "success": False,
                 "error": scrape_result.error or "Failed to scrape page",
                 "data": None,
+                "correlation_id": correlation_id,
             }
 
         # Build instruction based on parameters
@@ -122,6 +123,7 @@ async def supacrawl_summary(
                 "focus": focus,
                 "instruction": " ".join(instruction_parts),
             },
+            "correlation_id": correlation_id,
         }
 
     except SupacrawlValidationError:

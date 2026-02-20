@@ -140,6 +140,7 @@ async def supacrawl_crawl(
             "status": "completed",
             "total": total_crawled,
             "data": pages,
+            "correlation_id": correlation_id,
         }
 
     except SupacrawlValidationError:

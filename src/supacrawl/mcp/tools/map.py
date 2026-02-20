@@ -119,7 +119,9 @@ async def supacrawl_map(
             ignore_cache=ignore_cache,
         )
 
-        return result.model_dump()
+        response = result.model_dump()
+        response["correlation_id"] = correlation_id
+        return response
 
     except SupacrawlValidationError:
         raise
