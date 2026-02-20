@@ -1,7 +1,7 @@
 # Auto-Label Issues with AI (Single-Package Repo)
 #
 # Automatically classifies new issues with type and priority labels.
-# For monorepo variants, see auto-label-issues-monorepo.yml
+# For monorepo variants, see auto-label-issues-monorepo.yaml
 #
 # Labels applied:
 #   - Type: bug, enhancement, documentation
@@ -54,7 +54,7 @@ jobs:
           owner: ${{ github.repository_owner }}
           ai_review_label: 'unlabelled'
           prompts_directory: '.github/prompts'
-          labels_to_prompts_mapping: 'unlabelled,issue-classification.prompt.yml'
+          labels_to_prompts_mapping: 'unlabelled,issue-classification.prompt.yaml'
           model: openai/gpt-4o-mini
           max_tokens: 200
           suppress_comments: 'true'
