@@ -7,7 +7,7 @@ functionality as MCP tools for AI agents.
 
 from typing import Any
 
-from supacrawl.mcp.api_client import SupacrawlServices, create_supacrawl_services
+from supacrawl.mcp.api_client import create_supacrawl_services
 from supacrawl.mcp.config import ALLOWED_HOSTS, ALLOWED_ORIGINS, logger
 from supacrawl.mcp.mcp_common.server import BaseMCPServer
 from supacrawl.mcp.wiring import register_all_tools, register_prompts, register_resources
@@ -50,19 +50,6 @@ class SupacrawlServer(BaseMCPServer):
         register_all_tools(self.mcp, self.api_client)
         register_resources(self.mcp, self.api_client)
         register_prompts(self.mcp)
-        self._register_health_check()
-
-    def _register_health_check(self) -> None:
-        """Register supacrawl-specific health check tool."""
-
-        @self.mcp.tool()
-        async def supacrawl_health() -> dict:
-            """Check Supacrawl server health status."""
-            services: SupacrawlServices = self.api_client
-            return {
-                "status": "healthy",
-                "services": services.get_service_status(),
-            }
 
     def get_allowed_origins(self) -> list[str]:
         """Return allowed CORS origins from config."""
