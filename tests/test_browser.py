@@ -75,6 +75,61 @@ class TestBrowserManager:
             assert metadata.og_title is None
 
     @pytest.mark.asyncio
+    async def test_extract_metadata_falls_back_to_og_title(self):
+        """Test that title falls back to og:title when <title> is missing."""
+        html = """
+        <html>
+            <head>
+                <meta property="og:title" content="OG Title">
+                <meta property="og:description" content="OG Description">
+            </head>
+            <body><h1>Test</h1></body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            metadata = await browser.extract_metadata(html)
+            assert metadata.title == "OG Title"
+            assert metadata.description == "OG Description"
+            assert metadata.og_title == "OG Title"
+
+    @pytest.mark.asyncio
+    async def test_extract_metadata_falls_back_to_twitter_title(self):
+        """Test that title falls back to twitter:title when both <title> and og:title are missing."""
+        html = """
+        <html>
+            <head>
+                <meta name="twitter:title" content="Twitter Title">
+                <meta name="twitter:description" content="Twitter Description">
+                <meta name="twitter:image" content="https://example.com/twitter.jpg">
+            </head>
+            <body><h1>Test</h1></body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            metadata = await browser.extract_metadata(html)
+            assert metadata.title == "Twitter Title"
+            assert metadata.description == "Twitter Description"
+            assert metadata.og_image == "https://example.com/twitter.jpg"
+
+    @pytest.mark.asyncio
+    async def test_extract_metadata_prefers_title_over_og(self):
+        """Test that <title> is preferred over og:title when both exist."""
+        html = """
+        <html>
+            <head>
+                <title>Page Title</title>
+                <meta property="og:title" content="OG Title">
+                <meta name="twitter:title" content="Twitter Title">
+            </head>
+            <body><h1>Test</h1></body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            metadata = await browser.extract_metadata(html)
+            assert metadata.title == "Page Title"
+            assert metadata.og_title == "OG Title"
+
+    @pytest.mark.asyncio
     async def test_context_manager(self):
         """Test that BrowserManager works as async context manager."""
         async with BrowserManager() as browser:
@@ -107,6 +162,63 @@ class TestBrowserManager:
         del os.environ["SUPACRAWL_TEST"]
         assert BrowserManager._env_bool("SUPACRAWL_TEST", True) is True
         assert BrowserManager._env_bool("SUPACRAWL_TEST", False) is False
+
+    @pytest.mark.asyncio
+    async def test_extract_metadata_detects_timezone_from_jsonld(self):
+        """Test timezone detection from JSON-LD structured data."""
+        html = """
+        <html>
+            <head>
+                <title>Event Page</title>
+                <script type="application/ld+json">
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Event",
+                    "name": "Concert",
+                    "location": {
+                        "@type": "Place",
+                        "address": {
+                            "timeZone": "America/New_York"
+                        }
+                    }
+                }
+                </script>
+            </head>
+            <body><h1>Event</h1></body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            metadata = await browser.extract_metadata(html)
+            assert metadata.timezone == "America/New_York"
+
+    @pytest.mark.asyncio
+    async def test_extract_metadata_detects_timezone_from_meta_tag(self):
+        """Test timezone detection from meta tags."""
+        html = """
+        <html>
+            <head>
+                <title>Page</title>
+                <meta name="timezone" content="Europe/London">
+            </head>
+            <body><h1>Content</h1></body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            metadata = await browser.extract_metadata(html)
+            assert metadata.timezone == "Europe/London"
+
+    @pytest.mark.asyncio
+    async def test_extract_metadata_timezone_none_when_absent(self):
+        """Test that timezone is None when no timezone info is present."""
+        html = """
+        <html>
+            <head><title>Simple Page</title></head>
+            <body><h1>No timezone here</h1></body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            metadata = await browser.extract_metadata(html)
+            assert metadata.timezone is None
 
     @pytest.mark.asyncio
     async def test_extract_images_from_html(self):

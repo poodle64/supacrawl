@@ -78,6 +78,7 @@ class MapService:
         search: str | None = None,
         ignore_query_params: bool = False,
         allow_external_links: bool = False,
+        ignore_cache: bool = False,
     ) -> AsyncGenerator[MapEvent, None]:
         """Map a website and discover URLs, yielding progress events.
 
@@ -90,6 +91,7 @@ class MapService:
             search: Filter URLs containing this text
             ignore_query_params: Remove query params from URLs
             allow_external_links: Follow links to external domains
+            ignore_cache: When True, bypass cached results and perform fresh discovery
 
         Yields:
             MapEvent for each phase of discovery:
@@ -223,6 +225,7 @@ class MapService:
         search: str | None = None,
         ignore_query_params: bool = False,
         allow_external_links: bool = False,
+        ignore_cache: bool = False,
     ) -> MapResult:
         """Map a website and return the final result (no streaming).
 
@@ -239,6 +242,7 @@ class MapService:
             search: Filter URLs containing this text
             ignore_query_params: Remove query params from URLs
             allow_external_links: Follow links to external domains
+            ignore_cache: When True, bypass cached results and perform fresh discovery
 
         Returns:
             MapResult with discovered URLs
@@ -253,6 +257,7 @@ class MapService:
             search=search,
             ignore_query_params=ignore_query_params,
             allow_external_links=allow_external_links,
+            ignore_cache=ignore_cache,
         ):
             if event.type == "complete" and event.result is not None:
                 result = event.result
