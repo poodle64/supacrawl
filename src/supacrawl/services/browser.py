@@ -717,6 +717,10 @@ class BrowserManager:
     async def extract_images(self, html: str, base_url: str) -> list[str]:
         """Extract all image URLs from HTML content.
 
+        Extracts from ``<img>`` tags, ``<picture>``/``<source>`` tags, and
+        CSS ``background-image`` declarations (both inline styles and
+        ``<style>`` blocks).
+
         Args:
             html: HTML content to extract images from
             base_url: Base URL for resolving relative URLs
@@ -724,6 +728,7 @@ class BrowserManager:
         Returns:
             List of absolute image URLs, deduplicated and sorted
         """
+        import re
         from urllib.parse import urljoin
 
         soup = BeautifulSoup(html, "html.parser")
@@ -762,6 +767,26 @@ class BrowserManager:
             if src and isinstance(src, str) and not src.startswith("data:"):
                 absolute_url = urljoin(base_url, src)
                 images.add(absolute_url)
+
+        # Extract from CSS background-image declarations
+        bg_url_pattern = re.compile(r"""background(?:-image)?\s*:[^;]*url\(\s*(['"]?)(.*?)\1\s*\)""")
+
+        # Inline style attributes on elements
+        for el in soup.find_all(style=True):
+            style = el.get("style", "")
+            if isinstance(style, str):
+                for match in bg_url_pattern.finditer(style):
+                    url = match.group(2).strip()
+                    if url and not url.startswith("data:"):
+                        images.add(urljoin(base_url, url))
+
+        # <style> blocks
+        for style_tag in soup.find_all("style"):
+            if style_tag.string:
+                for match in bg_url_pattern.finditer(style_tag.string):
+                    url = match.group(2).strip()
+                    if url and not url.startswith("data:"):
+                        images.add(urljoin(base_url, url))
 
         # Filter out common tracking pixels and tiny images
         filtered_images = []

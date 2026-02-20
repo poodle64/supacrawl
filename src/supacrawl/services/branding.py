@@ -201,6 +201,10 @@ class BrandingExtractor:
     def _extract_logo(self, soup: BeautifulSoup, base_url: str) -> str | None:
         """Extract logo URL from common locations.
 
+        Searches ``<img>`` tags first, then falls back to CSS
+        ``background-image``, inline SVGs, ARIA attributes, and
+        site-builder-specific patterns (Wix, Framer, Squarespace).
+
         Args:
             soup: BeautifulSoup parsed HTML
             base_url: Base URL for resolving relative URLs
@@ -208,30 +212,183 @@ class BrandingExtractor:
         Returns:
             Absolute logo URL or None
         """
-        # Try common logo selectors
-        logo_selectors = [
+        # Phase 1: High-confidence <img> selectors with explicit logo semantics
+        logo_img_selectors = [
             "img.logo",
             "img#logo",
             "[class*='logo'] img",
-            "header img",
             ".navbar-brand img",
             ".site-logo img",
+            # ARIA-based: accessible logos
+            "[role='img'][aria-label*='logo']",
+            "img[alt*='logo' i]",
         ]
 
-        for selector in logo_selectors:
-            logo = soup.select_one(selector)
-            if logo:
-                src = logo.get("src")
-                if src:
+        for selector in logo_img_selectors:
+            el = soup.select_one(selector)
+            if el:
+                src = el.get("src")
+                if not src and el.name != "img":
+                    # Matched a container — look for nested <img>
+                    nested = el.find("img")
+                    if nested:
+                        src = nested.get("src")
+                if src and isinstance(src, str) and not src.startswith("data:"):
                     return urljoin(base_url, str(src))
 
-        # Try meta og:image as fallback
+        # Phase 2: Site-builder-specific patterns
+        builder_logo = self._extract_builder_logo(soup, base_url)
+        if builder_logo:
+            return builder_logo
+
+        # Phase 3: CSS background-image on logo-related elements
+        bg_logo_selectors = [
+            ".logo",
+            "#logo",
+            "[class*='logo']",
+            ".navbar-brand",
+            ".site-logo",
+        ]
+        for selector in bg_logo_selectors:
+            el = soup.select_one(selector)
+            if el:
+                url = self._extract_background_image_url(el)
+                if url:
+                    return urljoin(base_url, url)
+
+        # Phase 4: Low-confidence fallbacks
+        # header img — only if it looks like a logo (small dimensions or SVG)
+        header_img = self._extract_header_logo_img(soup, base_url)
+        if header_img:
+            return header_img
+
+        # Fallback: meta og:image
         og_image = soup.find("meta", property="og:image")
         if og_image:
             content = og_image.get("content")
             if content:
                 return urljoin(base_url, str(content))
 
+        return None
+
+    def _extract_builder_logo(self, soup: BeautifulSoup, base_url: str) -> str | None:
+        """Extract logo from site-builder-specific HTML patterns.
+
+        Handles Wix, Framer, and Squarespace non-semantic markup.
+
+        Args:
+            soup: BeautifulSoup parsed HTML
+            base_url: Base URL for resolving relative URLs
+
+        Returns:
+            Absolute logo URL or None
+        """
+        # Wix: logos inside a link to / near the top, often using
+        # <wow-image> or <img> inside nested non-semantic divs.
+        # Wix header logos commonly live inside the first <a href="/"> in
+        # a section whose id contains "header" or "comp-".
+        for a_tag in soup.find_all("a", href="/"):
+            img = a_tag.find("img")
+            if img:
+                src = img.get("src")
+                if src and isinstance(src, str) and not src.startswith("data:"):
+                    return urljoin(base_url, src)
+            # Check for SVG logo inside the link
+            svg = a_tag.find("svg")
+            if svg:
+                # Can't return a URL for inline SVG — skip to next pattern
+                continue
+
+        # Framer: data-framer-name="Logo" or data-framer-component-type="Logo"
+        for attr in ("data-framer-name", "data-framer-component-type"):
+            logo_el = soup.find(attrs={attr: re.compile(r"logo", re.IGNORECASE)})
+            if logo_el:
+                img = logo_el.find("img")
+                if img:
+                    src = img.get("src")
+                    if src and isinstance(src, str) and not src.startswith("data:"):
+                        return urljoin(base_url, src)
+                # Check background-image on the element itself
+                url = self._extract_background_image_url(logo_el)
+                if url:
+                    return urljoin(base_url, url)
+
+        # Squarespace: logo inside data-section-type="header" or
+        # .header-display-desktop img, or .site-title img
+        sqsp_selectors = [
+            "[data-section-type='header'] img",
+            ".header-display-desktop img",
+            ".site-title img",
+            ".site-branding img",
+        ]
+        for selector in sqsp_selectors:
+            el = soup.select_one(selector)
+            if el:
+                src = el.get("src")
+                if src and isinstance(src, str) and not src.startswith("data:"):
+                    return urljoin(base_url, src)
+
+        return None
+
+    @staticmethod
+    def _extract_header_logo_img(soup: BeautifulSoup, base_url: str) -> str | None:
+        """Extract a plausible logo from ``header img`` with size validation.
+
+        Skips images that look like hero banners or content images based on
+        explicit width/height attributes exceeding typical logo dimensions.
+
+        Args:
+            soup: BeautifulSoup parsed HTML
+            base_url: Base URL for resolving relative URLs
+
+        Returns:
+            Absolute logo URL or None
+        """
+        header = soup.find("header")
+        if not header:
+            return None
+
+        for img in header.find_all("img"):
+            src = img.get("src")
+            if not src or not isinstance(src, str) or src.startswith("data:"):
+                continue
+
+            # SVG files are almost certainly logos, not hero images
+            if ".svg" in src.lower():
+                return urljoin(base_url, src)
+
+            # Check explicit dimensions — skip images wider than 600px
+            # (likely hero/banner images, not logos)
+            width = img.get("width")
+            if width:
+                try:
+                    if int(str(width).rstrip("px")) > 600:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+            return urljoin(base_url, src)
+
+        return None
+
+    @staticmethod
+    def _extract_background_image_url(element: Any) -> str | None:
+        """Extract the first URL from an element's inline background-image style.
+
+        Args:
+            element: BeautifulSoup element
+
+        Returns:
+            Raw URL string or None
+        """
+        style = element.get("style", "")
+        if not style or not isinstance(style, str):
+            return None
+        match = re.search(r"""background(?:-image)?\s*:[^;]*url\(\s*(['"]?)(.*?)\1\s*\)""", style)
+        if match:
+            url = match.group(2).strip()
+            if url and not url.startswith("data:"):
+                return url
         return None
 
     def _detect_color_scheme(self, soup: BeautifulSoup, css: str) -> Literal["light", "dark"] | None:
