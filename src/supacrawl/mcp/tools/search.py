@@ -278,6 +278,9 @@ async def supacrawl_search(
             response["query_used"] = validated_query
             response["query_original"] = query
 
+        # Surface correlation ID for request tracing by MCP consumers
+        response["correlation_id"] = correlation_id
+
         return response
 
     except SupacrawlValidationError:

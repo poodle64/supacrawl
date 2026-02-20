@@ -149,6 +149,7 @@ async def supacrawl_extract(
                     "Return valid JSON matching the schema."
                 ),
             },
+            "correlation_id": correlation_id,
         }
 
     except SupacrawlValidationError:

@@ -179,7 +179,9 @@ async def supacrawl_scrape(
             max_age=max_age,
         )
 
-        return result.model_dump()
+        response = result.model_dump()
+        response["correlation_id"] = correlation_id
+        return response
 
     except SupacrawlValidationError:
         raise
