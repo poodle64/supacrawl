@@ -203,3 +203,161 @@ class TestBrandingExtractor:
 
         assert branding.colors is not None
         assert branding.colors.primary == "#FF6B35"
+
+    def test_extract_logo_from_css_background_image(self):
+        """Test logo extraction from CSS background-image on logo element."""
+        html = """
+        <html>
+            <body>
+                <div class="logo" style="background-image: url('/brand-logo.svg')"></div>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.com")
+
+        assert branding.logo is not None
+        assert branding.logo == "https://example.com/brand-logo.svg"
+
+    def test_extract_logo_prefers_img_over_background(self):
+        """Test that <img> logo is preferred over CSS background-image logo."""
+        html = """
+        <html>
+            <body>
+                <img class="logo" src="/img-logo.png" alt="Logo">
+                <div class="site-logo" style="background-image: url('/bg-logo.svg')"></div>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.com")
+
+        assert branding.logo is not None
+        assert branding.logo == "https://example.com/img-logo.png"
+
+    def test_extract_logo_from_aria_label(self):
+        """Test logo extraction from element with aria-label containing 'logo'."""
+        html = """
+        <html>
+            <body>
+                <div role="img" aria-label="Company logo">
+                    <img src="/brand.svg">
+                </div>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.com")
+
+        assert branding.logo is not None
+        assert branding.logo == "https://example.com/brand.svg"
+
+    def test_extract_logo_from_alt_text(self):
+        """Test logo extraction from img with alt containing 'logo'."""
+        html = """
+        <html>
+            <body>
+                <nav>
+                    <img src="/company-logo.png" alt="Acme Corp Logo">
+                </nav>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.com")
+
+        assert branding.logo is not None
+        assert branding.logo == "https://example.com/company-logo.png"
+
+    def test_extract_logo_wix_homepage_link(self):
+        """Test logo extraction from Wix-style <a href='/'> with nested img."""
+        html = """
+        <html>
+            <body>
+                <div id="comp-header123" class="XjR2xU">
+                    <a href="/">
+                        <div class="sNpcKo">
+                            <img src="https://static.wixstatic.com/media/logo.png" alt="">
+                        </div>
+                    </a>
+                </div>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.wixsite.com")
+
+        assert branding.logo is not None
+        assert "logo.png" in branding.logo
+
+    def test_extract_logo_framer_data_attribute(self):
+        """Test logo extraction from Framer data-framer-name='Logo'."""
+        html = """
+        <html>
+            <body>
+                <div data-framer-name="Logo" class="framer-abc123">
+                    <img src="/assets/logo.webp">
+                </div>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.framer.app")
+
+        assert branding.logo is not None
+        assert branding.logo == "https://example.framer.app/assets/logo.webp"
+
+    def test_extract_logo_squarespace_header(self):
+        """Test logo extraction from Squarespace data-section-type='header'."""
+        html = """
+        <html>
+            <body>
+                <div data-section-type="header">
+                    <div class="header-display-desktop">
+                        <img src="/s/brand-logo.png" alt="Brand">
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://www.example.com")
+
+        assert branding.logo is not None
+        assert branding.logo == "https://www.example.com/s/brand-logo.png"
+
+    def test_header_img_skips_large_hero_images(self):
+        """Test that header img skips images with large explicit width."""
+        html = """
+        <html>
+            <body>
+                <header>
+                    <img src="/hero-banner.jpg" width="1920">
+                    <img src="/small-logo.svg" width="120">
+                </header>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.com")
+
+        assert branding.logo is not None
+        # Should skip the 1920px hero and find the SVG
+        assert branding.logo == "https://example.com/small-logo.svg"
+
+    def test_header_img_prefers_svg(self):
+        """Test that SVG files in header are preferred as likely logos."""
+        html = """
+        <html>
+            <body>
+                <header>
+                    <img src="/logo.svg">
+                </header>
+            </body>
+        </html>
+        """
+        extractor = BrandingExtractor()
+        branding = extractor.extract(html, "https://example.com")
+
+        assert branding.logo is not None
+        assert branding.logo == "https://example.com/logo.svg"

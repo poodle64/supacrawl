@@ -310,3 +310,84 @@ class TestBrowserManager:
             images = await browser.extract_images(html, "https://example.com")
             assert isinstance(images, list)
             assert len(images) == 0
+
+    @pytest.mark.asyncio
+    async def test_extract_images_inline_background_image(self):
+        """Test image extraction from inline style background-image."""
+        html = """
+        <html>
+            <body>
+                <div style="background-image: url('/hero.jpg')"></div>
+                <div style="background: url(/banner.png) no-repeat center"></div>
+                <section style='background-image: url("https://example.com/bg.webp")'></section>
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            urls = set(images)
+            assert "https://example.com/hero.jpg" in urls
+            assert "https://example.com/banner.png" in urls
+            assert "https://example.com/bg.webp" in urls
+
+    @pytest.mark.asyncio
+    async def test_extract_images_style_block_background_image(self):
+        """Test image extraction from <style> block background-image."""
+        html = """
+        <html>
+            <head>
+                <style>
+                    .hero { background-image: url('/hero-bg.jpg'); }
+                    .banner { background: url("/promo.png") center no-repeat; }
+                </style>
+            </head>
+            <body>
+                <div class="hero"></div>
+                <div class="banner"></div>
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            urls = set(images)
+            assert "https://example.com/hero-bg.jpg" in urls
+            assert "https://example.com/promo.png" in urls
+
+    @pytest.mark.asyncio
+    async def test_extract_images_background_image_deduplicates_with_img(self):
+        """Test that CSS background images deduplicate with <img> tags."""
+        html = """
+        <html>
+            <body>
+                <img src="/shared.jpg">
+                <div style="background-image: url('/shared.jpg')"></div>
+                <div style="background-image: url('/unique-bg.jpg')"></div>
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            # shared.jpg should appear only once, plus unique-bg.jpg
+            assert len(images) == 2
+            assert "https://example.com/shared.jpg" in images
+            assert "https://example.com/unique-bg.jpg" in images
+
+    @pytest.mark.asyncio
+    async def test_extract_images_background_image_skips_data_uris(self):
+        """Test that data URIs in background-image are excluded."""
+        html = """
+        <html>
+            <body>
+                <div style="background-image: url('data:image/svg+xml;base64,PHN2Zz4=')"></div>
+                <div style="background-image: url('/real-image.jpg')"></div>
+            </body>
+        </html>
+        """
+        async with BrowserManager() as browser:
+            images = await browser.extract_images(html, "https://example.com")
+            assert isinstance(images, list)
+            assert len(images) == 1
+            assert "https://example.com/real-image.jpg" in images
