@@ -70,6 +70,7 @@ class CrawlService:
         save_files: bool = True,
         concurrency: int = 10,
         wait_until: WaitUntilType | None = None,
+        headless: bool | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -95,6 +96,8 @@ class CrawlService:
             concurrency: Max concurrent requests for URL processing (default: 10)
             wait_until: Page load strategy. Options: commit, domcontentloaded (default),
                 load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
+            headless: Run browser in headless mode. Only used when CrawlService
+                creates its own BrowserManager (i.e. no injected browser).
 
         Yields:
             CrawlEvent for each page and progress update
@@ -132,6 +135,7 @@ class CrawlService:
             else:
                 # Create and manage own browser lifecycle
                 async with BrowserManager(
+                    headless=headless,
                     locale_config=locale_config,
                     stealth=stealth,
                     proxy=proxy,

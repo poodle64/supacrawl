@@ -182,6 +182,7 @@ async def create_supacrawl_services() -> SupacrawlServices:
         stealth=settings.stealth,
         proxy=settings.proxy,
         solve_captcha=settings.solve_captcha,
+        headless=settings.headless,
     )
     map_service = MapService(browser=browser_manager)
     crawl_service = CrawlService(
