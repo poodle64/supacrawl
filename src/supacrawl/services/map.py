@@ -50,6 +50,7 @@ class MapService:
         proxy: str | None = None,
         concurrency: int = DEFAULT_CONCURRENCY,
         wait_until: WaitUntilType | None = None,
+        headless: bool | None = None,
     ):
         """Initialize map service.
 
@@ -60,11 +61,14 @@ class MapService:
             concurrency: Max concurrent requests for URL processing (default: 10)
             wait_until: Page load strategy. Options: commit, domcontentloaded (default),
                 load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
+            headless: Run browser in headless mode. Passed through to any BrowserManager
+                instances created internally when no shared browser is provided.
         """
         self._browser = browser
         self._owns_browser = browser is None
         self._stealth = stealth
         self._proxy = proxy
+        self._headless = headless
         self._concurrency = max(1, concurrency)  # Ensure at least 1
         self._wait_until = wait_until
 
@@ -365,7 +369,7 @@ class MapService:
         browser = self._browser
         close_browser = False
         if browser is None:
-            browser = BrowserManager(stealth=self._stealth, proxy=self._proxy)
+            browser = BrowserManager(headless=self._headless, stealth=self._stealth, proxy=self._proxy)
             close_browser = True
 
         # Semaphore for concurrent link extraction
@@ -471,7 +475,7 @@ class MapService:
         browser = self._browser
         close_browser = False
         if browser is None:
-            browser = BrowserManager(stealth=self._stealth, proxy=self._proxy)
+            browser = BrowserManager(headless=self._headless, stealth=self._stealth, proxy=self._proxy)
             close_browser = True
 
         try:

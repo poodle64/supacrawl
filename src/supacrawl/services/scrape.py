@@ -218,6 +218,7 @@ class ScrapeService:
         stealth: bool = False,
         proxy: str | None = None,
         solve_captcha: bool = False,
+        headless: bool | None = None,
     ):
         """Initialize scrape service.
 
@@ -230,6 +231,8 @@ class ScrapeService:
             proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
             solve_captcha: Enable CAPTCHA solving via 2Captcha (requires pip install supacrawl[captcha]
                           and CAPTCHA_API_KEY environment variable). WARNING: Each solve costs ~$0.002-0.003.
+            headless: Run browser in headless mode. Passed through to any BrowserManager
+                instances created internally (e.g. for CAPTCHA solving or standalone usage).
         """
         self._browser = browser
         self._converter = converter or MarkdownConverter()
@@ -238,6 +241,7 @@ class ScrapeService:
         self._stealth = stealth
         self._proxy = proxy
         self._solve_captcha = solve_captcha
+        self._headless = headless
         self._cache = CacheManager(cache_dir) if cache_dir else None
         self._captcha_solver: Any = None  # Lazy-loaded CaptchaSolver
 
@@ -315,6 +319,7 @@ class ScrapeService:
 
             if owns_browser:
                 browser = BrowserManager(
+                    headless=self._headless,
                     timeout_ms=timeout,
                     locale_config=self._locale_config,
                     stealth=self._stealth,
@@ -384,6 +389,7 @@ class ScrapeService:
                             stealth=True,
                             proxy=self._proxy,
                             solve_captcha=self._solve_captcha,
+                            headless=self._headless,
                         )
                         return await stealth_service.scrape(
                             url=url,
@@ -875,6 +881,7 @@ class ScrapeService:
 
         # Create browser context for CAPTCHA solving
         browser = BrowserManager(
+            headless=self._headless,
             timeout_ms=timeout,
             locale_config=self._locale_config,
             stealth=self._stealth,
