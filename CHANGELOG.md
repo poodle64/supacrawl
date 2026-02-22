@@ -7,6 +7,28 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.2.2] - 2026-02-22
+
+### Features
+
+- **CSS background-image extraction**: Extract image URLs from CSS `background-image` and `background` shorthand properties, improving image discovery on sites that use CSS for hero images and backgrounds
+- **Improved logo detection**: Better logo identification for site builders (Wix `<wow-image>`, Squarespace `data-section-type`, Framer `data-framer-name`) and nested `<img>` elements inside `role="img"` containers
+- **Correlation IDs in MCP responses**: All MCP tool responses now include `correlation_id` for request tracing and debugging
+- **WordPress and CSS counter preprocessors**: New site-specific preprocessors for WordPress content and CSS counter-based ordered lists, producing cleaner markdown output
+- **MCP map `ignore_cache` parameter**: New parameter to bypass cached URL discovery results
+- **MCP map title fallback and timezone detection**: Map results include `<title>` tag fallback for pages without `<meta>` titles, and automatic timezone detection from page content
+
+### Fixed
+
+- **MCP headless browser windows** (Closes #78): Browser windows no longer flash visibly during MCP operations. The `headless` parameter now propagates to all internal `BrowserManager` instances, including CAPTCHA solving and stealth retry paths
+- **Screenshot cache key collision**: `screenshot_full_page` setting is now included in the cache key, preventing incorrect cache hits when the same URL is scraped with different screenshot settings
+- **CrawlService browser lifecycle**: CrawlService now accepts an injected `BrowserManager`, avoiding duplicate browser instances when used from the MCP server
+
+### Internal
+
+- Remove Docker MCP files (`Dockerfile.mcp`, `docker-compose.mcp.yaml`); MCP server now runs natively via `supacrawl-mcp`
+- Add MCP server section to README with installation and configuration instructions
+
 ## [2026.2.1] - 2026-02-21
 
 ### Features
