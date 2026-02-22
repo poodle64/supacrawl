@@ -23,12 +23,6 @@ desktop.ini
 .claude/.sessions/
 .claude/ralph-loop.local.md
 
-# Master symlinks (user-specific absolute paths)
-.claude/commands
-.claude/hooks
-.claude/skills
-.claude/rules/master
-docs/master
 .mcp.json
 
 # ============================================================================
