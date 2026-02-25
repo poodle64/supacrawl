@@ -7,6 +7,20 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.2.3] - 2026-02-26
+
+### Fixed
+
+- **Playwright version constraint** (Closes #79): Relaxed from `>=1.49.0` to `>=1.40.0,<2.0.0`. Supacrawl only uses stable core Playwright APIs, so the previous lower bound was unnecessarily restrictive. This allows distributions like NixOS and Guix to pair supacrawl with their system-provided Playwright browser binaries
+
+### Documentation
+
+- Added "System-Managed Playwright Browsers" section to README for users with distro-provided Playwright binaries
+
+### Internal
+
+- CI: use reusable auto-label workflow from master project
+
 ## [2026.2.2] - 2026-02-22
 
 ### Features
