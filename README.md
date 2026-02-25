@@ -234,6 +234,17 @@ Use `--stealth` and `--solve-captcha` flags when scraping protected sites. Steal
 
 Copy `.env.example` to `.env` to configure.
 
+### System-Managed Playwright Browsers
+
+Distributions like NixOS and Guix provide pre-built Playwright browser binaries. To use them, pin the Python package to match your system's browser version and set `PLAYWRIGHT_BROWSERS_PATH`:
+
+```bash
+pip install 'supacrawl' 'playwright==1.52.0'  # match your distro's version
+export PLAYWRIGHT_BROWSERS_PATH=/nix/store/...-playwright-driver-browsers
+```
+
+Skip `playwright install`; your system already provides the binaries.
+
 ## Development
 
 ```bash
