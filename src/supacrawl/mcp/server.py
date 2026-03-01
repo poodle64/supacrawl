@@ -67,7 +67,7 @@ class SupacrawlServer(BaseMCPServer):
 
 def main() -> None:
     """Entry point for supacrawl-mcp command."""
-    SupacrawlServer.main("Supacrawl MCP Server")
+    SupacrawlServer.main("Supacrawl MCP Server", default_transport="stdio")
 
 
 if __name__ == "__main__":
