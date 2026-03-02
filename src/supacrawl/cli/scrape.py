@@ -5,10 +5,11 @@ from pathlib import Path
 import click
 
 from supacrawl.cli._common import app
+from supacrawl.models import DEFAULT_MOBILE_DEVICE
 
 
 @app.command("scrape", help="Scrape a single URL to markdown.")
-@click.argument("url")
+@click.argument("url", required=False, default=None)
 @click.option(
     "--format",
     "-f",
@@ -169,8 +170,25 @@ from supacrawl.cli._common import app
     show_default=True,
     help="Iframe expansion mode. none=strip all, same-origin=expand same-origin inline, all=expand all non-blocked.",
 )
+@click.option(
+    "--mobile/--no-mobile",
+    default=False,
+    help=f"Scrape as a mobile device (default: {DEFAULT_MOBILE_DEVICE}). Sets mobile viewport, user agent, and touch support.",
+)
+@click.option(
+    "--device",
+    type=str,
+    default=None,
+    help='Emulate a specific device (e.g. "iPhone 15", "Pixel 7"). Overrides --mobile. See --list-devices for options.',
+)
+@click.option(
+    "--list-devices",
+    is_flag=True,
+    default=False,
+    help="List available device presets and exit.",
+)
 def scrape_url(
-    url: str,
+    url: str | None,
     formats: tuple[str, ...],
     schema: Path | None,
     prompt: str | None,
@@ -194,6 +212,9 @@ def scrape_url(
     wait_until: str | None,
     change_tracking_modes: tuple[str, ...],
     expand_iframes: str,
+    mobile: bool,
+    device: str | None,
+    list_devices: bool,
 ) -> None:
     """Scrape a single URL and extract content.
 
@@ -246,10 +267,41 @@ def scrape_url(
         supacrawl scrape https://akamai-site.com --engine camoufox  # Tier 3: Akamai bypass
         supacrawl scrape https://captcha-site.com --stealth --solve-captcha  # Solve CAPTCHAs
         supacrawl scrape https://spa-site.com --wait-until networkidle  # Wait for JS to finish
+        supacrawl scrape https://example.com --mobile  # Scrape as default mobile device
+        supacrawl scrape https://example.com --device "iPhone 15"  # Scrape as iPhone 15
+        supacrawl scrape https://example.com --mobile -f screenshot -o mobile.png  # Mobile screenshot
+        supacrawl scrape --list-devices  # Show available device presets
     """
     import asyncio
     import base64
     import json
+
+    # Handle --list-devices: print available devices and exit
+    if list_devices:
+
+        async def _list():
+            from playwright.async_api import async_playwright
+
+            pw = await async_playwright().start()
+            try:
+                return sorted(pw.devices.keys())
+            finally:
+                await pw.stop()
+
+        devices = asyncio.run(_list())
+        for name in devices:
+            click.echo(name)
+        return
+
+    # URL is required when not listing devices
+    if not url:
+        click.echo("Error: Missing argument 'URL'.", err=True)
+        raise SystemExit(1)
+
+    # Resolve --mobile / --device to a device name
+    resolved_device: str | None = device
+    if mobile and not device:
+        resolved_device = DEFAULT_MOBILE_DEVICE
 
     from supacrawl.services.scrape import ScrapeService
 
@@ -340,6 +392,7 @@ def scrape_url(
             wait_until=wait_until,  # type: ignore[arg-type]
             change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
             expand_iframes=expand_iframes,  # type: ignore[arg-type]
+            device=resolved_device,
         )
         return result
 
