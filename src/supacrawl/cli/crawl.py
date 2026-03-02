@@ -129,6 +129,13 @@ from supacrawl.cli._common import app
     type=click.Choice(["git-diff", "json"], case_sensitive=False),
     help="Diff modes for change tracking. Requires -f changeTracking. Options: git-diff, json.",
 )
+@click.option(
+    "--expand-iframes",
+    type=click.Choice(["none", "same-origin", "all"], case_sensitive=False),
+    default="same-origin",
+    show_default=True,
+    help="Iframe expansion mode. none=strip all, same-origin=expand same-origin inline, all=expand all non-blocked.",
+)
 def crawl_cmd(
     url: str,
     limit: int,
@@ -150,6 +157,7 @@ def crawl_cmd(
     engine: str | None,
     cache_dir: Path | None,
     change_tracking_modes: tuple[str, ...],
+    expand_iframes: str,
 ) -> None:
     """Crawl a website and save all pages.
 
@@ -215,6 +223,7 @@ def crawl_cmd(
             engine=engine,
             cache_dir=resolved_cache_dir,
             change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
+            expand_iframes=expand_iframes,
         ):
             if event.type == "progress":
                 # Show progress bar

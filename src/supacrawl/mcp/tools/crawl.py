@@ -24,6 +24,7 @@ async def supacrawl_crawl(
     deduplicate_similar_urls: bool = False,
     allow_external_links: bool = False,
     change_tracking_modes: list[str] | None = None,
+    expand_iframes: str = "same-origin",
 ) -> dict:
     """
     Crawl a website starting from URL, discovering and scraping pages.
@@ -72,6 +73,9 @@ async def supacrawl_crawl(
         change_tracking_modes: Optional diff modes when changeTracking format is used.
             Supports: ["git-diff", "json"]. git-diff produces unified diffs,
             json compares extracted structured fields.
+        expand_iframes: Iframe expansion mode (default: "same-origin").
+            "none" strips all iframes (legacy), "same-origin" expands same-origin
+            iframes inline, "all" expands all non-blocked iframes.
 
     Returns:
         Firecrawl-compatible crawl result:
@@ -145,6 +149,7 @@ async def supacrawl_crawl(
             allow_external_links=allow_external_links,
             cache_dir=cache_dir,
             change_tracking_modes=change_tracking_modes,
+            expand_iframes=expand_iframes,
         ):
             if event.type == "page" and event.data:
                 pages.append(event.data.model_dump())

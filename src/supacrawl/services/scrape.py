@@ -408,6 +408,7 @@ class ScrapeService:
         max_age: int = 0,
         wait_until: WaitUntilType | None = None,
         change_tracking_modes: list[str] | None = None,
+        expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -434,6 +435,9 @@ class ScrapeService:
                        load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
             change_tracking_modes: Optional diff modes for change tracking.
                     Supports: ["git-diff"]. Only used when "changeTracking" is in formats.
+            expand_iframes: Iframe expansion mode. "none" strips all (legacy),
+                    "same-origin" expands same-origin iframes inline (default),
+                    "all" expands all non-blocked iframes including cross-origin.
 
         Returns:
             ScrapeResult with scraped content
@@ -504,6 +508,7 @@ class ScrapeService:
                     screenshot_full_page=screenshot_full_page,
                     actions=actions,
                     wait_until=wait_until,
+                    expand_iframes=expand_iframes,
                 )
 
                 # Extract metadata
@@ -564,6 +569,7 @@ class ScrapeService:
                             max_age=max_age,
                             wait_until=wait_until,
                             change_tracking_modes=change_tracking_modes,
+                            expand_iframes=expand_iframes,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint()}")
