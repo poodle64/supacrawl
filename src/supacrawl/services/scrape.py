@@ -348,6 +348,7 @@ class ScrapeService:
         solve_captcha: bool = False,
         headless: bool | None = None,
         engine: str | None = None,
+        firefox_user_prefs: dict[str, Any] | None = None,
     ):
         """Initialize scrape service.
 
@@ -365,6 +366,9 @@ class ScrapeService:
                 instances created internally (e.g. for CAPTCHA solving or standalone usage).
             engine: Browser engine to use ("playwright", "patchright", "camoufox").
                 Overrides the stealth flag when set.
+            firefox_user_prefs: Firefox about:config preferences for Camoufox.
+                Only used when engine="camoufox" and browser is created internally.
+                Example: {"network.http.http2.enabled": False} to force HTTP/1.1.
         """
         self._browser = browser
         self._converter = converter or MarkdownConverter()
@@ -375,6 +379,7 @@ class ScrapeService:
         self._solve_captcha = solve_captcha
         self._headless = headless
         self._engine = engine
+        self._firefox_user_prefs = firefox_user_prefs
         self._cache = CacheManager(cache_dir) if cache_dir else None
         self._captcha_solver: Any = None  # Lazy-loaded CaptchaSolver
 
@@ -536,6 +541,7 @@ class ScrapeService:
                     stealth=self._stealth,
                     proxy=self._proxy,
                     engine=effective_engine,
+                    firefox_user_prefs=self._firefox_user_prefs,
                 )
                 await browser.__aenter__()
                 owns_browser = True
@@ -811,42 +817,89 @@ class ScrapeService:
             # Chromium-based browsers (Playwright/Patchright) can be rejected at the
             # TLS level by aggressive bot detection (e.g. Akamai). Camoufox uses
             # Firefox's TLS stack which has a different fingerprint.
-            if (
-                "ERR_HTTP2_PROTOCOL_ERROR" in error_msg
-                and self._engine != "camoufox"
-                and engine != "camoufox"
-                and _is_camoufox_available()
-            ):
-                LOGGER.info(f"HTTP/2 protocol error for {url}, retrying with Camoufox engine")
-                camoufox_service = ScrapeService(
-                    converter=self._converter,
-                    locale_config=self._locale_config,
-                    cache_dir=self._cache.cache_dir if self._cache else None,
-                    stealth=self._stealth,
-                    proxy=self._proxy,
-                    solve_captcha=self._solve_captcha,
-                    headless=self._headless,
-                    engine="camoufox",
-                )
-                return await camoufox_service.scrape(
-                    url=url,
-                    formats=formats,
-                    only_main_content=only_main_content,
-                    wait_for=wait_for,
-                    timeout=timeout,
-                    screenshot_full_page=screenshot_full_page,
-                    actions=actions,
-                    json_schema=json_schema,
-                    json_prompt=json_prompt,
-                    include_tags=include_tags,
-                    exclude_tags=exclude_tags,
-                    max_age=max_age,
-                    wait_until=wait_until,
-                    change_tracking_modes=change_tracking_modes,
-                    expand_iframes=expand_iframes,
-                    device=device,
-                    parse_pdf=parse_pdf,
-                )
+            #
+            # Two-stage fallback:
+            #   1. Chromium → Camoufox (different TLS fingerprint)
+            #   2. Camoufox → Camoufox with HTTP/2 disabled (forces HTTP/1.1)
+            #
+            # Stage 2 handles environments where even Firefox's TLS fingerprint
+            # is rejected over HTTP/2 (reported on some systems).
+            if "ERR_HTTP2_PROTOCOL_ERROR" in error_msg and _is_camoufox_available():
+                is_camoufox = self._engine == "camoufox" or engine == "camoufox"
+
+                if not is_camoufox:
+                    # Stage 1: Chromium failed → try Camoufox with standard HTTP/2
+                    LOGGER.info(
+                        "HTTP/2 protocol error for %s, retrying with Camoufox engine",
+                        url,
+                    )
+                    camoufox_service = ScrapeService(
+                        converter=self._converter,
+                        locale_config=self._locale_config,
+                        cache_dir=self._cache.cache_dir if self._cache else None,
+                        stealth=self._stealth,
+                        proxy=self._proxy,
+                        solve_captcha=self._solve_captcha,
+                        headless=self._headless,
+                        engine="camoufox",
+                    )
+                    return await camoufox_service.scrape(
+                        url=url,
+                        formats=formats,
+                        only_main_content=only_main_content,
+                        wait_for=wait_for,
+                        timeout=timeout,
+                        screenshot_full_page=screenshot_full_page,
+                        actions=actions,
+                        json_schema=json_schema,
+                        json_prompt=json_prompt,
+                        include_tags=include_tags,
+                        exclude_tags=exclude_tags,
+                        max_age=max_age,
+                        wait_until=wait_until,
+                        change_tracking_modes=change_tracking_modes,
+                        expand_iframes=expand_iframes,
+                        device=device,
+                        parse_pdf=parse_pdf,
+                    )
+
+                # Stage 2: Camoufox also failed → retry with HTTP/2 disabled.
+                # Guard: if we already have firefox_user_prefs set, don't recurse.
+                if not self._firefox_user_prefs:
+                    LOGGER.info(
+                        "HTTP/2 protocol error for %s with Camoufox, retrying with HTTP/2 disabled",
+                        url,
+                    )
+                    h1_service = ScrapeService(
+                        converter=self._converter,
+                        locale_config=self._locale_config,
+                        cache_dir=self._cache.cache_dir if self._cache else None,
+                        stealth=self._stealth,
+                        proxy=self._proxy,
+                        solve_captcha=self._solve_captcha,
+                        headless=self._headless,
+                        engine="camoufox",
+                        firefox_user_prefs={"network.http.http2.enabled": False},
+                    )
+                    return await h1_service.scrape(
+                        url=url,
+                        formats=formats,
+                        only_main_content=only_main_content,
+                        wait_for=wait_for,
+                        timeout=timeout,
+                        screenshot_full_page=screenshot_full_page,
+                        actions=actions,
+                        json_schema=json_schema,
+                        json_prompt=json_prompt,
+                        include_tags=include_tags,
+                        exclude_tags=exclude_tags,
+                        max_age=max_age,
+                        wait_until=wait_until,
+                        change_tracking_modes=change_tracking_modes,
+                        expand_iframes=expand_iframes,
+                        device=device,
+                        parse_pdf=parse_pdf,
+                    )
 
             # Add stealth hint for common bot-detection related errors
             if not self._stealth and any(

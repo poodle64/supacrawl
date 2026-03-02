@@ -406,6 +406,7 @@ class BrowserManager:
         stealth: bool = False,
         proxy: str | None = None,
         engine: str | None = None,
+        firefox_user_prefs: dict[str, Any] | None = None,
     ):
         """Initialize browser manager.
 
@@ -427,6 +428,9 @@ class BrowserManager:
                 - "camoufox": Patched Firefox via Camoufox (Tier 3 anti-detection,
                   effective against Akamai Bot Manager)
                 When not set, falls back to "patchright" if stealth=True, else "playwright".
+            firefox_user_prefs: Firefox about:config preferences for Camoufox.
+                Only used when engine="camoufox". Example:
+                {"network.http.http2.enabled": False} to force HTTP/1.1.
         """
         # Resolve engine from explicit engine param, stealth flag, or default
         if engine is not None:
@@ -460,6 +464,7 @@ class BrowserManager:
         self.user_agent = user_agent or os.getenv("SUPACRAWL_USER_AGENT")
         self.locale_config = locale_config
         self.proxy = proxy or os.getenv("SUPACRAWL_PROXY")
+        self.firefox_user_prefs = firefox_user_prefs
         self._browser: Browser | None = None
         self._playwright: Any = None
 
@@ -691,14 +696,19 @@ class BrowserManager:
             if locale:
                 camoufox_options["locale"] = locale
 
+        # Apply Firefox user preferences (e.g. disable HTTP/2)
+        if self.firefox_user_prefs:
+            camoufox_options["firefox_user_prefs"] = self.firefox_user_prefs
+
         # Camoufox returns a context manager; we enter it and store the browser
         self._camoufox_cm = AsyncCamoufox(**camoufox_options)
         self._browser = await self._camoufox_cm.__aenter__()
 
         LOGGER.debug(
-            "Browser started (engine=camoufox, headless=%s, humanize=True, proxy=%s)",
+            "Browser started (engine=camoufox, headless=%s, humanize=True, proxy=%s, firefox_prefs=%s)",
             self.headless,
             bool(self.proxy),
+            bool(self.firefox_user_prefs),
         )
 
     async def stop(self) -> None:
