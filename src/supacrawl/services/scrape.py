@@ -807,9 +807,51 @@ class ScrapeService:
         except Exception as e:
             error_msg = str(e)
 
+            # Auto-retry with Camoufox on HTTP/2 protocol errors.
+            # Chromium-based browsers (Playwright/Patchright) can be rejected at the
+            # TLS level by aggressive bot detection (e.g. Akamai). Camoufox uses
+            # Firefox's TLS stack which has a different fingerprint.
+            if (
+                "ERR_HTTP2_PROTOCOL_ERROR" in error_msg
+                and self._engine != "camoufox"
+                and engine != "camoufox"
+                and _is_camoufox_available()
+            ):
+                LOGGER.info(f"HTTP/2 protocol error for {url}, retrying with Camoufox engine")
+                camoufox_service = ScrapeService(
+                    converter=self._converter,
+                    locale_config=self._locale_config,
+                    cache_dir=self._cache.cache_dir if self._cache else None,
+                    stealth=self._stealth,
+                    proxy=self._proxy,
+                    solve_captcha=self._solve_captcha,
+                    headless=self._headless,
+                    engine="camoufox",
+                )
+                return await camoufox_service.scrape(
+                    url=url,
+                    formats=formats,
+                    only_main_content=only_main_content,
+                    wait_for=wait_for,
+                    timeout=timeout,
+                    screenshot_full_page=screenshot_full_page,
+                    actions=actions,
+                    json_schema=json_schema,
+                    json_prompt=json_prompt,
+                    include_tags=include_tags,
+                    exclude_tags=exclude_tags,
+                    max_age=max_age,
+                    wait_until=wait_until,
+                    change_tracking_modes=change_tracking_modes,
+                    expand_iframes=expand_iframes,
+                    device=device,
+                    parse_pdf=parse_pdf,
+                )
+
             # Add stealth hint for common bot-detection related errors
             if not self._stealth and any(
-                pattern in error_msg.lower() for pattern in ["403", "429", "timeout", "blocked", "denied"]
+                pattern in error_msg.lower()
+                for pattern in ["403", "429", "timeout", "blocked", "denied", "err_http2_protocol_error"]
             ):
                 error_msg += _stealth_hint()
 
