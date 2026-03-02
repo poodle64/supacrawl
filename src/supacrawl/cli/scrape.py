@@ -159,8 +159,8 @@ from supacrawl.cli._common import app
 @click.option(
     "--change-tracking-modes",
     multiple=True,
-    type=click.Choice(["git-diff"], case_sensitive=False),
-    help="Diff modes for change tracking. Requires -f changeTracking. Options: git-diff.",
+    type=click.Choice(["git-diff", "json"], case_sensitive=False),
+    help="Diff modes for change tracking. Requires -f changeTracking. Options: git-diff, json (requires --schema or --prompt).",
 )
 def scrape_url(
     url: str,
