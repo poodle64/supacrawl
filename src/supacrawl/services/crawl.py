@@ -72,6 +72,8 @@ class CrawlService:
         wait_until: WaitUntilType | None = None,
         headless: bool | None = None,
         engine: str | None = None,
+        cache_dir: Path | None = None,
+        change_tracking_modes: list[str] | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -102,6 +104,10 @@ class CrawlService:
                 creates its own BrowserManager (i.e. no injected browser).
             engine: Browser engine ("playwright", "patchright", "camoufox").
                 Overrides the stealth flag when set.
+            cache_dir: Cache directory for change tracking. Auto-resolved when
+                changeTracking format is requested.
+            change_tracking_modes: Optional diff modes for change tracking.
+                Supports: ["git-diff", "json"]. Passed to per-page scrape calls.
 
         Yields:
             CrawlEvent for each page and progress update
@@ -121,6 +127,7 @@ class CrawlService:
                 self._scrape_service = self._injected_scrape_service or ScrapeService(
                     browser=self._browser,
                     locale_config=locale_config,
+                    cache_dir=cache_dir,
                 )
                 async for event in self._crawl_inner(
                     url=url,
@@ -134,6 +141,7 @@ class CrawlService:
                     allow_external_links=allow_external_links,
                     concurrency=concurrency,
                     wait_until=wait_until,
+                    change_tracking_modes=change_tracking_modes,
                 ):
                     yield event
             else:
@@ -154,6 +162,7 @@ class CrawlService:
                     self._scrape_service = ScrapeService(
                         browser=browser,
                         locale_config=locale_config,
+                        cache_dir=cache_dir,
                     )
                     async for event in self._crawl_inner(
                         url=url,
@@ -167,6 +176,7 @@ class CrawlService:
                         allow_external_links=allow_external_links,
                         concurrency=concurrency,
                         wait_until=wait_until,
+                        change_tracking_modes=change_tracking_modes,
                     ):
                         yield event
 
@@ -190,6 +200,7 @@ class CrawlService:
         allow_external_links: bool,
         concurrency: int,
         wait_until: WaitUntilType | None,
+        change_tracking_modes: list[str] | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Core crawl logic. Assumes _browser, _map_service, _scrape_service are set."""
         assert self._map_service is not None
@@ -278,24 +289,36 @@ class CrawlService:
         # Scrape each URL
         completed = 0
         errors = []
+        wants_change_tracking = "changeTracking" in self._formats
+
+        # Track change statuses for crawl-level summary
+        change_counts: dict[str, int] = {"new": 0, "same": 0, "changed": 0, "removed": 0}
 
         for url_to_scrape in urls_to_scrape:
             try:
                 # Map output formats to scrape formats
-                scrape_formats = []
+                scrape_formats: list[str] = []
                 if "markdown" in self._formats or "json" in self._formats:
                     scrape_formats.append("markdown")
                 if "html" in self._formats or "json" in self._formats:
                     scrape_formats.append("html")
+                if wants_change_tracking:
+                    scrape_formats.append("changeTracking")
                 if not scrape_formats:
                     scrape_formats = ["markdown"]
 
                 result = await self._scrape_service.scrape(
                     url_to_scrape,
                     formats=scrape_formats,  # type: ignore[arg-type]
+                    change_tracking_modes=change_tracking_modes,
                 )
 
                 if result.success and result.data:
+                    # Track change status
+                    if result.data.change_tracking:
+                        status = result.data.change_tracking.change_status
+                        change_counts[status] = change_counts.get(status, 0) + 1
+
                     # Save to output directory
                     if output_dir:
                         self._save_page(output_dir, url_to_scrape, result.data)
@@ -308,6 +331,11 @@ class CrawlService:
                         total=total,
                     )
                 else:
+                    # Track "removed" if change tracking returned it
+                    if result.data and result.data.change_tracking:
+                        status = result.data.change_tracking.change_status
+                        change_counts[status] = change_counts.get(status, 0) + 1
+
                     errors.append(f"{url_to_scrape}: {result.error}")
                     yield CrawlEvent(
                         type="error",
@@ -336,11 +364,17 @@ class CrawlService:
                 total=total,
             )
 
+        # Build change summary if tracking was active
+        change_summary = None
+        if wants_change_tracking:
+            change_summary = {k: v for k, v in change_counts.items() if v > 0}
+
         # Final complete event
         yield CrawlEvent(
             type="complete",
             completed=completed,
             total=total,
+            change_summary=change_summary,
         )
 
     def _matches_patterns(self, url: str, patterns: list[str]) -> bool:
