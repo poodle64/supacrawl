@@ -64,7 +64,7 @@ async def supacrawl_crawl(
             - markdown: Clean markdown with resolved URLs
             - html: Cleaned HTML
             - rawHtml: Full unprocessed HTML
-            - links: Extracted links
+            - links: Extracted links (parsed from rendered HTML)
             - screenshot: Page screenshots
             - changeTracking: Compare each page against cached previous version
         deduplicate_similar_urls: Remove URLs that are similar (different query params,

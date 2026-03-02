@@ -421,7 +421,8 @@ class ScrapeService:
                      Supports: markdown, html, rawHtml, links, screenshot, pdf,
                      json, images, branding, summary, changeTracking
             only_main_content: Extract main content area only
-            wait_for: Additional wait time in ms after page load
+            wait_for: Additional wait time in ms after page load. When > 0,
+                     also enables SPA stability polling (DOM hash checking).
             timeout: Page load timeout in ms
             screenshot_full_page: Capture full scrollable page for screenshots
             actions: List of Action objects to execute before capturing content

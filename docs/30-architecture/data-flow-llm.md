@@ -60,11 +60,11 @@ This approach treats each page like an actual browser:
 │  │  Input: Single URL                                               │   │
 │  │                                                                   │   │
 │  │  Step 1: Fetch Page with Playwright                             │   │
-│  │    └── Render page fully (JavaScript execution)                 │   │
-│  │    └── Wait for SPA content to stabilize                        │   │
+│  │    └── Render page (waits for domcontentloaded by default)      │   │
+│  │    └── Optionally wait for SPA stability (when wait_for > 0)    │   │
 │  │    └── Returns: raw HTML (post-JavaScript)                      │   │
 │  │                                                                   │   │
-│  │  Step 2: Extract Metadata                                        │   │
+│  │  Step 2: Extract Metadata (from <head> section)                  │   │
 │  │    └── Parse <title>, <meta>, OpenGraph tags                    │   │
 │  │                                                                   │   │
 │  │  Step 3: Convert to Markdown                                     │   │

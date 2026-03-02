@@ -65,6 +65,7 @@ async def supacrawl_scrape(
     - For clean article text: use only_main_content=True (default)
     - For full page including nav/footer: use only_main_content=False
     - If content is minimal/empty, try increasing wait_for (page may need time to load)
+    - If resources (images, CSS) must fully load: set wait_until="load"
     - For login-protected content: use actions to click buttons/fill forms first
     - For infinite scroll pages: use actions with scroll + wait sequences
 
@@ -81,7 +82,7 @@ async def supacrawl_scrape(
             - markdown: Clean markdown with resolved URLs (default)
             - html: Cleaned HTML with boilerplate removed
             - rawHtml: Full unprocessed HTML
-            - links: All extracted links
+            - links: All extracted links (parsed from rendered HTML)
             - images: All image URLs
             - screenshot: Base64-encoded PNG
             - pdf: Base64-encoded PDF document
@@ -89,7 +90,9 @@ async def supacrawl_scrape(
             - branding: Brand identity (colours, fonts, logo)
             - summary: LLM-generated 2-3 sentence summary
         only_main_content: Extract only main content, excluding headers/footers/sidebars
-        wait_for: Additional wait time in ms after page load (for dynamic content)
+        wait_for: Additional wait time in ms after page load (for dynamic content).
+            When set to a value > 0, also enables SPA stability polling which
+            waits for the DOM to stop changing before extracting content.
         timeout: Page load timeout in ms (default: 30000)
         screenshot_full_page: Capture full scrollable page vs viewport only
         actions: Page actions to execute before capturing content. Each action is a dict:

@@ -132,7 +132,7 @@ All [configuration](#configuration) environment variables apply. The MCP server 
 
 ### Troubleshooting
 
-If scrapes return empty or minimal content, use `supacrawl_diagnose` to identify the cause (CDN protection, JS framework, bot detection). Common fixes: increase `wait_for` for JS-heavy sites, enable `SUPACRAWL_STEALTH=true` for bot-protected sites, or try `only_main_content=false` if the wrong content is extracted.
+If scrapes return empty or minimal content, use `supacrawl_diagnose` to identify the cause (CDN protection, JS framework, bot detection). Common fixes: set `wait_for=3000` for JS-heavy sites (enables SPA stability polling), use `wait_until="load"` or `"networkidle"` if resources must fully load, enable `SUPACRAWL_STEALTH=true` for bot-protected sites, or try `only_main_content=false` if the wrong content is extracted.
 
 ### Optional Extras
 
