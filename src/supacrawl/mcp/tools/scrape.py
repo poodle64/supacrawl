@@ -45,12 +45,14 @@ async def supacrawl_scrape(
     expand_iframes: str = "same-origin",
     mobile: bool = False,
     device: str | None = None,
+    parse_pdf: str = "auto",
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
 
     This is the primary tool for extracting content from web pages. It supports
     multiple output formats, page interactions, and LLM-powered extraction.
+    PDF URLs are auto-detected and text is extracted directly (no browser needed).
 
     **When to use this tool:**
     - You have a specific URL and need its content
@@ -117,6 +119,11 @@ async def supacrawl_scrape(
         device: Emulate a specific device by name (e.g. "iPhone 15", "Pixel 7").
             Overrides the mobile flag. Uses Playwright's built-in device
             descriptors for accurate viewport, user agent, and DPI emulation.
+        parse_pdf: PDF parsing mode (default: "auto"). Options:
+            - "auto": Auto-detect PDF URLs, extract text with OCR fallback
+            - "fast": Text extraction only (no OCR)
+            - "ocr": Force OCR (requires supacrawl[pdf-ocr])
+            - "off": Disable PDF parsing (render PDF in browser as before)
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -184,6 +191,9 @@ async def supacrawl_scrape(
         if mobile and not device:
             resolved_device = DEFAULT_MOBILE_DEVICE
 
+        # Resolve parse_pdf mode
+        resolved_parse_pdf = parse_pdf if parse_pdf != "off" else None
+
         result = await api_client.scrape_service.scrape(
             url=validated_url,
             formats=formats,
@@ -200,6 +210,7 @@ async def supacrawl_scrape(
             change_tracking_modes=change_tracking_modes,
             expand_iframes=expand_iframes,  # type: ignore[arg-type]
             device=resolved_device,
+            parse_pdf=resolved_parse_pdf,  # type: ignore[arg-type]
         )
 
         response = result.model_dump()
