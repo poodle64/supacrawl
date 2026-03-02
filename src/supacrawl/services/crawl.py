@@ -147,6 +147,7 @@ class CrawlService:
                     wait_until=wait_until,
                     change_tracking_modes=change_tracking_modes,
                     expand_iframes=expand_iframes,
+                    engine=engine,
                 ):
                     yield event
             else:
@@ -208,6 +209,7 @@ class CrawlService:
         wait_until: WaitUntilType | None,
         change_tracking_modes: list[str] | None = None,
         expand_iframes: str = "same-origin",
+        engine: str | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Core crawl logic. Assumes _browser, _map_service, _scrape_service are set."""
         assert self._map_service is not None
@@ -319,6 +321,7 @@ class CrawlService:
                     formats=scrape_formats,  # type: ignore[arg-type]
                     change_tracking_modes=change_tracking_modes,
                     expand_iframes=expand_iframes,  # type: ignore[arg-type]
+                    engine=engine,
                 )
 
                 if result.success and result.data:
