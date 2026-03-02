@@ -1,19 +1,26 @@
 """Browser manager for Playwright-based page fetching.
 
-ANTI-BOT PROTECTION (automatic, no configuration needed):
-    The following evasions are applied by default to every page:
-    - navigator.webdriver = false (hides automation)
-    - Chrome runtime objects (window.chrome.runtime, etc.)
-    - Non-empty plugins array (avoids empty plugins fingerprint)
-    - Standard languages array (['en-US', 'en'])
-    - WebGL vendor/renderer spoofing (Intel Inc. / Intel Iris OpenGL Engine)
-    - Canvas fingerprint noise (unique per session, non-destructive)
-    - Standard browser headers (Accept-Language, Sec-Fetch-*, etc.)
+ANTI-BOT PROTECTION (three tiers):
 
-ENHANCED STEALTH (optional, for heavily protected sites):
-    Install: pip install supacrawl[stealth]
-    Usage: BrowserManager(stealth=True) or --stealth flag
-    Provides: Full Patchright browser with advanced anti-detection
+    Tier 1 - Basic stealth scripts (always active, no configuration):
+        - navigator.webdriver = false (hides automation)
+        - Chrome runtime objects (window.chrome.runtime, etc.)
+        - Non-empty plugins array (avoids empty plugins fingerprint)
+        - Standard languages array (['en-US', 'en'])
+        - WebGL vendor/renderer spoofing (Intel Inc. / Intel Iris OpenGL Engine)
+        - Canvas fingerprint noise (unique per session, non-destructive)
+        - Standard browser headers (Accept-Language, Sec-Fetch-*, etc.)
+
+    Tier 2 - Patchright (optional, for heavily protected sites):
+        Install: pip install supacrawl[stealth]
+        Usage: BrowserManager(stealth=True) or --stealth flag or --engine patchright
+        Provides: Patched Chromium with enhanced anti-detection
+
+    Tier 3 - Camoufox (optional, for Akamai and advanced bot detection):
+        Install: pip install supacrawl[camoufox]
+        Usage: BrowserManager(engine="camoufox") or --engine camoufox
+        Provides: Patched Firefox with C++ engine-level anti-detection
+        Effective against: Akamai Bot Manager, advanced TLS fingerprinting
 
 CAPTCHA SOLVING (optional, requires third-party service):
     Install: pip install supacrawl[captcha]
@@ -248,6 +255,17 @@ class StealthNotAvailableError(ImportError):
         super().__init__("Stealth mode requires patchright. Install with: pip install supacrawl[stealth]")
 
 
+class CamoufoxNotAvailableError(ImportError):
+    """Raised when Camoufox engine is requested but camoufox is not installed."""
+
+    def __init__(self) -> None:
+        super().__init__("Camoufox engine requires camoufox. Install with: pip install supacrawl[camoufox]")
+
+
+# Valid engine choices
+ENGINE_CHOICES = ("playwright", "patchright", "camoufox")
+
+
 @dataclass
 class PageContent:
     """Result of fetching a page."""
@@ -350,6 +368,7 @@ class BrowserManager:
         locale_config: Any | None = None,  # LocaleConfig, avoid circular import
         stealth: bool = False,
         proxy: str | None = None,
+        engine: str | None = None,
     ):
         """Initialize browser manager.
 
@@ -357,28 +376,52 @@ class BrowserManager:
             headless: Run headless (default from SUPACRAWL_HEADLESS env, or True).
                 Note: When stealth=True and headless is not explicitly set, defaults
                 to False (headful) because stealth mode is more effective headful.
+                Camoufox supports headless=True with humanize=True effectively.
             timeout_ms: Page load timeout (default from SUPACRAWL_TIMEOUT env, or 30000)
             user_agent: User agent string (default from SUPACRAWL_USER_AGENT env)
             locale_config: LocaleConfig for browser locale/timezone settings
             stealth: Enable stealth mode via Patchright for anti-bot evasion.
                 Automatically enables headful mode unless headless is explicitly set.
+                Ignored when engine is explicitly set.
             proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
+            engine: Browser engine to use. Options:
+                - "playwright" (default): Standard Playwright Chromium with basic stealth scripts
+                - "patchright": Patched Chromium via Patchright (Tier 2 anti-detection)
+                - "camoufox": Patched Firefox via Camoufox (Tier 3 anti-detection,
+                  effective against Akamai Bot Manager)
+                When not set, falls back to "patchright" if stealth=True, else "playwright".
         """
-        # Stealth mode works best headful - default to headful when stealth enabled
-        # unless user explicitly sets headless
+        # Resolve engine from explicit engine param, stealth flag, or default
+        if engine is not None:
+            if engine not in ENGINE_CHOICES:
+                raise ValueError(f"Invalid engine '{engine}'. Choose from: {', '.join(ENGINE_CHOICES)}")
+            self.engine = engine
+        elif stealth:
+            self.engine = "patchright"
+        else:
+            self.engine = "playwright"
+
+        # Keep stealth flag for backwards compat (True when engine is patchright or camoufox)
+        self.stealth = self.engine in ("patchright", "camoufox")
+
+        # Headless defaults: Patchright prefers headful, Camoufox works headless
         if headless is not None:
             self.headless = headless
-        elif stealth:
-            # Stealth + headless has worse detection scores than stealth + headful
+        elif self.engine == "patchright":
+            # Patchright + headless has worse detection scores than headful
             self.headless = self._env_bool("SUPACRAWL_HEADLESS", False)
+        elif self.engine == "camoufox":
+            # Camoufox works well headless with humanize=True
+            self.headless = self._env_bool("SUPACRAWL_HEADLESS", True)
         else:
             self.headless = self._env_bool("SUPACRAWL_HEADLESS", True)
+
         self.timeout_ms = timeout_ms or int(os.getenv("SUPACRAWL_TIMEOUT", "30000"))
         # Only set user_agent if explicitly provided or env var is set
         # Otherwise let Playwright use its real browser UA (reduces fingerprint mismatch)
+        # Note: Camoufox generates its own fingerprint, so user_agent is not set for it
         self.user_agent = user_agent or os.getenv("SUPACRAWL_USER_AGENT")
         self.locale_config = locale_config
-        self.stealth = stealth
         self.proxy = proxy or os.getenv("SUPACRAWL_PROXY")
         self._browser: Browser | None = None
         self._playwright: Any = None
@@ -446,19 +489,30 @@ class BrowserManager:
         await self.stop()
 
     def _get_playwright_module(self) -> Any:
-        """Get the appropriate playwright module based on stealth setting.
+        """Get the appropriate playwright module based on engine setting.
 
         Returns:
             The async_playwright function from either patchright or playwright.
+            Returns None when engine is "camoufox" (uses separate launch path).
 
         Raises:
-            StealthNotAvailableError: If stealth is enabled but patchright not installed.
+            StealthNotAvailableError: If patchright engine requested but not installed.
+            CamoufoxNotAvailableError: If camoufox engine requested but not installed.
         """
-        if self.stealth:
+        if self.engine == "camoufox":
+            # Camoufox has its own launch path, validated in start()
+            try:
+                import camoufox  # noqa: F401
+
+                LOGGER.debug("Using Camoufox engine (patched Firefox)")
+                return None  # Camoufox doesn't use async_playwright
+            except ImportError as e:
+                raise CamoufoxNotAvailableError() from e
+        elif self.engine == "patchright":
             try:
                 from patchright.async_api import async_playwright
 
-                LOGGER.debug("Using Patchright for stealth mode")
+                LOGGER.debug("Using Patchright engine (patched Chromium)")
                 return async_playwright
             except ImportError as e:
                 raise StealthNotAvailableError() from e
@@ -474,11 +528,19 @@ class BrowserManager:
         via async context manager (async with BrowserManager() as browser).
 
         Raises:
-            StealthNotAvailableError: If stealth is enabled but patchright not installed.
+            StealthNotAvailableError: If patchright engine requested but not installed.
+            CamoufoxNotAvailableError: If camoufox engine requested but not installed.
         """
         if self._browser is not None:
             return  # Already started
 
+        if self.engine == "camoufox":
+            await self._start_camoufox()
+        else:
+            await self._start_playwright()
+
+    async def _start_playwright(self) -> None:
+        """Start browser via Playwright or Patchright."""
         async_playwright = self._get_playwright_module()
         self._playwright = await async_playwright().start()
 
@@ -496,9 +558,52 @@ class BrowserManager:
 
         self._browser = await self._playwright.chromium.launch(**launch_options)
         LOGGER.debug(
-            "Browser started (headless=%s, stealth=%s, proxy=%s)",
+            "Browser started (engine=%s, headless=%s, proxy=%s)",
+            self.engine,
             self.headless,
-            self.stealth,
+            bool(self.proxy),
+        )
+
+    async def _start_camoufox(self) -> None:
+        """Start browser via Camoufox (patched Firefox).
+
+        Camoufox has its own context manager that returns a browser instance
+        compatible with the Playwright API. We use AsyncNewBrowser to get
+        an async context manager.
+        """
+        try:
+            from camoufox.async_api import AsyncNewBrowser
+        except ImportError as e:
+            raise CamoufoxNotAvailableError() from e
+
+        # Build Camoufox options
+        camoufox_options: dict[str, Any] = {
+            "headless": self.headless,
+            "humanize": True,  # Natural cursor movement
+        }
+
+        # Add proxy if configured
+        if self.proxy:
+            try:
+                camoufox_options["proxy"] = _parse_proxy_url(self.proxy)
+                LOGGER.debug("Using proxy: %s", self.proxy.split("@")[-1])
+            except ValueError as e:
+                LOGGER.error(f"Invalid proxy URL: {e}")
+                raise
+
+        # Apply locale if configured
+        if self.locale_config is not None:
+            locale = self.locale_config.get_language()
+            if locale:
+                camoufox_options["locale"] = locale
+
+        # Camoufox returns a context manager; we enter it and store the browser
+        self._camoufox_cm = AsyncNewBrowser(**camoufox_options)
+        self._browser = await self._camoufox_cm.__aenter__()
+
+        LOGGER.debug(
+            "Browser started (engine=camoufox, headless=%s, humanize=True, proxy=%s)",
+            self.headless,
             bool(self.proxy),
         )
 
@@ -507,12 +612,21 @@ class BrowserManager:
 
         Safe to call multiple times.
         """
-        if self._browser:
-            await self._browser.close()
+        if self.engine == "camoufox" and hasattr(self, "_camoufox_cm"):
+            # Camoufox cleanup via its context manager
+            try:
+                await self._camoufox_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
             self._browser = None
-        if self._playwright:
-            await self._playwright.stop()
-            self._playwright = None
+            del self._camoufox_cm
+        else:
+            if self._browser:
+                await self._browser.close()
+                self._browser = None
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
         LOGGER.debug("Browser stopped")
 
     async def fetch_page(
@@ -550,17 +664,22 @@ class BrowserManager:
 
         context: BrowserContext | None = None
         page: Page | None = None
+        # Camoufox browser IS the context — don't create a separate one
+        owns_context = self.engine != "camoufox"
 
         try:
-            # Create fresh context for isolation with locale settings
-            context_options = self._build_context_options()
-            context = await self._browser.new_context(**context_options)
+            if owns_context:
+                # Playwright/Patchright: create fresh context for isolation
+                context_options = self._build_context_options()
+                context = await self._browser.new_context(**context_options)
+                page = await context.new_page()
+            else:
+                # Camoufox: browser is already a context, just create a page
+                page = await self._browser.new_page()
 
-            page = await context.new_page()
-
-            # Inject basic stealth scripts (for non-Patchright mode)
-            # Patchright handles these automatically, but we add them for standard Playwright
-            if not self.stealth:
+            # Inject basic stealth scripts only for standard Playwright
+            # Patchright and Camoufox handle anti-detection at the engine level
+            if self.engine == "playwright":
                 for script in STEALTH_SCRIPTS:
                     await page.add_init_script(script)
                 LOGGER.debug("Injected %d basic stealth scripts", len(STEALTH_SCRIPTS))
@@ -610,13 +729,18 @@ class BrowserManager:
                     type="png",
                 )
 
-            # Generate PDF if requested (requires headless mode)
+            # Generate PDF if requested
+            # Note: page.pdf() is only available on Chromium (Playwright/Patchright),
+            # not on Firefox (Camoufox). Log a warning instead of crashing.
             pdf_bytes: bytes | None = None
             if capture_pdf:
-                pdf_bytes = await page.pdf(
-                    format="A4",
-                    print_background=True,
-                )
+                if self.engine == "camoufox":
+                    LOGGER.warning("PDF generation is not supported with Camoufox (Firefox). Skipping PDF capture.")
+                else:
+                    pdf_bytes = await page.pdf(
+                        format="A4",
+                        print_background=True,
+                    )
 
             return PageContent(
                 url=url,
@@ -634,7 +758,7 @@ class BrowserManager:
                     await page.close()
                 except Exception:
                     pass
-            if context:
+            if owns_context and context:
                 try:
                     await context.close()
                 except Exception:
@@ -663,17 +787,18 @@ class BrowserManager:
 
         context: BrowserContext | None = None
         page: Page | None = None
+        owns_context = self.engine != "camoufox"
 
         try:
-            # Create fresh context with locale settings
-            context_options = self._build_context_options()
-            context = await self._browser.new_context(**context_options)
+            if owns_context:
+                context_options = self._build_context_options()
+                context = await self._browser.new_context(**context_options)
+                page = await context.new_page()
+            else:
+                page = await self._browser.new_page()
 
-            page = await context.new_page()
-
-            # Inject basic stealth scripts (for non-Patchright mode)
-            # Patchright handles these automatically, but we add them for standard Playwright
-            if not self.stealth:
+            # Inject basic stealth scripts only for standard Playwright
+            if self.engine == "playwright":
                 for script in STEALTH_SCRIPTS:
                     await page.add_init_script(script)
                 LOGGER.debug("Injected %d basic stealth scripts for link extraction", len(STEALTH_SCRIPTS))
@@ -708,7 +833,7 @@ class BrowserManager:
                     await page.close()
                 except Exception:
                     pass
-            if context:
+            if owns_context and context:
                 try:
                     await context.close()
                 except Exception:

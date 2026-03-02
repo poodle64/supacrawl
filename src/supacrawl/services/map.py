@@ -51,24 +51,29 @@ class MapService:
         concurrency: int = DEFAULT_CONCURRENCY,
         wait_until: WaitUntilType | None = None,
         headless: bool | None = None,
+        engine: str | None = None,
     ):
         """Initialize map service.
 
         Args:
             browser: Optional BrowserManager (created if not provided)
-            stealth: Enable stealth mode via Patchright for anti-bot evasion
+            stealth: Enable stealth mode via Patchright for anti-bot evasion.
+                Ignored when engine is explicitly set.
             proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
             concurrency: Max concurrent requests for URL processing (default: 10)
             wait_until: Page load strategy. Options: commit, domcontentloaded (default),
                 load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
             headless: Run browser in headless mode. Passed through to any BrowserManager
                 instances created internally when no shared browser is provided.
+            engine: Browser engine ("playwright", "patchright", "camoufox").
+                Overrides the stealth flag when set.
         """
         self._browser = browser
         self._owns_browser = browser is None
         self._stealth = stealth
         self._proxy = proxy
         self._headless = headless
+        self._engine = engine
         self._concurrency = max(1, concurrency)  # Ensure at least 1
         self._wait_until = wait_until
 
@@ -369,7 +374,9 @@ class MapService:
         browser = self._browser
         close_browser = False
         if browser is None:
-            browser = BrowserManager(headless=self._headless, stealth=self._stealth, proxy=self._proxy)
+            browser = BrowserManager(
+                headless=self._headless, stealth=self._stealth, proxy=self._proxy, engine=self._engine
+            )
             close_browser = True
 
         # Semaphore for concurrent link extraction
@@ -475,7 +482,9 @@ class MapService:
         browser = self._browser
         close_browser = False
         if browser is None:
-            browser = BrowserManager(headless=self._headless, stealth=self._stealth, proxy=self._proxy)
+            browser = BrowserManager(
+                headless=self._headless, stealth=self._stealth, proxy=self._proxy, engine=self._engine
+            )
             close_browser = True
 
         try:

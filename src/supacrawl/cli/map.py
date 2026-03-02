@@ -89,6 +89,12 @@ from supacrawl.cli._common import app
     help="Page load strategy. Default: load. Use 'networkidle' for JS-heavy sites. Also reads SUPACRAWL_WAIT_UNTIL env.",
 )
 @click.option(
+    "--engine",
+    type=click.Choice(["playwright", "patchright", "camoufox"], case_sensitive=False),
+    default=None,
+    help="Browser engine. playwright=default, patchright=Tier 2 stealth (requires supacrawl[stealth]), camoufox=Tier 3 for Akamai (requires supacrawl[camoufox]). Overrides --stealth.",
+)
+@click.option(
     "--ignore-cache",
     is_flag=True,
     default=False,
@@ -108,6 +114,7 @@ def map_cmd(
     proxy: str | None,
     concurrency: int,
     wait_until: str | None,
+    engine: str | None,
     ignore_cache: bool,
 ) -> None:
     """Map a website to discover all URLs.
@@ -129,6 +136,7 @@ def map_cmd(
             proxy=proxy,
             concurrency=concurrency,
             wait_until=wait_until,  # type: ignore[arg-type]
+            engine=engine,
         )
         result = None
         last_progress = ""

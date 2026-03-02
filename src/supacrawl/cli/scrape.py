@@ -122,6 +122,12 @@ from supacrawl.cli._common import app
     help="Enhanced stealth mode via Patchright (requires: pip install supacrawl[stealth]). Note: Basic anti-bot evasion is always active.",
 )
 @click.option(
+    "--engine",
+    type=click.Choice(["playwright", "patchright", "camoufox"], case_sensitive=False),
+    default=None,
+    help="Browser engine. playwright=default, patchright=Tier 2 stealth (requires supacrawl[stealth]), camoufox=Tier 3 for Akamai (requires supacrawl[camoufox]). Overrides --stealth.",
+)
+@click.option(
     "--proxy",
     type=str,
     default=None,
@@ -157,6 +163,7 @@ def scrape_url(
     max_age: int,
     cache_dir: Path | None,
     stealth: bool,
+    engine: str | None,
     proxy: str | None,
     solve_captcha: bool,
     wait_until: str | None,
@@ -208,7 +215,8 @@ def scrape_url(
         supacrawl scrape https://example.com --language en-AU --timezone Australia/Sydney
         supacrawl scrape https://example.com --max-age 3600  # Use cache if fresh within 1 hour
         supacrawl scrape https://example.com --max-age 3600 --cache-dir ~/.my-cache
-        supacrawl scrape https://protected-site.com --stealth  # Force stealth mode
+        supacrawl scrape https://protected-site.com --stealth  # Force stealth mode (Patchright)
+        supacrawl scrape https://akamai-site.com --engine camoufox  # Tier 3: Akamai bypass
         supacrawl scrape https://captcha-site.com --stealth --solve-captcha  # Solve CAPTCHAs
         supacrawl scrape https://spa-site.com --wait-until networkidle  # Wait for JS to finish
     """
@@ -286,6 +294,7 @@ def scrape_url(
             stealth=stealth,
             proxy=proxy,
             solve_captcha=solve_captcha,
+            engine=engine,
         )
         result = await service.scrape(
             url=url,

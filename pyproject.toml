@@ -53,6 +53,9 @@ dev = [
 stealth = [
   "patchright>=1.56.0",
 ]
+camoufox = [
+  "camoufox[geoip]>=0.4.0",
+]
 captcha = [
   "2captcha-python>=2.0.2",
 ]
@@ -107,6 +110,10 @@ python_version = "3.12"
 
 [[tool.mypy.overrides]]
 module = "twocaptcha.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "camoufox.*"
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.sdist]
