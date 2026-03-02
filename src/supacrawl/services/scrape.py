@@ -666,6 +666,23 @@ class ScrapeService:
                         change_tracking_modes=change_tracking_modes,
                     )
 
+                    # JSON comparison mode: extract structured data from both
+                    # versions and compare field-by-field
+                    if (
+                        change_tracking.change_status == "changed"
+                        and change_tracking_modes
+                        and "json" in change_tracking_modes
+                    ):
+                        json_comparison = await self._generate_json_comparison(
+                            previous_entry=previous_entry,
+                            current_markdown=markdown,
+                            current_json=json_data,
+                            json_schema=json_schema,
+                            json_prompt=json_prompt,
+                        )
+                        if json_comparison:
+                            change_tracking.json_changes = json_comparison
+
                 result = ScrapeResult(
                     success=True,
                     data=ScrapeData(  # type: ignore[call-arg]
@@ -949,6 +966,70 @@ class ScrapeService:
             return None
         finally:
             await client.close()
+
+    async def _generate_json_comparison(
+        self,
+        previous_entry: Any,
+        current_markdown: str | None,
+        current_json: dict[str, Any] | None,
+        json_schema: dict[str, Any] | None,
+        json_prompt: str | None,
+    ) -> dict[str, Any] | None:
+        """Compare structured JSON fields between previous and current versions.
+
+        Extracts JSON from both previous cached markdown and current markdown
+        using the LLM, then returns a field-level comparison of changed values.
+
+        Args:
+            previous_entry: Previous CacheEntry with cached response.
+            current_markdown: Current markdown content.
+            current_json: Already-extracted JSON from current content (avoids
+                redundant LLM call when ``json`` is also in formats).
+            json_schema: JSON schema for extraction.
+            json_prompt: Custom prompt for extraction.
+
+        Returns:
+            Dict mapping field names to ``{previous, current}`` values for
+            fields that differ, or None if comparison is not possible.
+        """
+        # Extract previous markdown from cached response
+        try:
+            prev_data = previous_entry.response.get("data", {})
+            prev_markdown = prev_data.get("markdown") or ""
+        except (AttributeError, TypeError):
+            LOGGER.warning("Cannot extract previous markdown for JSON comparison")
+            return None
+
+        if not prev_markdown:
+            return None
+
+        # Extract JSON from previous version
+        prev_json = await self._extract_json(prev_markdown, json_schema, json_prompt)
+
+        # Extract JSON from current version (reuse if already extracted)
+        curr_json = current_json
+        if curr_json is None:
+            curr_json = await self._extract_json(current_markdown or "", json_schema, json_prompt)
+
+        if not prev_json and not curr_json:
+            LOGGER.warning("JSON extraction returned no data for either version")
+            return None
+
+        # Compare field by field — only include fields that differ
+        all_keys: set[str] = set()
+        if prev_json:
+            all_keys.update(prev_json.keys())
+        if curr_json:
+            all_keys.update(curr_json.keys())
+
+        changes: dict[str, Any] = {}
+        for key in sorted(all_keys):
+            prev_val = prev_json.get(key) if prev_json else None
+            curr_val = curr_json.get(key) if curr_json else None
+            if prev_val != curr_val:
+                changes[key] = {"previous": prev_val, "current": curr_val}
+
+        return changes if changes else None
 
     def _process_action_results(
         self,

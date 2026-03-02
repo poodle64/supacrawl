@@ -340,6 +340,7 @@ class ChangeTrackingData(BaseModel):
     change_status: Literal["new", "same", "changed", "removed"]
     visibility: Literal["visible", "hidden"] = "visible"
     diff: ChangeTrackingDiff | None = None  # Git-style unified diff (when requested)
+    json_changes: dict[str, Any] | None = None  # Field-level JSON comparison {field: {previous, current}}
     content_hash: str | None = None  # SHA256 hash of current markdown content
 
 

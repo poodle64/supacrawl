@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from supacrawl.cache import CacheEntry, CacheManager
 from supacrawl.models import ChangeTrackingData, ChangeTrackingDiff, ScrapeData
 from supacrawl.services.scrape import (
@@ -198,6 +200,170 @@ class TestCacheManagerGetPrevious:
         assert entry.content_hash is None
 
 
+class TestGenerateJsonComparison:
+    """Tests for ScrapeService._generate_json_comparison."""
+
+    @pytest.fixture
+    def service(self):
+        """Create a ScrapeService without cache (bare minimum for testing)."""
+        from supacrawl.services.scrape import ScrapeService
+
+        return ScrapeService()
+
+    @pytest.fixture
+    def previous_entry(self):
+        return CacheEntry(
+            url="http://example.com",
+            cached_at="2026-03-01T10:00:00Z",
+            expires_at="2026-03-02T10:00:00Z",
+            content_hash="abc123",
+            response={"data": {"markdown": "# Product\nPrice: $29/month\nPlan: Basic\n"}},
+        )
+
+    async def test_returns_changed_fields(self, service, previous_entry, monkeypatch):
+        """JSON comparison returns only fields that differ."""
+        call_count = 0
+
+        async def mock_extract_json(self, markdown, schema, prompt):
+            nonlocal call_count
+            call_count += 1
+            if "29" in markdown:
+                return {"price": "$29/month", "plan": "Basic"}
+            return {"price": "$39/month", "plan": "Basic"}
+
+        monkeypatch.setattr(
+            "supacrawl.services.scrape.ScrapeService._extract_json",
+            mock_extract_json,
+        )
+
+        result = await service._generate_json_comparison(
+            previous_entry=previous_entry,
+            current_markdown="# Product\nPrice: $39/month\nPlan: Basic\n",
+            current_json=None,
+            json_schema={"type": "object", "properties": {"price": {"type": "string"}}},
+            json_prompt=None,
+        )
+
+        assert result is not None
+        assert "price" in result
+        assert result["price"]["previous"] == "$29/month"
+        assert result["price"]["current"] == "$39/month"
+        assert "plan" not in result  # Same value, should be excluded
+        assert call_count == 2  # Both previous and current extracted
+
+    async def test_reuses_current_json(self, service, previous_entry, monkeypatch):
+        """When current_json is provided, skip redundant LLM call."""
+        call_count = 0
+
+        async def mock_extract_json(self, markdown, schema, prompt):
+            nonlocal call_count
+            call_count += 1
+            return {"price": "$29/month"}
+
+        monkeypatch.setattr(
+            "supacrawl.services.scrape.ScrapeService._extract_json",
+            mock_extract_json,
+        )
+
+        result = await service._generate_json_comparison(
+            previous_entry=previous_entry,
+            current_markdown="ignored",
+            current_json={"price": "$39/month"},  # Pre-extracted
+            json_schema=None,
+            json_prompt=None,
+        )
+
+        assert result is not None
+        assert result["price"]["previous"] == "$29/month"
+        assert result["price"]["current"] == "$39/month"
+        assert call_count == 1  # Only previous extracted
+
+    async def test_returns_none_when_both_extractions_fail(self, service, previous_entry, monkeypatch):
+        async def mock_extract_json(self, markdown, schema, prompt):
+            return None
+
+        monkeypatch.setattr(
+            "supacrawl.services.scrape.ScrapeService._extract_json",
+            mock_extract_json,
+        )
+
+        result = await service._generate_json_comparison(
+            previous_entry=previous_entry,
+            current_markdown="some content",
+            current_json=None,
+            json_schema=None,
+            json_prompt=None,
+        )
+        assert result is None
+
+    async def test_returns_none_when_no_previous_markdown(self, service):
+        entry = CacheEntry(
+            url="http://example.com",
+            cached_at="2026-03-01T10:00:00Z",
+            expires_at="2026-03-02T10:00:00Z",
+            response={"data": {}},  # No markdown
+        )
+
+        result = await service._generate_json_comparison(
+            previous_entry=entry,
+            current_markdown="some content",
+            current_json=None,
+            json_schema=None,
+            json_prompt=None,
+        )
+        assert result is None
+
+    async def test_returns_none_when_no_changes(self, service, previous_entry, monkeypatch):
+        """When all fields are identical, return None."""
+
+        async def mock_extract_json(self, markdown, schema, prompt):
+            return {"price": "$29/month", "plan": "Basic"}
+
+        monkeypatch.setattr(
+            "supacrawl.services.scrape.ScrapeService._extract_json",
+            mock_extract_json,
+        )
+
+        result = await service._generate_json_comparison(
+            previous_entry=previous_entry,
+            current_markdown="same content",
+            current_json=None,
+            json_schema=None,
+            json_prompt=None,
+        )
+        assert result is None
+
+    async def test_handles_new_fields(self, service, previous_entry, monkeypatch):
+        """Fields present in only one version are included."""
+        call_count = 0
+
+        async def mock_extract_json(self, markdown, schema, prompt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {"price": "$29/month"}  # Previous: no "tier" field
+            return {"price": "$29/month", "tier": "premium"}  # Current: added "tier"
+
+        monkeypatch.setattr(
+            "supacrawl.services.scrape.ScrapeService._extract_json",
+            mock_extract_json,
+        )
+
+        result = await service._generate_json_comparison(
+            previous_entry=previous_entry,
+            current_markdown="some content",
+            current_json=None,
+            json_schema=None,
+            json_prompt=None,
+        )
+
+        assert result is not None
+        assert "tier" in result
+        assert result["tier"]["previous"] is None
+        assert result["tier"]["current"] == "premium"
+        assert "price" not in result  # Same value
+
+
 class TestChangeTrackingModels:
     """Tests for change tracking Pydantic models."""
 
@@ -219,6 +385,15 @@ class TestChangeTrackingModels:
         )
         data = ct.model_dump()
         assert data["diff"]["text"].startswith("--- a")
+
+    def test_change_tracking_with_json_changes(self):
+        ct = ChangeTrackingData(
+            change_status="changed",
+            json_changes={"price": {"previous": "$29/month", "current": "$39/month"}},
+        )
+        data = ct.model_dump()
+        assert data["json_changes"]["price"]["previous"] == "$29/month"
+        assert data["json_changes"]["price"]["current"] == "$39/month"
 
     def test_scrape_data_includes_change_tracking(self):
         from supacrawl.models import ScrapeMetadata
