@@ -155,7 +155,7 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
     "--wait-until",
     type=click.Choice(["commit", "domcontentloaded", "load", "networkidle"], case_sensitive=False),
     default=None,
-    help="Page load strategy. Default: load. Use 'networkidle' for JS-heavy sites. Also reads SUPACRAWL_WAIT_UNTIL env.",
+    help="Page load strategy. Default: domcontentloaded. Use 'load' to wait for all resources, 'networkidle' for JS-heavy sites. Also reads SUPACRAWL_WAIT_UNTIL env.",
 )
 @click.option(
     "--change-tracking-modes",

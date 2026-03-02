@@ -50,7 +50,7 @@ supacrawl scrape URL [OPTIONS]
 - `--stealth/--no-stealth` - Enhanced stealth mode via Patchright (requires: `pip install supacrawl[stealth]`)
 - `--proxy URL` - Proxy URL (e.g., `http://user:pass@host:port`, `socks5://host:port`)
 - `--solve-captcha/--no-solve-captcha` - Enable CAPTCHA solving via 2Captcha (requires: `pip install supacrawl[captcha]` and `CAPTCHA_API_KEY`)
-- `--wait-until STRATEGY` - Page load strategy: `commit`, `domcontentloaded`, `load`, `networkidle` (default: load)
+- `--wait-until STRATEGY` - Page load strategy: `commit`, `domcontentloaded`, `load`, `networkidle` (default: domcontentloaded)
 
 **Example:**
 ```bash
@@ -353,13 +353,16 @@ supacrawl crawl https://docs.example.com -o ./docs \
 
 ### Handling JS-Heavy SPAs
 
-Single-page applications load content dynamically. Use wait strategies to ensure content is rendered.
+Single-page applications load content dynamically. The default `domcontentloaded` strategy waits for the initial DOM but not for async JavaScript. Use wait strategies to ensure SPA content is rendered:
 
 ```bash
 # Wait until all network requests complete
 supacrawl scrape https://spa.example.com --wait-until networkidle
 
-# Add extra wait time for slow JavaScript
+# Enable SPA stability polling (waits for DOM to stop changing)
+supacrawl scrape https://spa.example.com --wait-for 3000
+
+# Both: wait for network idle, then poll for DOM stability
 supacrawl scrape https://spa.example.com --wait-until networkidle --wait-for 3000
 ```
 
@@ -467,7 +470,7 @@ supacrawl scrape https://example.com --language en-AU --timezone Australia/Sydne
 
 - `SUPACRAWL_HEADLESS` - Run headless (default: `true`)
 - `SUPACRAWL_TIMEOUT` - Page load timeout in ms (default: `30000`)
-- `SUPACRAWL_WAIT_UNTIL` - Default page load strategy (`commit`, `domcontentloaded`, `load`, `networkidle`)
+- `SUPACRAWL_WAIT_UNTIL` - Default page load strategy (`commit`, `domcontentloaded`, `load`, `networkidle`; default: `domcontentloaded`)
 - `SUPACRAWL_PROXY` - Proxy URL (http/socks5)
 - `SUPACRAWL_CACHE_DIR` - Cache directory (default: `~/.supacrawl/cache`)
 
