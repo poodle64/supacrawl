@@ -20,9 +20,10 @@ async def supacrawl_crawl(
     max_depth: int = 3,
     include_patterns: list[str] | None = None,
     exclude_patterns: list[str] | None = None,
-    formats: list[Literal["markdown", "html", "rawHtml", "links", "screenshot"]] | None = None,
+    formats: list[Literal["markdown", "html", "rawHtml", "links", "screenshot", "changeTracking"]] | None = None,
     deduplicate_similar_urls: bool = False,
     allow_external_links: bool = False,
+    change_tracking_modes: list[str] | None = None,
 ) -> dict:
     """
     Crawl a website starting from URL, discovering and scraping pages.
@@ -64,9 +65,13 @@ async def supacrawl_crawl(
             - rawHtml: Full unprocessed HTML
             - links: Extracted links
             - screenshot: Page screenshots
+            - changeTracking: Compare each page against cached previous version
         deduplicate_similar_urls: Remove URLs that are similar (different query params,
             fragments, etc. pointing to same content)
         allow_external_links: Follow and crawl links to external domains
+        change_tracking_modes: Optional diff modes when changeTracking format is used.
+            Supports: ["git-diff", "json"]. git-diff produces unified diffs,
+            json compares extracted structured fields.
 
     Returns:
         Firecrawl-compatible crawl result:
@@ -117,8 +122,16 @@ async def supacrawl_crawl(
         # Convert Literal list to plain str list for CrawlService
         format_list: list[str] | None = list(formats) if formats else None
 
+        # Auto-resolve cache directory when change tracking is requested
+        cache_dir = None
+        if format_list and "changeTracking" in format_list:
+            from supacrawl.cache import CacheManager
+
+            cache_dir = CacheManager.DEFAULT_CACHE_DIR
+
         pages = []
         total_crawled = 0
+        change_summary = None
 
         # CrawlService.crawl() yields CrawlEvent objects
         async for event in api_client.crawl_service.crawl(
@@ -130,18 +143,25 @@ async def supacrawl_crawl(
             formats=format_list,
             deduplicate_similar_urls=deduplicate_similar_urls,
             allow_external_links=allow_external_links,
+            cache_dir=cache_dir,
+            change_tracking_modes=change_tracking_modes,
         ):
             if event.type == "page" and event.data:
                 pages.append(event.data.model_dump())
                 total_crawled += 1
+            elif event.type == "complete" and event.change_summary:
+                change_summary = event.change_summary
 
-        return {
+        result = {
             "success": True,
             "status": "completed",
             "total": total_crawled,
             "data": pages,
             "correlation_id": correlation_id,
         }
+        if change_summary:
+            result["change_summary"] = change_summary
+        return result
 
     except SupacrawlValidationError:
         raise

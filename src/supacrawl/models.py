@@ -390,6 +390,7 @@ class CrawlEvent(BaseModel):
     total: int = 0  # 0 indicates unknown during mapping/discovery phase
     error: str | None = None
     message: str | None = None  # Descriptive text for mapping phase
+    change_summary: dict[str, int] | None = None  # Crawl-level change tracking summary
 
 
 # =============================================================================

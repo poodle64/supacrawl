@@ -51,7 +51,7 @@ from supacrawl.cli._common import app
     "-f",
     "formats",
     multiple=True,
-    type=click.Choice(["markdown", "html", "json"], case_sensitive=False),
+    type=click.Choice(["markdown", "html", "json", "changeTracking"], case_sensitive=False),
     default=["markdown"],
     show_default=True,
     help="Output formats to save",
@@ -117,6 +117,18 @@ from supacrawl.cli._common import app
     default=None,
     help="Browser engine. playwright=default, patchright=Tier 2 stealth (requires supacrawl[stealth]), camoufox=Tier 3 for Akamai (requires supacrawl[camoufox]). Overrides --stealth.",
 )
+@click.option(
+    "--cache-dir",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    help="Cache directory for change tracking. Defaults to ~/.supacrawl/cache or SUPACRAWL_CACHE_DIR.",
+)
+@click.option(
+    "--change-tracking-modes",
+    multiple=True,
+    type=click.Choice(["git-diff", "json"], case_sensitive=False),
+    help="Diff modes for change tracking. Requires -f changeTracking. Options: git-diff, json.",
+)
 def crawl_cmd(
     url: str,
     limit: int,
@@ -136,6 +148,8 @@ def crawl_cmd(
     concurrency: int,
     wait_until: str | None,
     engine: str | None,
+    cache_dir: Path | None,
+    change_tracking_modes: tuple[str, ...],
 ) -> None:
     """Crawl a website and save all pages.
 
@@ -146,6 +160,7 @@ def crawl_cmd(
         supacrawl crawl https://example.com --output corpus/ --deduplicate-similar-urls
         supacrawl crawl https://example.com --output corpus/ --allow-external-links --limit 50
         supacrawl crawl https://example.com --output corpus/ --country AU
+        supacrawl crawl https://example.com --output corpus/ -f changeTracking --change-tracking-modes git-diff
     """
     import asyncio
 
@@ -166,6 +181,14 @@ def crawl_cmd(
         else:
             locale_config = LocaleConfig(language=language, timezone=timezone)
 
+    # Resolve cache directory if change tracking is requested
+    formats_list = list(formats)
+    resolved_cache_dir = cache_dir
+    if "changeTracking" in formats_list and not resolved_cache_dir:
+        from supacrawl.cache import CacheManager
+
+        resolved_cache_dir = CacheManager.DEFAULT_CACHE_DIR
+
     async def run():
         from urllib.parse import urlparse
 
@@ -181,7 +204,7 @@ def crawl_cmd(
             exclude_patterns=list(exclude) if exclude else None,
             output_dir=output,
             resume=resume,
-            formats=list(formats),
+            formats=formats_list,
             deduplicate_similar_urls=deduplicate_similar_urls,
             allow_external_links=allow_external_links,
             locale_config=locale_config,
@@ -190,6 +213,8 @@ def crawl_cmd(
             concurrency=concurrency,
             wait_until=wait_until,  # type: ignore[arg-type]
             engine=engine,
+            cache_dir=resolved_cache_dir,
+            change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
         ):
             if event.type == "progress":
                 # Show progress bar
@@ -217,5 +242,8 @@ def crawl_cmd(
                     click.echo(f"\n  x {path} ({error_msg})", err=True)
             elif event.type == "complete":
                 click.echo(f"\n\nComplete: {event.completed}/{event.total} pages", err=True)
+                if event.change_summary:
+                    parts = [f"{v} {k}" for k, v in event.change_summary.items()]
+                    click.echo(f"Changes: {', '.join(parts)}", err=True)
 
     asyncio.run(run())
