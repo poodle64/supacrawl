@@ -471,19 +471,76 @@ class BrowserManager:
             return default
         return val.strip().lower() in {"1", "true", "yes", "on"}
 
-    def _build_context_options(self) -> dict[str, Any]:
-        """Build browser context options including locale settings.
+    def _resolve_device_config(self, device: str) -> dict[str, Any]:
+        """Resolve a Playwright device name to context options.
+
+        Looks up the device in Playwright's built-in device descriptors and
+        returns a dict suitable for passing to ``browser.new_context()``.
+
+        Args:
+            device: Device name (e.g. "iPhone 14", "Pixel 7").
+
+        Returns:
+            Dict with user_agent, viewport, device_scale_factor, is_mobile,
+            has_touch keys.
+
+        Raises:
+            ValueError: If the device name is not found in Playwright's
+                device descriptors.
+        """
+        if self._playwright is None:
+            raise RuntimeError("Playwright not started. Cannot resolve device config.")
+
+        devices = self._playwright.devices
+        if device not in devices:
+            # Build helpful error with close matches
+            available = sorted(devices.keys())
+            lower = device.lower()
+            suggestions = [d for d in available if lower in d.lower() or d.lower() in lower][:5]
+            hint = f" Did you mean: {', '.join(suggestions)}" if suggestions else ""
+            raise ValueError(
+                f"Unknown device '{device}'. Use BrowserManager.list_devices() to see available devices.{hint}"
+            )
+
+        config = dict(devices[device])
+        # Remove default_browser_type — it's metadata, not a context option
+        config.pop("default_browser_type", None)
+        return config
+
+    async def list_devices(self) -> list[str]:
+        """Return sorted list of available Playwright device names.
+
+        Requires the browser to be started (Playwright instance available).
+        """
+        if self._playwright is None:
+            raise RuntimeError("Playwright not started. Call start() first.")
+        return sorted(self._playwright.devices.keys())
+
+    def _build_context_options(self, device: str | None = None) -> dict[str, Any]:
+        """Build browser context options including locale and device settings.
 
         When no explicit configuration is provided, returns minimal options
         to let Playwright use browser defaults. This reduces fingerprint
         mismatch that can trigger bot detection.
+
+        Args:
+            device: Optional Playwright device name for mobile emulation
+                (e.g. "iPhone 14", "Pixel 7").
 
         Returns:
             Dictionary of options for browser.new_context()
         """
         options: dict[str, Any] = {}
 
+        # Apply device emulation first (provides base viewport, UA, etc.)
+        if device:
+            device_config = self._resolve_device_config(device)
+            options.update(device_config)
+            LOGGER.debug("Applying device emulation: %s", device)
+
         # Only set user agent if explicitly provided (reduces fingerprint mismatch)
+        # When device emulation is active, the device's UA is already set above;
+        # an explicit user_agent overrides it (intentional user choice).
         if self.user_agent:
             options["user_agent"] = self.user_agent
 
@@ -677,6 +734,7 @@ class BrowserManager:
         actions: list[Any] | None = None,
         wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] | None = None,
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
+        device: str | None = None,
     ) -> PageContent:
         """Fetch a page with browser rendering.
 
@@ -693,15 +751,26 @@ class BrowserManager:
             expand_iframes: Iframe expansion mode. "none" strips all iframes (legacy),
                 "same-origin" expands same-origin iframes inline (default),
                 "all" expands all non-blocked iframes including cross-origin.
+            device: Playwright device name for mobile emulation (e.g. "iPhone 14",
+                "Pixel 7"). Sets viewport, user agent, device scale factor, and
+                touch support. Not supported with the Camoufox engine.
 
         Returns:
             PageContent with HTML, metadata, and optional screenshot/PDF
 
         Raises:
             RuntimeError: If browser not initialized or fetch fails
+            ValueError: If device is specified with Camoufox engine or device
+                name is not recognised.
         """
         if not self._browser:
             raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+
+        if device and self.engine == "camoufox":
+            raise ValueError(
+                "Device emulation is not supported with the Camoufox engine. "
+                "Camoufox generates its own fingerprint. Use --engine playwright or --engine patchright."
+            )
 
         context: BrowserContext | None = None
         page: Page | None = None
@@ -711,7 +780,7 @@ class BrowserManager:
         try:
             if owns_context:
                 # Playwright/Patchright: create fresh context for isolation
-                context_options = self._build_context_options()
+                context_options = self._build_context_options(device=device)
                 context = await self._browser.new_context(**context_options)
                 page = await context.new_page()
             else:

@@ -43,6 +43,8 @@ async def supacrawl_scrape(
     max_age: int = 0,
     change_tracking_modes: list[str] | None = None,
     expand_iframes: str = "same-origin",
+    mobile: bool = False,
+    device: str | None = None,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -110,6 +112,11 @@ async def supacrawl_scrape(
         expand_iframes: Iframe expansion mode (default: "same-origin").
             "none" strips all iframes (legacy), "same-origin" expands same-origin
             iframes inline, "all" expands all non-blocked iframes.
+        mobile: Scrape as a default mobile device (iPhone 14). Sets mobile
+            viewport, user agent, device scale factor, and touch support.
+        device: Emulate a specific device by name (e.g. "iPhone 15", "Pixel 7").
+            Overrides the mobile flag. Uses Playwright's built-in device
+            descriptors for accurate viewport, user agent, and DPI emulation.
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -170,6 +177,13 @@ async def supacrawl_scrape(
                 for a in actions
             ]
 
+        # Resolve mobile/device to a device name
+        from supacrawl.models import DEFAULT_MOBILE_DEVICE
+
+        resolved_device: str | None = device
+        if mobile and not device:
+            resolved_device = DEFAULT_MOBILE_DEVICE
+
         result = await api_client.scrape_service.scrape(
             url=validated_url,
             formats=formats,
@@ -185,6 +199,7 @@ async def supacrawl_scrape(
             max_age=max_age,
             change_tracking_modes=change_tracking_modes,
             expand_iframes=expand_iframes,  # type: ignore[arg-type]
+            device=resolved_device,
         )
 
         response = result.model_dump()

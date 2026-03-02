@@ -7,6 +7,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 # =============================================================================
+# Device Emulation
+# =============================================================================
+
+# Default device used by the --mobile shortcut
+DEFAULT_MOBILE_DEVICE = "iPhone 14"
+
+# =============================================================================
 # Locale/Location Configuration
 # =============================================================================
 

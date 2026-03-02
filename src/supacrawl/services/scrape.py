@@ -409,6 +409,7 @@ class ScrapeService:
         wait_until: WaitUntilType | None = None,
         change_tracking_modes: list[str] | None = None,
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
+        device: str | None = None,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -438,6 +439,9 @@ class ScrapeService:
             expand_iframes: Iframe expansion mode. "none" strips all (legacy),
                     "same-origin" expands same-origin iframes inline (default),
                     "all" expands all non-blocked iframes including cross-origin.
+            device: Playwright device name for mobile emulation (e.g. "iPhone 14",
+                    "Pixel 7"). Sets viewport, user agent, device scale factor, and
+                    touch support. Use ``--mobile`` as a shortcut for a default device.
 
         Returns:
             ScrapeResult with scraped content
@@ -449,12 +453,15 @@ class ScrapeService:
         if wants_change_tracking and "markdown" not in formats:
             formats = [*formats, "markdown"]
 
-        # Build cache variant for screenshot settings that affect output.
-        # Different screenshot_full_page values produce different images, so
-        # they must map to separate cache entries.
-        cache_variant: str | None = None
+        # Build cache variant for settings that affect output.
+        # Different settings produce different content, so they must map to
+        # separate cache entries.
+        variant_parts: list[str] = []
+        if device:
+            variant_parts.append(f"device={device}")
         if "screenshot" in formats and not screenshot_full_page:
-            cache_variant = "screenshot_full_page=False"
+            variant_parts.append("screenshot_full_page=False")
+        cache_variant: str | None = "|".join(variant_parts) if variant_parts else None
 
         # Get previous cached entry for change tracking comparison (ignores expiry)
         previous_entry = None
@@ -509,6 +516,7 @@ class ScrapeService:
                     actions=actions,
                     wait_until=wait_until,
                     expand_iframes=expand_iframes,
+                    device=device,
                 )
 
                 # Extract metadata
@@ -570,6 +578,7 @@ class ScrapeService:
                             wait_until=wait_until,
                             change_tracking_modes=change_tracking_modes,
                             expand_iframes=expand_iframes,
+                            device=device,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint()}")
