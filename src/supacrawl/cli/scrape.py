@@ -192,7 +192,7 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
     type=click.Choice(["fast", "auto", "ocr", "off"], case_sensitive=False),
     default="auto",
     show_default=True,
-    help="PDF parsing mode. auto=detect PDFs and extract text (OCR fallback if available), fast=text only, ocr=force OCR, off=disable.",
+    help="PDF parsing mode. auto=detect .pdf URLs and extract text (OCR fallback if available), fast=text only, ocr=force OCR, off=disable.",
 )
 def scrape_url(
     url: str | None,

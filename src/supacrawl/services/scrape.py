@@ -444,9 +444,10 @@ class ScrapeService:
             device: Playwright device name for mobile emulation (e.g. "iPhone 14",
                     "Pixel 7"). Sets viewport, user agent, device scale factor, and
                     touch support. Use ``--mobile`` as a shortcut for a default device.
-            parse_pdf: PDF parsing mode. "auto" (default) auto-detects PDF URLs and
-                    extracts text, falling back to OCR if available. "fast" uses text
-                    extraction only. "ocr" forces OCR. None disables PDF parsing.
+            parse_pdf: PDF parsing mode. "auto" (default) detects PDF URLs by
+                    file extension (.pdf) and extracts text, falling back to OCR
+                    if available. "fast" uses text extraction only. "ocr" forces
+                    OCR. None disables PDF parsing entirely.
 
         Returns:
             ScrapeResult with scraped content
@@ -487,13 +488,12 @@ class ScrapeService:
 
         # PDF detection: if parse_pdf is enabled, check if URL points to a PDF
         # and route to the PDF extraction pipeline instead of the browser.
+        # Only checks the .pdf file extension — no HEAD requests are sent to
+        # avoid per-URL network overhead during bulk scraping.
         if parse_pdf is not None:
-            from supacrawl.services.pdf import detect_pdf_content_type, is_pdf_url, needs_content_type_check
+            from supacrawl.services.pdf import is_pdf_url
 
             is_pdf = is_pdf_url(url)
-            # Only send HEAD request for ambiguous URLs (no extension or unknown extension)
-            if not is_pdf and needs_content_type_check(url):
-                is_pdf = await detect_pdf_content_type(url)
 
             if is_pdf:
                 return await self._scrape_pdf(
