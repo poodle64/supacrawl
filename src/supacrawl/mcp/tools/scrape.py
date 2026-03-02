@@ -27,6 +27,7 @@ async def supacrawl_scrape(
             "images",
             "branding",
             "summary",
+            "changeTracking",
         ]
     ]
     | None = None,
@@ -40,6 +41,7 @@ async def supacrawl_scrape(
     include_tags: list[str] | None = None,
     exclude_tags: list[str] | None = None,
     max_age: int = 0,
+    change_tracking_modes: list[str] | None = None,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -177,6 +179,7 @@ async def supacrawl_scrape(
             include_tags=include_tags,
             exclude_tags=exclude_tags,
             max_age=max_age,
+            change_tracking_modes=change_tracking_modes,
         )
 
         response = result.model_dump()

@@ -176,6 +176,116 @@ def _captcha_hint() -> str:
         )
 
 
+def _compute_content_hash(markdown: str | None) -> str:
+    """Compute SHA256 hash of markdown content for change tracking.
+
+    Args:
+        markdown: Markdown content to hash. None or empty string produces
+            a hash of the empty string.
+
+    Returns:
+        Hex-encoded SHA256 hash string.
+    """
+    import hashlib
+
+    content = (markdown or "").encode("utf-8")
+    return hashlib.sha256(content).hexdigest()
+
+
+def _build_change_tracking(
+    previous_entry: Any | None,
+    current_hash: str,
+    current_markdown: str | None,
+    change_tracking_modes: list[str] | None = None,
+) -> Any:
+    """Build change tracking data by comparing current scrape to cached previous.
+
+    Args:
+        previous_entry: Previous CacheEntry (from get_previous), or None.
+        current_hash: SHA256 hash of current markdown content.
+        current_markdown: Current markdown content (for diff generation).
+        change_tracking_modes: Optional list of diff modes (e.g. ["git-diff"]).
+
+    Returns:
+        ChangeTrackingData with change status and optional diff.
+    """
+    from supacrawl.models import ChangeTrackingData
+
+    if previous_entry is None:
+        return ChangeTrackingData(
+            change_status="new",
+            content_hash=current_hash,
+        )
+
+    previous_hash = previous_entry.content_hash
+    previous_scrape_at = previous_entry.cached_at
+
+    # Fast path: hash comparison
+    if previous_hash is not None and previous_hash == current_hash:
+        return ChangeTrackingData(
+            previous_scrape_at=previous_scrape_at,
+            change_status="same",
+            content_hash=current_hash,
+        )
+
+    # Content has changed (or no previous hash to compare — treat as changed)
+    diff = None
+    if change_tracking_modes and "git-diff" in change_tracking_modes:
+        diff = _generate_unified_diff(previous_entry, current_markdown)
+
+    return ChangeTrackingData(
+        previous_scrape_at=previous_scrape_at,
+        change_status="changed",
+        content_hash=current_hash,
+        diff=diff,
+    )
+
+
+def _generate_unified_diff(
+    previous_entry: Any,
+    current_markdown: str | None,
+) -> Any:
+    """Generate a unified diff between previous and current markdown.
+
+    Args:
+        previous_entry: Previous CacheEntry containing the cached response.
+        current_markdown: Current markdown content.
+
+    Returns:
+        ChangeTrackingDiff with unified diff text, or None if unable to diff.
+    """
+    import difflib
+
+    from supacrawl.models import ChangeTrackingDiff
+
+    # Extract previous markdown from cached response
+    prev_markdown = ""
+    try:
+        prev_data = previous_entry.response.get("data", {})
+        prev_markdown = prev_data.get("markdown") or ""
+    except (AttributeError, TypeError):
+        return None
+
+    curr_markdown = current_markdown or ""
+
+    prev_lines = prev_markdown.splitlines(keepends=True)
+    curr_lines = curr_markdown.splitlines(keepends=True)
+
+    diff_lines = list(
+        difflib.unified_diff(
+            prev_lines,
+            curr_lines,
+            fromfile="previous",
+            tofile="current",
+        )
+    )
+
+    if not diff_lines:
+        return None
+
+    return ChangeTrackingDiff(text="".join(diff_lines))
+
+
 class ScrapeService:
     """Scrape a single URL and extract content.
 
@@ -272,7 +382,17 @@ class ScrapeService:
         url: str,
         formats: list[
             Literal[
-                "markdown", "html", "rawHtml", "links", "screenshot", "pdf", "json", "images", "branding", "summary"
+                "markdown",
+                "html",
+                "rawHtml",
+                "links",
+                "screenshot",
+                "pdf",
+                "json",
+                "images",
+                "branding",
+                "summary",
+                "changeTracking",
             ]
         ]
         | None = None,
@@ -287,13 +407,15 @@ class ScrapeService:
         exclude_tags: list[str] | None = None,
         max_age: int = 0,
         wait_until: WaitUntilType | None = None,
+        change_tracking_modes: list[str] | None = None,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
         Args:
             url: URL to scrape
             formats: Content formats to return (default: ["markdown"])
-                     Supports: markdown, html, rawHtml, links, screenshot, pdf, json, images, branding, summary
+                     Supports: markdown, html, rawHtml, links, screenshot, pdf,
+                     json, images, branding, summary, changeTracking
             only_main_content: Extract main content area only
             wait_for: Additional wait time in ms after page load
             timeout: Page load timeout in ms
@@ -310,11 +432,18 @@ class ScrapeService:
                     Returns cached content if available and fresh.
             wait_until: Page load strategy. Options: commit, domcontentloaded (default),
                        load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
+            change_tracking_modes: Optional diff modes for change tracking.
+                    Supports: ["git-diff"]. Only used when "changeTracking" is in formats.
 
         Returns:
             ScrapeResult with scraped content
         """
         formats = formats or ["markdown"]
+        wants_change_tracking = "changeTracking" in formats
+
+        # Change tracking requires markdown to compute content hash
+        if wants_change_tracking and "markdown" not in formats:
+            formats = [*formats, "markdown"]
 
         # Build cache variant for screenshot settings that affect output.
         # Different screenshot_full_page values produce different images, so
@@ -323,8 +452,14 @@ class ScrapeService:
         if "screenshot" in formats and not screenshot_full_page:
             cache_variant = "screenshot_full_page=False"
 
+        # Get previous cached entry for change tracking comparison (ignores expiry)
+        previous_entry = None
+        if wants_change_tracking and self._cache:
+            previous_entry = self._cache.get_previous(url, variant=cache_variant)
+
         # Check cache if max_age > 0 and cache is configured
-        if max_age > 0 and self._cache:
+        # When change tracking is requested, skip the cache shortcut — always do a fresh scrape
+        if max_age > 0 and self._cache and not wants_change_tracking:
             cached = self._cache.get(url, max_age, variant=cache_variant)
             if cached:
                 LOGGER.debug(f"Cache hit for {url}")
@@ -427,6 +562,8 @@ class ScrapeService:
                             include_tags=include_tags,
                             exclude_tags=exclude_tags,
                             max_age=max_age,
+                            wait_until=wait_until,
+                            change_tracking_modes=change_tracking_modes,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint()}")
@@ -517,6 +654,18 @@ class ScrapeService:
                     exclude_tags=exclude_tags,
                 )
 
+                # Compute change tracking if requested
+                change_tracking = None
+                current_content_hash = None
+                if wants_change_tracking:
+                    current_content_hash = _compute_content_hash(markdown)
+                    change_tracking = _build_change_tracking(
+                        previous_entry=previous_entry,
+                        current_hash=current_content_hash,
+                        current_markdown=markdown,
+                        change_tracking_modes=change_tracking_modes,
+                    )
+
                 result = ScrapeResult(
                     success=True,
                     data=ScrapeData(  # type: ignore[call-arg]
@@ -553,12 +702,24 @@ class ScrapeService:
                         images=images,
                         branding=branding,
                         actions=actions_output,
+                        change_tracking=change_tracking,
                     ),
                 )
 
                 # Store in cache if max_age > 0 and cache is configured
-                if max_age > 0 and self._cache:
-                    self._cache.set(url, result.model_dump(), max_age, variant=cache_variant)
+                # When change tracking is active, auto-enable caching so future
+                # comparisons have a previous version to diff against.
+                effective_max_age = max_age
+                if wants_change_tracking and effective_max_age <= 0:
+                    effective_max_age = 365 * 24 * 3600  # 1 year default for change tracking
+                if effective_max_age > 0 and self._cache:
+                    self._cache.set(
+                        url,
+                        result.model_dump(),
+                        effective_max_age,
+                        variant=cache_variant,
+                        content_hash=current_content_hash,
+                    )
 
                 return result
 
@@ -576,6 +737,24 @@ class ScrapeService:
                 error_msg += _stealth_hint()
 
             LOGGER.error(f"Scrape failed for {url}: {e}", exc_info=True)
+
+            # If change tracking is active and we have a previous version,
+            # report "removed" status (URL no longer accessible)
+            if wants_change_tracking and previous_entry is not None:
+                from supacrawl.models import ChangeTrackingData
+
+                return ScrapeResult(
+                    success=False,
+                    error=error_msg,
+                    data=ScrapeData(  # type: ignore[call-arg]
+                        metadata=ScrapeMetadata(source_url=url),
+                        change_tracking=ChangeTrackingData(
+                            previous_scrape_at=previous_entry.cached_at,
+                            change_status="removed",
+                        ),
+                    ),
+                )
+
             return ScrapeResult(
                 success=False,
                 error=error_msg,

@@ -23,6 +23,7 @@ class CacheEntry(BaseModel):
     url: str
     cached_at: str  # ISO format timestamp
     expires_at: str  # ISO format timestamp
+    content_hash: str | None = None  # SHA256 of markdown content for change tracking
     response: dict[str, Any]  # Serialised ScrapeResult
 
 
@@ -199,7 +200,39 @@ class CacheManager:
             LOGGER.warning(f"Failed to read cache entry for {url}: {e}")
             return None
 
-    def set(self, url: str, response: dict[str, Any], max_age: int, variant: str | None = None) -> None:
+    def get_previous(self, url: str, variant: str | None = None) -> CacheEntry | None:
+        """Get previous cached entry regardless of expiry (for change tracking).
+
+        Unlike :meth:`get`, this ignores expiry and returns the raw CacheEntry
+        so callers can access ``content_hash`` and ``cached_at`` for comparison.
+
+        Args:
+            url: URL to look up.
+            variant: Optional variant suffix (must match the value used in :meth:`set`).
+
+        Returns:
+            CacheEntry if found, None if no cached entry exists.
+        """
+        cache_key = self._cache_key(url, variant=variant)
+        cache_file = self.pages_dir / f"{cache_key}.json"
+
+        if not cache_file.exists():
+            return None
+
+        try:
+            return CacheEntry.model_validate_json(cache_file.read_text())
+        except Exception as e:
+            LOGGER.warning(f"Failed to read cache entry for {url}: {e}")
+            return None
+
+    def set(
+        self,
+        url: str,
+        response: dict[str, Any],
+        max_age: int,
+        variant: str | None = None,
+        content_hash: str | None = None,
+    ) -> None:
         """Cache a scrape result.
 
         Args:
@@ -208,6 +241,7 @@ class CacheManager:
             max_age: Time-to-live in seconds.
             variant: Optional variant suffix to differentiate cache entries
                 for the same URL with different request parameters.
+            content_hash: SHA256 hash of markdown content for change tracking.
         """
         if max_age <= 0:
             return
@@ -222,6 +256,7 @@ class CacheManager:
             url=url,
             cached_at=now.isoformat(),
             expires_at=expires_at.isoformat(),
+            content_hash=content_hash,
             response=response,
         )
 
