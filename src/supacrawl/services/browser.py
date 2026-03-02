@@ -661,12 +661,12 @@ class BrowserManager:
     async def _start_camoufox(self) -> None:
         """Start browser via Camoufox (patched Firefox).
 
-        Camoufox has its own context manager that returns a browser instance
-        compatible with the Playwright API. We use AsyncNewBrowser to get
-        an async context manager.
+        Camoufox provides AsyncCamoufox, an async context manager that
+        handles Playwright acquisition internally and returns a browser
+        instance compatible with the Playwright API.
         """
         try:
-            from camoufox.async_api import AsyncNewBrowser
+            from camoufox.async_api import AsyncCamoufox
         except ImportError as e:
             raise CamoufoxNotAvailableError() from e
 
@@ -692,7 +692,7 @@ class BrowserManager:
                 camoufox_options["locale"] = locale
 
         # Camoufox returns a context manager; we enter it and store the browser
-        self._camoufox_cm = AsyncNewBrowser(**camoufox_options)
+        self._camoufox_cm = AsyncCamoufox(**camoufox_options)
         self._browser = await self._camoufox_cm.__aenter__()
 
         LOGGER.debug(
