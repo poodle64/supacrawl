@@ -782,25 +782,26 @@ class BrowserManager:
                 # Playwright/Patchright: create fresh context for isolation
                 context_options = self._build_context_options(device=device)
                 context = await self._browser.new_context(**context_options)
+
+                # Inject stealth scripts at context level so all pages inherit them.
+                # Patchright and Camoufox handle anti-detection at the engine level.
+                if self.engine == "playwright":
+                    for script in STEALTH_SCRIPTS:
+                        await context.add_init_script(script)
+                    LOGGER.debug("Injected %d stealth scripts at context level", len(STEALTH_SCRIPTS))
+
                 page = await context.new_page()
             else:
                 # Camoufox: browser is already a context, just create a page
                 page = await self._browser.new_page()
 
-            # Inject basic stealth scripts only for standard Playwright
-            # Patchright and Camoufox handle anti-detection at the engine level
-            if self.engine == "playwright":
-                for script in STEALTH_SCRIPTS:
-                    await page.add_init_script(script)
-                LOGGER.debug("Injected %d basic stealth scripts", len(STEALTH_SCRIPTS))
-
             # Navigate to URL - use parameter if provided, else fall back to env var
             if wait_until is None:
-                wait_until_env = os.getenv("SUPACRAWL_WAIT_UNTIL", "load")
+                wait_until_env = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
                 wait_until_resolved: Literal["commit", "domcontentloaded", "load", "networkidle"] = (
                     wait_until_env  # type: ignore[assignment]
                     if wait_until_env in ("commit", "domcontentloaded", "load", "networkidle")
-                    else "load"
+                    else "domcontentloaded"
                 )
             else:
                 wait_until_resolved = wait_until
@@ -820,11 +821,6 @@ class BrowserManager:
                 runner = ActionRunner(timeout_ms=self.timeout_ms)
                 action_results_list = await runner.run(page, actions)
                 LOGGER.debug(f"Executed {len(action_results_list)} actions")
-
-            # Additional fixed delay for any remaining JS execution
-            # Skip when using networkidle - it already waits for JS to settle
-            if wait_until_resolved != "networkidle":
-                await asyncio.sleep(0.5)
 
             # Expand iframe content inline before extracting HTML
             if expand_iframes != "none":
@@ -996,23 +992,23 @@ class BrowserManager:
             if owns_context:
                 context_options = self._build_context_options()
                 context = await self._browser.new_context(**context_options)
+
+                if self.engine == "playwright":
+                    for script in STEALTH_SCRIPTS:
+                        await context.add_init_script(script)
+                    LOGGER.debug("Injected %d stealth scripts at context level", len(STEALTH_SCRIPTS))
+
                 page = await context.new_page()
             else:
                 page = await self._browser.new_page()
 
-            # Inject basic stealth scripts only for standard Playwright
-            if self.engine == "playwright":
-                for script in STEALTH_SCRIPTS:
-                    await page.add_init_script(script)
-                LOGGER.debug("Injected %d basic stealth scripts for link extraction", len(STEALTH_SCRIPTS))
-
             # Navigate to URL - use parameter if provided, else fall back to env var
             if wait_until is None:
-                wait_until_env = os.getenv("SUPACRAWL_WAIT_UNTIL", "load")
+                wait_until_env = os.getenv("SUPACRAWL_WAIT_UNTIL", "domcontentloaded")
                 wait_until_resolved: Literal["commit", "domcontentloaded", "load", "networkidle"] = (
                     wait_until_env  # type: ignore[assignment]
                     if wait_until_env in ("commit", "domcontentloaded", "load", "networkidle")
-                    else "load"
+                    else "domcontentloaded"
                 )
             else:
                 wait_until_resolved = wait_until
@@ -1126,8 +1122,24 @@ class BrowserManager:
 
         return sorted(filtered_images)
 
+    @staticmethod
+    def _extract_head_section(html: str) -> str:
+        """Extract the head section from HTML for lightweight metadata parsing.
+
+        Includes everything from document start through ``</head>``, which
+        captures ``<html lang="...">`` and the full ``<head>`` block. Falls
+        back to the full HTML if ``<head>`` boundaries are not found.
+        """
+        head_end = html.lower().find("</head>")
+        if head_end == -1:
+            return html
+        return html[: head_end + len("</head>")]
+
     async def extract_metadata(self, html: str) -> PageMetadata:
         """Extract metadata from HTML.
+
+        Only parses the ``<head>`` section for efficiency, since all metadata
+        tags (title, meta, link, structured data) appear there.
 
         Args:
             html: HTML content
@@ -1135,7 +1147,8 @@ class BrowserManager:
         Returns:
             PageMetadata with title, description, og tags, and other metadata
         """
-        soup = BeautifulSoup(html, "html.parser")
+        head_html = self._extract_head_section(html)
+        soup = BeautifulSoup(head_html, "html.parser")
 
         def get_meta_content(name: str | None = None, property: str | None = None) -> str | None:
             """Helper to extract meta tag content."""
