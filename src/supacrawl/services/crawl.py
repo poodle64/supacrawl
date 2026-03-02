@@ -71,6 +71,7 @@ class CrawlService:
         concurrency: int = 10,
         wait_until: WaitUntilType | None = None,
         headless: bool | None = None,
+        engine: str | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -88,7 +89,8 @@ class CrawlService:
             allow_external_links: Follow and scrape links to external domains
                 (default: False)
             locale_config: Optional LocaleConfig for browser locale/timezone settings
-            stealth: Enable stealth mode via Patchright for anti-bot evasion
+            stealth: Enable stealth mode via Patchright for anti-bot evasion.
+                Ignored when engine is explicitly set.
             proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
             save_files: Save scraped content files to output_dir (default: True).
                 When False with output_dir set, only manifest.json is saved for
@@ -98,6 +100,8 @@ class CrawlService:
                 load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
             headless: Run browser in headless mode. Only used when CrawlService
                 creates its own BrowserManager (i.e. no injected browser).
+            engine: Browser engine ("playwright", "patchright", "camoufox").
+                Overrides the stealth flag when set.
 
         Yields:
             CrawlEvent for each page and progress update
@@ -139,6 +143,7 @@ class CrawlService:
                     locale_config=locale_config,
                     stealth=stealth,
                     proxy=proxy,
+                    engine=engine,
                 ) as browser:
                     self._browser = browser
                     self._map_service = MapService(

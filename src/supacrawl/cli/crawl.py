@@ -111,6 +111,12 @@ from supacrawl.cli._common import app
     default=None,
     help="Page load strategy. Default: load. Use 'networkidle' for JS-heavy sites. Also reads SUPACRAWL_WAIT_UNTIL env.",
 )
+@click.option(
+    "--engine",
+    type=click.Choice(["playwright", "patchright", "camoufox"], case_sensitive=False),
+    default=None,
+    help="Browser engine. playwright=default, patchright=Tier 2 stealth (requires supacrawl[stealth]), camoufox=Tier 3 for Akamai (requires supacrawl[camoufox]). Overrides --stealth.",
+)
 def crawl_cmd(
     url: str,
     limit: int,
@@ -129,6 +135,7 @@ def crawl_cmd(
     proxy: str | None,
     concurrency: int,
     wait_until: str | None,
+    engine: str | None,
 ) -> None:
     """Crawl a website and save all pages.
 
@@ -182,6 +189,7 @@ def crawl_cmd(
             proxy=proxy,
             concurrency=concurrency,
             wait_until=wait_until,  # type: ignore[arg-type]
+            engine=engine,
         ):
             if event.type == "progress":
                 # Show progress bar

@@ -103,22 +103,39 @@ def _looks_like_bot_block(status_code: int, html: str, markdown: str | None) -> 
     return False
 
 
+def _is_camoufox_available() -> bool:
+    """Check if camoufox is installed for Tier 3 anti-detection."""
+    try:
+        import camoufox  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def _stealth_hint() -> str:
     """Return a hint about stealth mode based on availability.
 
     Returns a structured hint for both humans and LLM consumers.
     Basic stealth (fingerprint evasion) is always active.
-    This hint is for enhanced stealth via Patchright.
+    This hint covers both Patchright (Tier 2) and Camoufox (Tier 3).
     """
     if _is_patchright_available():
-        return (
+        hint = (
             " [HINT: Basic anti-bot evasion is already active. "
-            "For enhanced stealth, use --stealth flag or stealth=True]"
+            "For enhanced stealth, use --stealth flag or --engine patchright."
         )
+        if _is_camoufox_available():
+            hint += " For Akamai/advanced protection, use --engine camoufox."
+        hint += "]"
+        return hint
+    elif _is_camoufox_available():
+        return " [HINT: Basic anti-bot evasion is active. For Akamai/advanced protection, use --engine camoufox]"
     else:
         return (
             " [HINT: Basic anti-bot evasion is active but site may need enhanced stealth. "
-            "Install with: pip install supacrawl[stealth] then retry with --stealth]"
+            "Install with: pip install supacrawl[stealth] (Cloudflare) "
+            "or pip install supacrawl[camoufox] (Akamai)]"
         )
 
 
@@ -219,6 +236,7 @@ class ScrapeService:
         proxy: str | None = None,
         solve_captcha: bool = False,
         headless: bool | None = None,
+        engine: str | None = None,
     ):
         """Initialize scrape service.
 
@@ -227,12 +245,15 @@ class ScrapeService:
             converter: Optional MarkdownConverter (created if not provided)
             locale_config: Optional LocaleConfig for browser locale/timezone settings
             cache_dir: Optional cache directory (enables caching if provided)
-            stealth: Enable stealth mode via Patchright for anti-bot evasion
+            stealth: Enable stealth mode via Patchright for anti-bot evasion.
+                Ignored when engine is explicitly set.
             proxy: Proxy URL (e.g., http://user:pass@host:port, socks5://host:port)
             solve_captcha: Enable CAPTCHA solving via 2Captcha (requires pip install supacrawl[captcha]
                           and CAPTCHA_API_KEY environment variable). WARNING: Each solve costs ~$0.002-0.003.
             headless: Run browser in headless mode. Passed through to any BrowserManager
                 instances created internally (e.g. for CAPTCHA solving or standalone usage).
+            engine: Browser engine to use ("playwright", "patchright", "camoufox").
+                Overrides the stealth flag when set.
         """
         self._browser = browser
         self._converter = converter or MarkdownConverter()
@@ -242,6 +263,7 @@ class ScrapeService:
         self._proxy = proxy
         self._solve_captcha = solve_captcha
         self._headless = headless
+        self._engine = engine
         self._cache = CacheManager(cache_dir) if cache_dir else None
         self._captcha_solver: Any = None  # Lazy-loaded CaptchaSolver
 
@@ -324,6 +346,7 @@ class ScrapeService:
                     locale_config=self._locale_config,
                     stealth=self._stealth,
                     proxy=self._proxy,
+                    engine=self._engine,
                 )
                 await browser.__aenter__()
 
@@ -886,6 +909,7 @@ class ScrapeService:
             locale_config=self._locale_config,
             stealth=self._stealth,
             proxy=self._proxy,
+            engine=self._engine,
         )
 
         try:
@@ -894,8 +918,14 @@ class ScrapeService:
             # Navigate to page
             if browser._browser is None:
                 raise ProviderError("Browser failed to start", provider="playwright")
-            context = await browser._browser.new_context(**browser._build_context_options())
-            page = await context.new_page()
+
+            # Camoufox browser IS the context — don't create a separate one
+            if browser.engine == "camoufox":
+                context = None
+                page = await browser._browser.new_page()
+            else:
+                context = await browser._browser.new_context(**browser._build_context_options())
+                page = await context.new_page()
 
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)

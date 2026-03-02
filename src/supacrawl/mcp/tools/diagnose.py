@@ -203,7 +203,15 @@ def _generate_recommendations(
         wait_for = max(wait_for, 3000)
         reasons.append(f"JavaScript rendering required{f' ({framework} detected)' if framework else ''}")
 
-    if cdn == "cloudflare" or bot_indicators.get("challenge_detected"):
+    if cdn == "akamai":
+        recommendations["engine"] = "camoufox"
+        recommendations["stealth_mode"] = True
+        wait_for = max(wait_for, 5000)
+        reasons.append(
+            "Akamai Bot Manager detected - use --engine camoufox for best results "
+            "(requires: pip install supacrawl[camoufox])"
+        )
+    elif cdn == "cloudflare" or bot_indicators.get("challenge_detected"):
         recommendations["stealth_mode"] = True
         wait_for = max(wait_for, 5000)
         reasons.append("Bot protection detected - stealth mode recommended")
