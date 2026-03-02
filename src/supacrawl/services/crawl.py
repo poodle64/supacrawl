@@ -74,6 +74,7 @@ class CrawlService:
         engine: str | None = None,
         cache_dir: Path | None = None,
         change_tracking_modes: list[str] | None = None,
+        expand_iframes: str = "same-origin",
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -108,6 +109,9 @@ class CrawlService:
                 changeTracking format is requested.
             change_tracking_modes: Optional diff modes for change tracking.
                 Supports: ["git-diff", "json"]. Passed to per-page scrape calls.
+            expand_iframes: Iframe expansion mode. "none" strips all (legacy),
+                "same-origin" expands same-origin iframes (default),
+                "all" expands all non-blocked iframes.
 
         Yields:
             CrawlEvent for each page and progress update
@@ -142,6 +146,7 @@ class CrawlService:
                     concurrency=concurrency,
                     wait_until=wait_until,
                     change_tracking_modes=change_tracking_modes,
+                    expand_iframes=expand_iframes,
                 ):
                     yield event
             else:
@@ -177,6 +182,7 @@ class CrawlService:
                         concurrency=concurrency,
                         wait_until=wait_until,
                         change_tracking_modes=change_tracking_modes,
+                        expand_iframes=expand_iframes,
                     ):
                         yield event
 
@@ -201,6 +207,7 @@ class CrawlService:
         concurrency: int,
         wait_until: WaitUntilType | None,
         change_tracking_modes: list[str] | None = None,
+        expand_iframes: str = "same-origin",
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Core crawl logic. Assumes _browser, _map_service, _scrape_service are set."""
         assert self._map_service is not None
@@ -311,6 +318,7 @@ class CrawlService:
                     url_to_scrape,
                     formats=scrape_formats,  # type: ignore[arg-type]
                     change_tracking_modes=change_tracking_modes,
+                    expand_iframes=expand_iframes,  # type: ignore[arg-type]
                 )
 
                 if result.success and result.data:

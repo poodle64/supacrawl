@@ -265,6 +265,43 @@ class CamoufoxNotAvailableError(ImportError):
 # Valid engine choices
 ENGINE_CHOICES = ("playwright", "patchright", "camoufox")
 
+# Domains to skip when expanding iframes (ads, analytics, tracking, CAPTCHA)
+IFRAME_BLOCKED_DOMAINS = frozenset(
+    {
+        # Advertising
+        "doubleclick.net",
+        "googlesyndication.com",
+        "amazon-adsystem.com",
+        "adnxs.com",
+        "adsrvr.org",
+        "moatads.com",
+        "taboola.com",
+        "outbrain.com",
+        # Analytics / tracking
+        "google-analytics.com",
+        "googletagmanager.com",
+        "analytics.google.com",
+        "connect.facebook.net",
+        "bat.bing.com",
+        "sc-static.net",
+        "hotjar.com",
+        "clarity.ms",
+        # CAPTCHA
+        "recaptcha.net",
+        "hcaptcha.com",
+        "challenges.cloudflare.com",
+    }
+)
+
+# Maximum iframes to expand per page (performance guard)
+MAX_IFRAMES_PER_PAGE = 10
+
+
+def _is_blocked_iframe_domain(hostname: str) -> bool:
+    """Check if hostname matches a blocked iframe domain."""
+    hostname = hostname.lower()
+    return any(hostname == domain or hostname.endswith("." + domain) for domain in IFRAME_BLOCKED_DOMAINS)
+
 
 @dataclass
 class PageContent:
@@ -639,6 +676,7 @@ class BrowserManager:
         screenshot_full_page: bool = True,
         actions: list[Any] | None = None,
         wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] | None = None,
+        expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
     ) -> PageContent:
         """Fetch a page with browser rendering.
 
@@ -652,6 +690,9 @@ class BrowserManager:
             actions: List of Action objects to execute before capturing content
             wait_until: Page load strategy. Options: commit, domcontentloaded (default),
                 load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
+            expand_iframes: Iframe expansion mode. "none" strips all iframes (legacy),
+                "same-origin" expands same-origin iframes inline (default),
+                "all" expands all non-blocked iframes including cross-origin.
 
         Returns:
             PageContent with HTML, metadata, and optional screenshot/PDF
@@ -716,6 +757,10 @@ class BrowserManager:
             if wait_until_resolved != "networkidle":
                 await asyncio.sleep(0.5)
 
+            # Expand iframe content inline before extracting HTML
+            if expand_iframes != "none":
+                await self._expand_iframes(page, mode=expand_iframes)
+
             # Extract HTML and title
             html = await page.content()
             title = await page.title() or None
@@ -763,6 +808,95 @@ class BrowserManager:
                     await context.close()
                 except Exception:
                     pass
+
+    async def _expand_iframes(
+        self,
+        page: Page,
+        mode: Literal["same-origin", "all"] = "same-origin",
+    ) -> int:
+        """Expand iframe content inline in the page DOM.
+
+        Replaces ``<iframe>`` elements with ``<div>`` wrappers containing the
+        frame body HTML so that the content is captured by ``page.content()``.
+
+        Args:
+            page: Playwright page with loaded content
+            mode: "same-origin" expands only same-origin frames,
+                  "all" expands all non-blocked frames
+
+        Returns:
+            Number of iframes expanded
+        """
+        page_origin = urlparse(page.url).scheme + "://" + urlparse(page.url).netloc
+
+        # Process frames innermost-first so nested content is captured
+        frames = list(page.frames)
+        frames.reverse()
+
+        expanded = 0
+
+        for frame in frames:
+            if frame == page.main_frame:
+                continue
+            if expanded >= MAX_IFRAMES_PER_PAGE:
+                LOGGER.debug("Reached max iframe expansion limit (%d)", MAX_IFRAMES_PER_PAGE)
+                break
+
+            frame_url = frame.url
+            if not frame_url or frame_url == "about:blank":
+                continue
+
+            # Check blocked domains
+            frame_hostname = urlparse(frame_url).hostname or ""
+            if _is_blocked_iframe_domain(frame_hostname):
+                LOGGER.debug("Skipping blocked iframe domain: %s", frame_hostname)
+                continue
+
+            # Same-origin check
+            if mode == "same-origin":
+                frame_origin = urlparse(frame_url).scheme + "://" + urlparse(frame_url).netloc
+                if frame_origin != page_origin:
+                    continue
+
+            try:
+                iframe_element = await frame.frame_element()
+
+                # Skip tracking pixels (very small iframes)
+                bounding = await iframe_element.bounding_box()
+                if bounding and (bounding["width"] <= 5 or bounding["height"] <= 5):
+                    LOGGER.debug("Skipping tracking-pixel iframe: %s", frame_url)
+                    continue
+
+                # Extract frame body content
+                body_html = await frame.evaluate("document.body ? document.body.innerHTML : ''")
+                if not body_html or not body_html.strip():
+                    continue
+
+                # Replace the <iframe> element with a <div> containing the content
+                await iframe_element.evaluate(
+                    """(el, args) => {
+                        const [bodyHtml, src, hostname] = args;
+                        const wrapper = document.createElement('div');
+                        wrapper.setAttribute('data-sc-iframe-src', src);
+                        const marker = document.createElement('p');
+                        marker.innerHTML = '<em>[Embedded content from ' + hostname + ']</em>';
+                        wrapper.appendChild(marker);
+                        const content = document.createElement('div');
+                        content.innerHTML = bodyHtml;
+                        wrapper.appendChild(content);
+                        el.replaceWith(wrapper);
+                    }""",
+                    [body_html, frame_url, frame_hostname],
+                )
+                expanded += 1
+
+            except Exception as e:
+                LOGGER.debug("Could not expand iframe %s: %s", frame_url, e)
+                continue
+
+        if expanded > 0:
+            LOGGER.info("Expanded %d iframe(s) inline", expanded)
+        return expanded
 
     async def extract_links(
         self,

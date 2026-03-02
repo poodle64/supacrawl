@@ -42,6 +42,7 @@ async def supacrawl_scrape(
     exclude_tags: list[str] | None = None,
     max_age: int = 0,
     change_tracking_modes: list[str] | None = None,
+    expand_iframes: str = "same-origin",
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -106,6 +107,9 @@ async def supacrawl_scrape(
             Example: ["nav", "footer", ".sidebar", ".ads"]
         max_age: Cache freshness in seconds. If cached version exists and is fresher,
             return cached result. Set to 0 to always fetch fresh (default).
+        expand_iframes: Iframe expansion mode (default: "same-origin").
+            "none" strips all iframes (legacy), "same-origin" expands same-origin
+            iframes inline, "all" expands all non-blocked iframes.
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -180,6 +184,7 @@ async def supacrawl_scrape(
             exclude_tags=exclude_tags,
             max_age=max_age,
             change_tracking_modes=change_tracking_modes,
+            expand_iframes=expand_iframes,  # type: ignore[arg-type]
         )
 
         response = result.model_dump()

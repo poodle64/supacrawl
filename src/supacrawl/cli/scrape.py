@@ -162,6 +162,13 @@ from supacrawl.cli._common import app
     type=click.Choice(["git-diff", "json"], case_sensitive=False),
     help="Diff modes for change tracking. Requires -f changeTracking. Options: git-diff, json (requires --schema or --prompt).",
 )
+@click.option(
+    "--expand-iframes",
+    type=click.Choice(["none", "same-origin", "all"], case_sensitive=False),
+    default="same-origin",
+    show_default=True,
+    help="Iframe expansion mode. none=strip all, same-origin=expand same-origin inline, all=expand all non-blocked.",
+)
 def scrape_url(
     url: str,
     formats: tuple[str, ...],
@@ -186,6 +193,7 @@ def scrape_url(
     solve_captcha: bool,
     wait_until: str | None,
     change_tracking_modes: tuple[str, ...],
+    expand_iframes: str,
 ) -> None:
     """Scrape a single URL and extract content.
 
@@ -331,6 +339,7 @@ def scrape_url(
             max_age=max_age,
             wait_until=wait_until,  # type: ignore[arg-type]
             change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
+            expand_iframes=expand_iframes,  # type: ignore[arg-type]
         )
         return result
 
