@@ -320,6 +320,29 @@ class ActionsOutput(BaseModel):
     scrapes: list[ScrapeActionResult] | None = None  # Mid-workflow scrape captures
 
 
+class ChangeTrackingDiff(BaseModel):
+    """Unified diff output for change tracking."""
+
+    text: str  # Unified diff string
+
+
+class ChangeTrackingData(BaseModel):
+    """Change tracking result comparing current scrape to previous cached version.
+
+    Change statuses:
+        new — No previous cached version exists for this URL
+        same — Content hash matches the cached version (no meaningful change)
+        changed — Content differs from the cached version
+        removed — URL returns an error but a cached version exists
+    """
+
+    previous_scrape_at: str | None = None  # ISO timestamp of previous cached version
+    change_status: Literal["new", "same", "changed", "removed"]
+    visibility: Literal["visible", "hidden"] = "visible"
+    diff: ChangeTrackingDiff | None = None  # Git-style unified diff (when requested)
+    content_hash: str | None = None  # SHA256 hash of current markdown content
+
+
 class ScrapeData(BaseModel):
     """Scraped content from a page."""
 
@@ -337,6 +360,7 @@ class ScrapeData(BaseModel):
     actions: ActionsOutput | None = None  # Results from action sequence
     content_stats: ContentStats | None = None  # Content quality statistics
     process_metadata: ProcessMetadata | None = None  # Scraping process metadata
+    change_tracking: ChangeTrackingData | None = None  # Change detection vs previous scrape
 
     model_config = ConfigDict(populate_by_name=True)
 

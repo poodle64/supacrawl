@@ -15,7 +15,19 @@ from supacrawl.cli._common import app
     "formats",
     multiple=True,
     type=click.Choice(
-        ["markdown", "html", "rawHtml", "links", "images", "screenshot", "pdf", "json", "branding", "summary"],
+        [
+            "markdown",
+            "html",
+            "rawHtml",
+            "links",
+            "images",
+            "screenshot",
+            "pdf",
+            "json",
+            "branding",
+            "summary",
+            "changeTracking",
+        ],
         case_sensitive=False,
     ),
     default=["markdown"],
@@ -144,6 +156,12 @@ from supacrawl.cli._common import app
     default=None,
     help="Page load strategy. Default: load. Use 'networkidle' for JS-heavy sites. Also reads SUPACRAWL_WAIT_UNTIL env.",
 )
+@click.option(
+    "--change-tracking-modes",
+    multiple=True,
+    type=click.Choice(["git-diff"], case_sensitive=False),
+    help="Diff modes for change tracking. Requires -f changeTracking. Options: git-diff.",
+)
 def scrape_url(
     url: str,
     formats: tuple[str, ...],
@@ -167,6 +185,7 @@ def scrape_url(
     proxy: str | None,
     solve_captcha: bool,
     wait_until: str | None,
+    change_tracking_modes: tuple[str, ...],
 ) -> None:
     """Scrape a single URL and extract content.
 
@@ -272,10 +291,11 @@ def scrape_url(
         else:
             locale_config = LocaleConfig(language=language, timezone=timezone)
 
-    # Resolve cache directory if max_age is set
-    resolved_cache_dir = cache_dir if max_age > 0 else None
-    if max_age > 0 and not resolved_cache_dir:
-        # Use default cache dir when max_age is set but no explicit cache_dir
+    # Resolve cache directory if max_age is set or change tracking is requested
+    # Change tracking needs a cache to store/compare previous versions
+    needs_cache = max_age > 0 or "changeTracking" in formats_list
+    resolved_cache_dir = cache_dir if needs_cache else None
+    if needs_cache and not resolved_cache_dir:
         from supacrawl.cache import CacheManager
 
         resolved_cache_dir = CacheManager.DEFAULT_CACHE_DIR
@@ -310,6 +330,7 @@ def scrape_url(
             exclude_tags=list(exclude_tags) if exclude_tags else None,
             max_age=max_age,
             wait_until=wait_until,  # type: ignore[arg-type]
+            change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
         )
         return result
 
