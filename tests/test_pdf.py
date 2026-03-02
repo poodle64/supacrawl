@@ -531,10 +531,7 @@ class TestScrapeServicePdfRouting:
         from supacrawl.services.scrape import ScrapeService
 
         # If parse_pdf is None, the PDF detection is skipped entirely
-        with (
-            patch("supacrawl.services.pdf.is_pdf_url") as mock_detect,
-            patch("supacrawl.services.pdf.detect_pdf_content_type") as mock_head,
-        ):
+        with patch("supacrawl.services.pdf.is_pdf_url") as mock_detect:
             service = ScrapeService(headless=True)
             # This will fail because we haven't set up a browser, but
             # the important thing is that PDF detection was NOT called
@@ -548,6 +545,28 @@ class TestScrapeServicePdfRouting:
                 pass  # Expected to fail (no browser)
 
             mock_detect.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_auto_mode_no_head_request_for_extensionless_urls(self):
+        """Auto mode should not send HEAD requests for extensionless URLs."""
+        from supacrawl.services.scrape import ScrapeService
+
+        # Extensionless URL should only check is_pdf_url (False), no HEAD request
+        with (
+            patch("supacrawl.services.pdf.is_pdf_url", return_value=False) as mock_url_check,
+            patch("supacrawl.services.pdf.detect_pdf_content_type") as mock_head,
+        ):
+            service = ScrapeService(headless=True)
+            try:
+                await service.scrape(
+                    url="https://example.gov.au/pacman/document/123",
+                    formats=["markdown"],
+                    parse_pdf="auto",
+                )
+            except Exception:
+                pass  # Expected to fail (no browser)
+
+            mock_url_check.assert_called_once()
             mock_head.assert_not_called()
 
     @pytest.mark.asyncio

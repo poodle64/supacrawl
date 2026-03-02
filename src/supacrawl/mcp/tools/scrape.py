@@ -120,7 +120,7 @@ async def supacrawl_scrape(
             Overrides the mobile flag. Uses Playwright's built-in device
             descriptors for accurate viewport, user agent, and DPI emulation.
         parse_pdf: PDF parsing mode (default: "auto"). Options:
-            - "auto": Auto-detect PDF URLs, extract text with OCR fallback
+            - "auto": Auto-detect PDF URLs by .pdf extension, extract text with OCR fallback
             - "fast": Text extraction only (no OCR)
             - "ocr": Force OCR (requires supacrawl[pdf-ocr])
             - "off": Disable PDF parsing (render PDF in browser as before)
