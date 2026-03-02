@@ -537,8 +537,8 @@ class ScrapeService:
                 # Fetch page with actions
                 page_content = await browser.fetch_page(
                     url,
-                    wait_for_spa=True,
-                    spa_timeout_ms=wait_for if wait_for > 0 else 5000,
+                    wait_for_spa=wait_for > 0,
+                    spa_timeout_ms=wait_for,
                     capture_screenshot=capture_screenshot,
                     capture_pdf=capture_pdf,
                     screenshot_full_page=screenshot_full_page,
@@ -658,7 +658,7 @@ class ScrapeService:
                     raw_html = page_content.html
 
                 if "links" in formats:
-                    links = await browser.extract_links(url)
+                    links = self._extract_links_from_html(page_content.html, url)
 
                 if "images" in formats:
                     images = await browser.extract_images(page_content.html, url)
@@ -911,6 +911,38 @@ class ScrapeService:
             )
 
         return result
+
+    @staticmethod
+    def _extract_links_from_html(html: str, base_url: str) -> list[str]:
+        """Extract absolute HTTP(S) links from already-fetched HTML.
+
+        Parses anchor tags from the rendered HTML instead of re-navigating
+        the browser, avoiding a full page re-fetch.
+
+        Args:
+            html: HTML content (post-JavaScript rendering, with iframes expanded)
+            base_url: Base URL for resolving relative hrefs
+
+        Returns:
+            List of absolute URLs starting with http(s)
+        """
+        from urllib.parse import urljoin, urlparse
+
+        soup = BeautifulSoup(html, "html.parser")
+        links: list[str] = []
+        for anchor in soup.find_all("a", href=True):
+            href = anchor["href"]
+            if isinstance(href, list):
+                href = href[0] if href else ""
+            if not href:
+                continue
+            # Resolve relative URLs
+            if not urlparse(href).netloc:
+                href = urljoin(base_url, href)
+            # Only include http(s) links (matches browser.extract_links behaviour)
+            if href.startswith("http"):
+                links.append(href)
+        return links
 
     def _get_clean_html(
         self,
