@@ -43,6 +43,14 @@ class SupacrawlSettings(BaseSettings):
     )
 
     # Anti-bot protection
+    engine: Literal["playwright", "patchright", "camoufox"] | None = Field(
+        default=None,
+        description=(
+            "Browser engine to use. Options: playwright (default), patchright (stealth), "
+            "camoufox (Akamai/Cloudflare bypass). When not set, falls back to patchright "
+            "if stealth=True, else playwright. Per-request engine overrides this."
+        ),
+    )
     stealth: bool = Field(
         default=False,
         description="Enable enhanced stealth mode via Patchright (requires: pip install supacrawl[stealth])",

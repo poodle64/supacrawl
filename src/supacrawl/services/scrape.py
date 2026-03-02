@@ -412,6 +412,7 @@ class ScrapeService:
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
         device: str | None = None,
         parse_pdf: Literal["fast", "auto", "ocr"] | None = "auto",
+        engine: str | None = None,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -449,6 +450,9 @@ class ScrapeService:
                     file extension (.pdf) and extracts text, falling back to OCR
                     if available. "fast" uses text extraction only. "ocr" forces
                     OCR. None disables PDF parsing entirely.
+            engine: Browser engine override for this request. When set and different
+                    from the service's default engine, a temporary browser is created.
+                    Options: "playwright", "patchright", "camoufox".
 
         Returns:
             ScrapeResult with scraped content
@@ -511,20 +515,30 @@ class ScrapeService:
                 )
 
         try:
-            # Create browser if needed
+            # Determine effective engine for this request
+            effective_engine = engine or self._engine
+
+            # Create browser if needed, or use a temporary one for engine override
             browser = self._browser
             owns_browser = self._owns_browser
 
-            if owns_browser:
+            # Per-request engine override: if the caller requested a different engine
+            # than the shared browser, create a temporary browser for this request.
+            needs_engine_override = (
+                engine is not None and not owns_browser and browser is not None and browser.engine != engine
+            )
+
+            if owns_browser or needs_engine_override:
                 browser = BrowserManager(
                     headless=self._headless,
                     timeout_ms=timeout,
                     locale_config=self._locale_config,
                     stealth=self._stealth,
                     proxy=self._proxy,
-                    engine=self._engine,
+                    engine=effective_engine,
                 )
                 await browser.__aenter__()
+                owns_browser = True
 
             # At this point browser is guaranteed to be set
             if browser is None:

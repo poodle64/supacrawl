@@ -154,6 +154,7 @@ async def create_supacrawl_services() -> SupacrawlServices:
         locale_config=locale_config,
         stealth=settings.stealth,
         proxy=settings.proxy,
+        engine=settings.engine,
     )
 
     # Initialise browser
@@ -161,6 +162,8 @@ async def create_supacrawl_services() -> SupacrawlServices:
 
     # Log enabled features
     features = []
+    if settings.engine:
+        features.append(f"engine:{settings.engine}")
     if settings.stealth:
         features.append("stealth")
     if settings.proxy:
@@ -183,6 +186,7 @@ async def create_supacrawl_services() -> SupacrawlServices:
         proxy=settings.proxy,
         solve_captcha=settings.solve_captcha,
         headless=settings.headless,
+        engine=settings.engine,
     )
     map_service = MapService(browser=browser_manager)
     crawl_service = CrawlService(

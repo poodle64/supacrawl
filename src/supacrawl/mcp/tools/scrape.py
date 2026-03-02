@@ -10,6 +10,7 @@ from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.mcp_common.correlation import generate_correlation_id, get_correlation_id
 from supacrawl.mcp.validators import validate_timeout, validate_url
+from supacrawl.services.browser import ENGINE_CHOICES
 
 
 async def supacrawl_scrape(
@@ -46,6 +47,7 @@ async def supacrawl_scrape(
     mobile: bool = False,
     device: str | None = None,
     parse_pdf: str = "auto",
+    engine: Literal["playwright", "patchright", "camoufox"] | None = None,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -127,6 +129,11 @@ async def supacrawl_scrape(
             - "fast": Text extraction only (no OCR)
             - "ocr": Force OCR (requires supacrawl[pdf-ocr])
             - "off": Disable PDF parsing (render PDF in browser as before)
+        engine: Browser engine to use for this request. Overrides server default.
+            - "playwright" (default): Standard Chromium with basic stealth scripts
+            - "patchright": Patched Chromium for better anti-detection
+            - "camoufox": Patched Firefox for bypassing Akamai/Cloudflare
+            When not set, uses SUPACRAWL_ENGINE or auto-selects based on stealth config.
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -164,6 +171,9 @@ async def supacrawl_scrape(
         validated_url = validate_url(url)
         assert validated_url is not None  # validate_url raises on None
         validated_timeout = validate_timeout(timeout, "timeout") or 30000
+
+        if engine is not None and engine not in ENGINE_CHOICES:
+            raise SupacrawlValidationError(f"Invalid engine '{engine}'. Choose from: {', '.join(ENGINE_CHOICES)}")
 
         if formats is None:
             formats = ["markdown"]
@@ -214,6 +224,7 @@ async def supacrawl_scrape(
             expand_iframes=expand_iframes,  # type: ignore[arg-type]
             device=resolved_device,
             parse_pdf=resolved_parse_pdf,  # type: ignore[arg-type]
+            engine=engine,
         )
 
         response = result.model_dump()

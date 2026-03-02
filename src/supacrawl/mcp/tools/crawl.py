@@ -11,6 +11,7 @@ from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.mcp_common.correlation import generate_correlation_id, get_correlation_id
 from supacrawl.mcp.validators import validate_limit, validate_url
+from supacrawl.services.browser import ENGINE_CHOICES
 
 
 async def supacrawl_crawl(
@@ -25,6 +26,7 @@ async def supacrawl_crawl(
     allow_external_links: bool = False,
     change_tracking_modes: list[str] | None = None,
     expand_iframes: str = "same-origin",
+    engine: Literal["playwright", "patchright", "camoufox"] | None = None,
 ) -> dict:
     """
     Crawl a website starting from URL, discovering and scraping pages.
@@ -76,6 +78,8 @@ async def supacrawl_crawl(
         expand_iframes: Iframe expansion mode (default: "same-origin").
             "none" strips all iframes (legacy), "same-origin" expands same-origin
             iframes inline, "all" expands all non-blocked iframes.
+        engine: Browser engine to use for this crawl. Overrides server default.
+            Options: "playwright", "patchright", "camoufox".
 
     Returns:
         Firecrawl-compatible crawl result:
@@ -123,6 +127,9 @@ async def supacrawl_crawl(
         validated_limit = validate_limit(limit, "limit", min_value=1, max_value=1000, default=50)
         assert validated_limit is not None  # default=50 ensures non-None
 
+        if engine is not None and engine not in ENGINE_CHOICES:
+            raise SupacrawlValidationError(f"Invalid engine '{engine}'. Choose from: {', '.join(ENGINE_CHOICES)}")
+
         # Convert Literal list to plain str list for CrawlService
         format_list: list[str] | None = list(formats) if formats else None
 
@@ -150,6 +157,7 @@ async def supacrawl_crawl(
             cache_dir=cache_dir,
             change_tracking_modes=change_tracking_modes,
             expand_iframes=expand_iframes,
+            engine=engine,
         ):
             if event.type == "page" and event.data:
                 pages.append(event.data.model_dump())
