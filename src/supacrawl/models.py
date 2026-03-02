@@ -166,6 +166,11 @@ class ScrapeMetadata(BaseModel):
     # Content metrics (computed)
     word_count: int | None = None
 
+    # PDF document metadata (set when scraping a PDF URL)
+    pdf_page_count: int | None = None
+    pdf_author: str | None = None
+    pdf_creation_date: str | None = None
+
     # Cache metadata
     cache_hit: bool = False
     cached_at: str | None = None

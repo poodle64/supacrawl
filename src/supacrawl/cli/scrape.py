@@ -187,6 +187,13 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
     default=False,
     help="List available device presets and exit.",
 )
+@click.option(
+    "--parse-pdf",
+    type=click.Choice(["fast", "auto", "ocr", "off"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="PDF parsing mode. auto=detect PDFs and extract text (OCR fallback if available), fast=text only, ocr=force OCR, off=disable.",
+)
 def scrape_url(
     url: str | None,
     formats: tuple[str, ...],
@@ -215,6 +222,7 @@ def scrape_url(
     mobile: bool,
     device: str | None,
     list_devices: bool,
+    parse_pdf: str,
 ) -> None:
     """Scrape a single URL and extract content.
 
@@ -271,6 +279,11 @@ def scrape_url(
         supacrawl scrape https://example.com --device "iPhone 15"  # Scrape as iPhone 15
         supacrawl scrape https://example.com --mobile -f screenshot -o mobile.png  # Mobile screenshot
         supacrawl scrape --list-devices  # Show available device presets
+        supacrawl scrape https://example.com/report.pdf  # Auto-detect PDF and extract text
+        supacrawl scrape https://example.com/report.pdf --parse-pdf fast  # Text extraction only
+        supacrawl scrape https://example.com/scanned.pdf --parse-pdf ocr  # Force OCR
+        supacrawl scrape https://example.com/report.pdf -f json --prompt "Extract revenue figures"
+        supacrawl scrape https://example.com/report.pdf --parse-pdf off  # Disable PDF parsing
     """
     import asyncio
     import base64
@@ -393,6 +406,7 @@ def scrape_url(
             change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
             expand_iframes=expand_iframes,  # type: ignore[arg-type]
             device=resolved_device,
+            parse_pdf=parse_pdf if parse_pdf != "off" else None,  # type: ignore[arg-type]
         )
         return result
 

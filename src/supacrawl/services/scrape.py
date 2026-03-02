@@ -22,6 +22,7 @@ CAPTCHA Solving (optional, requires third-party service):
 import base64
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -410,6 +411,7 @@ class ScrapeService:
         change_tracking_modes: list[str] | None = None,
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
         device: str | None = None,
+        parse_pdf: Literal["fast", "auto", "ocr"] | None = "auto",
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -442,6 +444,9 @@ class ScrapeService:
             device: Playwright device name for mobile emulation (e.g. "iPhone 14",
                     "Pixel 7"). Sets viewport, user agent, device scale factor, and
                     touch support. Use ``--mobile`` as a shortcut for a default device.
+            parse_pdf: PDF parsing mode. "auto" (default) auto-detects PDF URLs and
+                    extracts text, falling back to OCR if available. "fast" uses text
+                    extraction only. "ocr" forces OCR. None disables PDF parsing.
 
         Returns:
             ScrapeResult with scraped content
@@ -479,6 +484,30 @@ class ScrapeService:
                 if result.data and result.data.metadata:
                     result.data.metadata.cache_hit = True
                 return result
+
+        # PDF detection: if parse_pdf is enabled, check if URL points to a PDF
+        # and route to the PDF extraction pipeline instead of the browser.
+        if parse_pdf is not None:
+            from supacrawl.services.pdf import detect_pdf_content_type, is_pdf_url, needs_content_type_check
+
+            is_pdf = is_pdf_url(url)
+            # Only send HEAD request for ambiguous URLs (no extension or unknown extension)
+            if not is_pdf and needs_content_type_check(url):
+                is_pdf = await detect_pdf_content_type(url)
+
+            if is_pdf:
+                return await self._scrape_pdf(
+                    url=url,
+                    mode=parse_pdf,
+                    formats=formats,
+                    json_schema=json_schema,
+                    json_prompt=json_prompt,
+                    max_age=max_age,
+                    cache_variant=cache_variant,
+                    wants_change_tracking=wants_change_tracking,
+                    previous_entry=previous_entry,
+                    change_tracking_modes=change_tracking_modes,
+                )
 
         try:
             # Create browser if needed
@@ -579,6 +608,7 @@ class ScrapeService:
                             change_tracking_modes=change_tracking_modes,
                             expand_iframes=expand_iframes,
                             device=device,
+                            parse_pdf=parse_pdf,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint()}")
@@ -791,6 +821,96 @@ class ScrapeService:
                 success=False,
                 error=error_msg,
             )
+
+    async def _scrape_pdf(
+        self,
+        url: str,
+        mode: Literal["fast", "auto", "ocr"],
+        formats: Sequence[str],
+        json_schema: dict[str, Any] | None = None,
+        json_prompt: str | None = None,
+        max_age: int = 0,
+        cache_variant: str | None = None,
+        wants_change_tracking: bool = False,
+        previous_entry: Any | None = None,
+        change_tracking_modes: list[str] | None = None,
+    ) -> ScrapeResult:
+        """Scrape a PDF URL by downloading and extracting text.
+
+        Bypasses the browser entirely — downloads the PDF via httpx and
+        processes it through the PDF extraction pipeline.
+        """
+        from supacrawl.services.pdf import parse_pdf as do_parse_pdf
+
+        try:
+            pdf_result = await do_parse_pdf(url=url, mode=mode)
+        except ImportError as e:
+            return ScrapeResult(success=False, error=str(e))
+        except Exception as e:
+            LOGGER.error(f"PDF extraction failed for {url}: {e}", exc_info=True)
+            return ScrapeResult(success=False, error=f"PDF extraction failed: {e}")
+
+        markdown = pdf_result.markdown
+        word_count = len(markdown.split()) if markdown else None
+
+        # LLM-powered features on extracted markdown
+        json_data = None
+        summary = None
+
+        if "json" in formats and markdown:
+            json_data = await self._extract_json(markdown, json_schema, json_prompt)
+
+        if "summary" in formats and markdown:
+            summary = await self._generate_summary(markdown)
+
+        # Build metadata from PDF properties
+        pdf_meta = pdf_result.metadata
+
+        # Change tracking
+        change_tracking = None
+        current_content_hash = None
+        if wants_change_tracking:
+            current_content_hash = _compute_content_hash(markdown)
+            change_tracking = _build_change_tracking(
+                previous_entry=previous_entry,
+                current_hash=current_content_hash,
+                current_markdown=markdown,
+                change_tracking_modes=change_tracking_modes,
+            )
+
+        result = ScrapeResult(
+            success=True,
+            data=ScrapeData(  # type: ignore[call-arg]
+                markdown=markdown if "markdown" in formats or "json" in formats or "summary" in formats else None,
+                metadata=ScrapeMetadata(
+                    title=pdf_meta.title,
+                    source_url=url,
+                    status_code=200,
+                    word_count=word_count,
+                    pdf_page_count=pdf_meta.page_count,
+                    pdf_author=pdf_meta.author,
+                    pdf_creation_date=pdf_meta.creation_date,
+                ),
+                llm_extraction=json_data,
+                summary=summary,
+                change_tracking=change_tracking,
+            ),
+        )
+
+        # Cache the result
+        effective_max_age = max_age
+        if wants_change_tracking and effective_max_age <= 0:
+            effective_max_age = 365 * 24 * 3600
+        if effective_max_age > 0 and self._cache:
+            self._cache.set(
+                url,
+                result.model_dump(),
+                effective_max_age,
+                variant=cache_variant,
+                content_hash=current_content_hash,
+            )
+
+        return result
 
     def _get_clean_html(
         self,

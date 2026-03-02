@@ -29,6 +29,7 @@ dependencies = [
   "httpx>=0.28.1",
   "markdownify>=1.2.2",
   "ollama>=0.1.0",
+  "pdfplumber>=0.11.0",
   "playwright>=1.40.0,<2.0.0",
   "pydantic>=2.9.0",
   "pyyaml>=6.0.1",
@@ -58,6 +59,10 @@ camoufox = [
 ]
 captcha = [
   "2captcha-python>=2.0.2",
+]
+pdf-ocr = [
+  "pytesseract>=0.3.10",
+  "pdf2image>=1.16.0",
 ]
 mcp = [
   "anyio>=4.0.0",
@@ -114,6 +119,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "camoufox.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pdfplumber.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pytesseract.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pdf2image.*"
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.sdist]
