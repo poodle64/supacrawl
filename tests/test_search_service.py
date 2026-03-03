@@ -1,7 +1,11 @@
 """Tests for search service."""
 
+from unittest.mock import AsyncMock, patch
+
+import httpx
 import pytest
 
+from supacrawl.exceptions import ProviderError
 from supacrawl.models import SearchResult, SearchResultItem, SearchSourceType
 from supacrawl.services.search import SearchService
 
@@ -241,3 +245,115 @@ class TestSearchResultItem:
         )
         assert item.markdown == "# Heading\n\nContent"
         assert item.html == "<h1>Heading</h1><p>Content</p>"
+
+
+class TestDuckDuckGoCaptchaDetection:
+    """Tests for DuckDuckGo CAPTCHA/bot detection handling."""
+
+    CAPTCHA_HTML = """
+    <html><body>
+    <div class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</div>
+    <div class="anomaly-modal__description">Please complete the following challenge...</div>
+    <div class="anomaly-modal__instructions">Select all squares containing a duck:</div>
+    </body></html>
+    """
+
+    NORMAL_HTML = """
+    <html><body>
+    <table>
+    <tr><td><a class="result-link" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com">Example</a></td></tr>
+    <tr><td class="result-snippet">A test snippet.</td></tr>
+    </table>
+    </body></html>
+    """
+
+    @pytest.mark.asyncio
+    async def test_captcha_http_202_raises_provider_error(self):
+        """HTTP 202 from DDG Lite should raise ProviderError."""
+        mock_response = httpx.Response(
+            status_code=202,
+            text=self.CAPTCHA_HTML,
+            request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
+        )
+        service = SearchService()
+        try:
+            with patch.object(service, "_get_client") as mock_get:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_response
+                mock_get.return_value = mock_client
+
+                with pytest.raises(ProviderError, match="CAPTCHA"):
+                    await service._search_duckduckgo("hello", 5, "test-corr")
+        finally:
+            await service.close()
+
+    @pytest.mark.asyncio
+    async def test_captcha_anomaly_modal_in_html_raises_provider_error(self):
+        """anomaly-modal in response body should raise ProviderError even with HTTP 200."""
+        mock_response = httpx.Response(
+            status_code=200,
+            text=self.CAPTCHA_HTML,
+            request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
+        )
+        service = SearchService()
+        try:
+            with patch.object(service, "_get_client") as mock_get:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_response
+                mock_get.return_value = mock_client
+
+                with pytest.raises(ProviderError, match="CAPTCHA"):
+                    await service._search_duckduckgo("hello", 5, "test-corr")
+        finally:
+            await service.close()
+
+    @pytest.mark.asyncio
+    async def test_normal_response_returns_results(self):
+        """Normal DDG response should return parsed results, not raise."""
+        mock_response = httpx.Response(
+            status_code=200,
+            text=self.NORMAL_HTML,
+            request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
+        )
+        service = SearchService()
+        try:
+            with patch.object(service, "_get_client") as mock_get:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_response
+                mock_get.return_value = mock_client
+
+                results = await service._search_duckduckgo("hello", 5, "test-corr")
+                assert len(results) == 1
+                assert results[0].url == "https://example.com"
+                assert results[0].title == "Example"
+        finally:
+            await service.close()
+
+    @pytest.mark.asyncio
+    async def test_captcha_surfaces_as_search_failure(self):
+        """CAPTCHA should surface as success=False through the search() method."""
+        mock_response = httpx.Response(
+            status_code=202,
+            text=self.CAPTCHA_HTML,
+            request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
+        )
+        service = SearchService()
+        try:
+            with patch.object(service, "_get_client") as mock_get:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_response
+                mock_get.return_value = mock_client
+
+                result = await service.search("hello", limit=5)
+                assert not result.success
+                assert result.error is not None
+                assert "CAPTCHA" in result.error
+        finally:
+            await service.close()
+
+    def test_user_agent_is_browser_like(self):
+        """HTTP client should use a browser-like User-Agent, not Supacrawl/1.0."""
+        from supacrawl.services.search import _SEARCH_USER_AGENT
+
+        assert "Supacrawl" not in _SEARCH_USER_AGENT
+        assert "Mozilla" in _SEARCH_USER_AGENT
