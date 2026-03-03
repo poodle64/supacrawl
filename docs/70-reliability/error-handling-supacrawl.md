@@ -145,6 +145,33 @@ raise ProviderError(...) from e
 
 This preserves the exception chain for debugging while showing user-friendly messages.
 
+## Automatic Error Recovery
+
+### HTTP/2 Protocol Error Fallback
+
+When a Chromium-based engine (Playwright or Patchright) encounters an `ERR_HTTP2_PROTOCOL_ERROR`, supacrawl automatically retries with Camoufox if it is installed. This handles servers that reject Chromium's TLS fingerprint (common with Akamai Bot Manager).
+
+The fallback is a two-stage chain:
+
+1. **Chromium fails** -> retry with Camoufox (different TLS fingerprint via Firefox)
+2. **Camoufox with HTTP/2 fails** -> retry with Camoufox + HTTP/1.1 forced (disables HTTP/2 via Firefox preferences)
+
+This fallback is transparent to the user. If Camoufox is not installed, the error is raised with a hint to install it.
+
+### Bot Detection Auto-Retry
+
+When basic Playwright scraping returns what appears to be a bot-detection page (based on status code and content heuristics), supacrawl automatically retries with Patchright stealth mode if available.
+
+The full retry chain for a scrape request:
+
+```
+Playwright (Tier 1) -> bot detected? -> Patchright (Tier 2)
+                    -> HTTP/2 error?  -> Camoufox (Tier 3)
+                                      -> HTTP/2 error? -> Camoufox + HTTP/1.1
+```
+
+Each stage only triggers if the required package is installed (`supacrawl[stealth]` for Patchright, `supacrawl[camoufox]` for Camoufox).
+
 ## Validation Error Patterns
 
 ### Field Validation

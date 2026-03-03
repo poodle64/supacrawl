@@ -4,7 +4,9 @@
 
 **Primary method: Playwright + markdownify** (browser rendering + pattern-based extraction)
 
-This approach treats each page like an actual browser:
+PDF URLs are detected by file extension and parsed directly (text extraction with optional OCR), bypassing the browser entirely.
+
+For HTML pages, this approach treats each page like an actual browser:
 1. Playwright renders the page fully (JavaScript execution, SPA content loading)
 2. BeautifulSoup cleans the HTML (removes boilerplate)
 3. markdownify converts to markdown (preserves tables and structure)
@@ -59,8 +61,16 @@ This approach treats each page like an actual browser:
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │  Input: Single URL                                               │   │
 │  │                                                                   │   │
+│  │  Step 0: PDF Detection (when parse_pdf != "off")               │   │
+│  │    └── Check URL extension for .pdf                             │   │
+│  │    └── If PDF: extract text directly (skip browser)             │   │
+│  │    └── OCR fallback if text extraction yields nothing           │   │
+│  │                                                                   │   │
 │  │  Step 1: Fetch Page with Playwright                             │   │
+│  │    └── Select engine (playwright/patchright/camoufox)           │   │
+│  │    └── Apply device emulation if --mobile/--device set          │   │
 │  │    └── Render page (waits for domcontentloaded by default)      │   │
+│  │    └── Expand iframes (same-origin by default)                  │   │
 │  │    └── Optionally wait for SPA stability (when wait_for > 0)    │   │
 │  │    └── Returns: raw HTML (post-JavaScript)                      │   │
 │  │                                                                   │   │
@@ -218,3 +228,5 @@ User         CLI          CrawlService    MapService    ScrapeService    Convert
 2. **markdownify preserves structure** - Tables, links, and formatting stay intact
 3. **Pattern matching is reliable** - Framework-specific selectors work better than ML
 4. **Cost is $0** - All extraction runs locally, no API calls needed
+5. **PDF parsing bypasses the browser** - Direct text extraction is faster and more reliable than rendering PDFs in a browser
+6. **Engine selection matters for anti-bot** - Camoufox (Firefox-based) has a different TLS fingerprint than Chromium, which bypasses some bot detection
