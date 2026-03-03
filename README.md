@@ -20,7 +20,9 @@ There are excellent web scraping tools available. Supacrawl takes a different ap
 - **MCP server**: Give AI assistants direct access to web scraping
 - **Clean markdown**: Playwright renders JS, outputs readable markdown
 - **LLM-ready**: Built-in extraction with Ollama, OpenAI, or Anthropic
-- **Stealth mode**: Patchright for anti-bot evasion, 2Captcha for CAPTCHAs
+- **Anti-bot protection**: Three-tier engine system (Playwright, Patchright, Camoufox) with automatic HTTP/2 fallback
+- **PDF parsing**: Auto-detect PDF URLs, extract text with optional OCR
+- **Mobile emulation**: Scrape as any mobile device using Playwright device descriptors
 
 ```bash
 pip install supacrawl
@@ -118,6 +120,7 @@ Pass environment variables via your MCP client config to customise behaviour:
       "command": "supacrawl-mcp",
       "args": ["--transport", "stdio"],
       "env": {
+        "SUPACRAWL_ENGINE": "camoufox",
         "SUPACRAWL_STEALTH": "true",
         "SUPACRAWL_LOCALE": "en-AU",
         "SUPACRAWL_TIMEZONE": "Australia/Sydney",
@@ -137,8 +140,9 @@ If scrapes return empty or minimal content, use `supacrawl_diagnose` to identify
 ### Optional Extras
 
 ```bash
-pip install supacrawl[mcp,stealth]   # Add anti-bot evasion
-pip install supacrawl[mcp,captcha]   # Add CAPTCHA solving
+pip install supacrawl[mcp,stealth]    # Patchright anti-bot evasion (Tier 2)
+pip install supacrawl[mcp,camoufox]   # Camoufox for Akamai/Cloudflare (Tier 3)
+pip install supacrawl[mcp,captcha]    # 2Captcha CAPTCHA solving
 ```
 
 ## Commands
@@ -173,11 +177,12 @@ Each markdown file includes YAML frontmatter with source URL and metadata.
 
 ### Core Settings
 
-| Variable             | Default | Description                |
-| -------------------- | ------- | -------------------------- |
-| `SUPACRAWL_HEADLESS` | `true`  | Set `false` to see browser |
-| `SUPACRAWL_TIMEOUT`  | `30000` | Page load timeout (ms)     |
-| `SUPACRAWL_PROXY`    | -       | Proxy URL (http/socks5)    |
+| Variable             | Default      | Description                                        |
+| -------------------- | ------------ | -------------------------------------------------- |
+| `SUPACRAWL_HEADLESS` | `true`       | Set `false` to see browser                         |
+| `SUPACRAWL_TIMEOUT`  | `30000`      | Page load timeout (ms)                             |
+| `SUPACRAWL_ENGINE`   | `playwright` | Browser engine: `playwright`, `patchright`, `camoufox` |
+| `SUPACRAWL_PROXY`    | -            | Proxy URL (http/socks5)                            |
 
 ### LLM Features
 
@@ -226,11 +231,13 @@ supacrawl cache clear   # Clear all cache (with confirmation)
 ### Optional Extras
 
 ```bash
-pip install supacrawl[stealth]   # Patchright for anti-bot evasion
-pip install supacrawl[captcha]   # 2Captcha for CAPTCHA solving
+pip install supacrawl[stealth]    # Patchright for anti-bot evasion (Tier 2)
+pip install supacrawl[camoufox]   # Camoufox for Akamai/Cloudflare bypass (Tier 3)
+pip install supacrawl[captcha]    # 2Captcha for CAPTCHA solving
+pip install supacrawl[pdf-ocr]    # OCR support for scanned PDFs
 ```
 
-Use `--stealth` and `--solve-captcha` flags when scraping protected sites. Stealth mode automatically runs headful (visible browser) for better anti-detection. CAPTCHA solving requires `CAPTCHA_API_KEY` environment variable.
+Select the browser engine with `--engine` (playwright, patchright, camoufox) or set `SUPACRAWL_ENGINE` as a default. Use `--stealth` for Tier 2, `--engine camoufox` for Tier 3, and `--solve-captcha` for CAPTCHA-protected sites. CAPTCHA solving requires `CAPTCHA_API_KEY` environment variable.
 
 Copy `.env.example` to `.env` to configure.
 
@@ -289,7 +296,8 @@ Supacrawl does one thing well: get clean markdown from the web.
 | **Web Search**           | Built-in (DuckDuckGo)     | Not included              | Via SearXNG                    | Yes               |
 | **LLM Providers**        | Ollama, OpenAI, Anthropic | Any via LiteLLM           | OpenAI (Ollama experimental)   | OpenAI            |
 | **Intelligent Crawling** | Yes (agent command)       | Yes (adaptive crawling)   | No                             | Yes (/agent)      |
-| **Stealth/Anti-bot**     | Yes (Patchright)          | Yes (undetected browser)  | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
+| **Stealth/Anti-bot**     | Yes (3-tier: Patchright + Camoufox) | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
+| **PDF Parsing**          | Yes (text + OCR)          | No                        | No                             | No                |
 | **CAPTCHA Solving**      | Yes (2Captcha)            | Optional (CapSolver)      | No                             | No                |
 | **Caching**              | Local files               | Built-in                  | PostgreSQL                     | Managed           |
 | **Licence**              | MIT                       | Apache-2.0                | AGPL-3.0                       | AGPL-3.0          |

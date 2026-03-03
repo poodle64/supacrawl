@@ -48,9 +48,16 @@ supacrawl scrape URL [OPTIONS]
 - `--max-age INT` - Cache freshness in seconds (0=no cache, default: 0)
 - `--cache-dir PATH` - Cache directory (default: `~/.supacrawl/cache`)
 - `--stealth/--no-stealth` - Enhanced stealth mode via Patchright (requires: `pip install supacrawl[stealth]`)
+- `--engine CHOICE` - Browser engine: `playwright` (default), `patchright` (Tier 2 stealth, requires `supacrawl[stealth]`), `camoufox` (Tier 3 for Akamai/Cloudflare, requires `supacrawl[camoufox]`). Overrides `--stealth`. Also reads `SUPACRAWL_ENGINE` env
 - `--proxy URL` - Proxy URL (e.g., `http://user:pass@host:port`, `socks5://host:port`)
 - `--solve-captcha/--no-solve-captcha` - Enable CAPTCHA solving via 2Captcha (requires: `pip install supacrawl[captcha]` and `CAPTCHA_API_KEY`)
 - `--wait-until STRATEGY` - Page load strategy: `commit`, `domcontentloaded`, `load`, `networkidle` (default: domcontentloaded)
+- `--change-tracking-modes CHOICE` - Diff modes for change tracking: `git-diff`, `json` (can specify multiple). Requires `-f changeTracking`
+- `--expand-iframes CHOICE` - Iframe content expansion: `none` (strip all), `same-origin` (default, expand same-origin inline), `all` (expand all non-blocked)
+- `--mobile/--no-mobile` - Scrape as a default mobile device (iPhone 14). Sets mobile viewport, user agent, and touch support
+- `--device TEXT` - Emulate a specific device (e.g. "iPhone 15", "Pixel 7"). Overrides `--mobile`. See `--list-devices` for available presets
+- `--list-devices` - List all available device presets and exit
+- `--parse-pdf CHOICE` - PDF URL parsing mode: `auto` (default, detect .pdf URLs and extract text with OCR fallback), `fast` (text extraction only), `ocr` (force OCR, requires `supacrawl[pdf-ocr]`), `off` (disable, render in browser)
 
 **Example:**
 ```bash
@@ -89,6 +96,36 @@ $ supacrawl scrape https://protected-site.com --stealth
 
 $ supacrawl scrape https://captcha-site.com --stealth --solve-captcha
 # Solve CAPTCHAs automatically (costs ~$0.002-0.003 each)
+
+$ supacrawl scrape https://akamai-site.com --engine camoufox
+# Use Camoufox engine for Akamai-protected sites
+
+$ supacrawl scrape https://example.com --mobile
+# Scrape as default mobile device (iPhone 14)
+
+$ supacrawl scrape https://example.com --device "iPhone 15"
+# Emulate a specific device
+
+$ supacrawl scrape https://example.com --mobile -f screenshot -o mobile.png
+# Capture mobile screenshot
+
+$ supacrawl scrape --list-devices
+# Show all available device presets
+
+$ supacrawl scrape https://example.com/report.pdf
+# Auto-detect PDF URL and extract text
+
+$ supacrawl scrape https://example.com/scanned.pdf --parse-pdf ocr
+# Force OCR for scanned PDF (requires supacrawl[pdf-ocr])
+
+$ supacrawl scrape https://example.com -f changeTracking --max-age 3600
+# Track content changes (compares against cached previous scrape)
+
+$ supacrawl scrape https://example.com -f changeTracking --change-tracking-modes git-diff
+# Get unified diff of changes
+
+$ supacrawl scrape https://example.com --expand-iframes all
+# Include content from all iframes
 ```
 
 ### crawl
@@ -110,16 +147,20 @@ supacrawl crawl URL [OPTIONS]
 - `--exclude TEXT` - URL patterns to exclude (glob patterns, can specify multiple)
 - `-o, --output DIRECTORY` - Output directory for scraped content (required)
 - `--resume` - Resume from previous crawl
-- `-f, --format FORMAT` - Output format: `markdown`, `html`, or `json` (default: `markdown`, can specify multiple)
+- `-f, --format FORMAT` - Output format: `markdown`, `html`, `json`, `changeTracking` (default: `markdown`, can specify multiple)
 - `--deduplicate-similar-urls` - Deduplicate URLs that differ only by tracking parameters or fragments
 - `--allow-external-links` - Follow and scrape links to external domains
 - `--country CODE` - ISO country code for locale settings (e.g., AU, US, DE)
 - `--language CODE` - Browser language/locale code (e.g., en-AU, de-DE)
 - `--timezone TZ` - IANA timezone (e.g., Australia/Sydney)
 - `--stealth/--no-stealth` - Enhanced stealth mode via Patchright
+- `--engine CHOICE` - Browser engine: `playwright` (default), `patchright`, `camoufox`. See scrape command for details
 - `--proxy URL` - Proxy URL (e.g., `http://user:pass@host:port`)
 - `-c, --concurrency INT` - Max concurrent requests (default: 10)
 - `--wait-until STRATEGY` - Page load strategy: `commit`, `domcontentloaded`, `load`, `networkidle`
+- `--cache-dir PATH` - Cache directory for change tracking (default: `~/.supacrawl/cache`)
+- `--change-tracking-modes CHOICE` - Diff modes for change tracking: `git-diff`, `json` (can specify multiple). Requires `-f changeTracking`
+- `--expand-iframes CHOICE` - Iframe content expansion: `none`, `same-origin` (default), `all`
 
 **Example:**
 ```bash
@@ -137,6 +178,12 @@ $ supacrawl crawl https://example.com -o ./output --deduplicate-similar-urls
 
 $ supacrawl crawl https://example.com -o ./output --country AU
 # Set browser locale to Australia
+
+$ supacrawl crawl https://example.com -o ./output -f changeTracking --change-tracking-modes git-diff
+# Track content changes across all crawled pages
+
+$ supacrawl crawl https://example.com -o ./output --engine camoufox
+# Crawl using Camoufox engine for protected sites
 ```
 
 ### map
@@ -381,16 +428,32 @@ EOF
 supacrawl scrape https://spa.example.com --actions actions.json
 ```
 
-### Bot-Protected Sites
+### Anti-Bot Protection
 
-When sites block automated access, use stealth mode and CAPTCHA solving.
+Supacrawl uses a three-tier engine system for anti-bot protection:
+
+| Tier | Engine | Install | Use Case |
+|------|--------|---------|----------|
+| 1 | Playwright (default) | Included | Basic stealth scripts, always active |
+| 2 | Patchright | `pip install supacrawl[stealth]` | Cloudflare, general anti-bot |
+| 3 | Camoufox | `pip install supacrawl[camoufox]` | Akamai Bot Manager, advanced TLS fingerprinting |
+
+Select the engine explicitly or let supacrawl auto-detect:
 
 ```bash
-# Install stealth extras
-pip install supacrawl[stealth]
+# Tier 1: Basic stealth (always active, no flags needed)
+supacrawl scrape https://example.com
 
-# Scrape with stealth mode
-supacrawl scrape https://protected.example.com --stealth
+# Tier 2: Patchright for Cloudflare-protected sites
+supacrawl scrape https://protected-site.com --stealth
+supacrawl scrape https://protected-site.com --engine patchright
+
+# Tier 3: Camoufox for Akamai-protected sites
+supacrawl scrape https://akamai-site.com --engine camoufox
+
+# Set default engine via environment variable
+export SUPACRAWL_ENGINE=camoufox
+supacrawl scrape https://akamai-site.com
 
 # Debug with visible browser
 SUPACRAWL_HEADLESS=false supacrawl scrape https://protected.example.com --stealth
@@ -399,12 +462,80 @@ SUPACRAWL_HEADLESS=false supacrawl scrape https://protected.example.com --stealt
 supacrawl scrape https://protected.example.com -f screenshot -o debug.png
 ```
 
+If a Chromium-based engine encounters an HTTP/2 protocol error, supacrawl automatically retries with Camoufox (if installed). This two-stage fallback handles servers that reject Chromium's TLS fingerprint.
+
 For CAPTCHA-protected sites:
 
 ```bash
 pip install supacrawl[captcha]
 export CAPTCHA_API_KEY=your-2captcha-api-key
 supacrawl scrape https://captcha-site.example.com --stealth --solve-captcha
+```
+
+### Change Tracking
+
+Track content changes between scrapes using the cache. Requires a previous cached scrape to compare against.
+
+```bash
+# First scrape (populates cache)
+supacrawl scrape https://example.com --max-age 3600
+
+# Later: detect changes
+supacrawl scrape https://example.com -f changeTracking --max-age 3600
+
+# Get a unified diff of changes
+supacrawl scrape https://example.com -f changeTracking --change-tracking-modes git-diff
+
+# JSON comparison mode (requires --prompt or --schema for structured extraction)
+supacrawl scrape https://example.com -f changeTracking --change-tracking-modes json \
+  --prompt "Extract product prices"
+
+# Track changes across an entire site
+supacrawl crawl https://example.com -o ./output -f changeTracking \
+  --change-tracking-modes git-diff --cache-dir ~/.supacrawl/cache
+```
+
+Change tracking returns a status (`new`, `same`, or `changed`) and optionally a diff. The `git-diff` mode produces unified diffs; the `json` mode compares structured extracted fields.
+
+### PDF Parsing
+
+Supacrawl auto-detects PDF URLs (by `.pdf` extension) and extracts text directly, bypassing the browser entirely.
+
+```bash
+# Auto-detect and extract text (default behaviour)
+supacrawl scrape https://example.com/report.pdf
+
+# Text extraction only (no OCR fallback)
+supacrawl scrape https://example.com/report.pdf --parse-pdf fast
+
+# Force OCR for scanned documents
+pip install supacrawl[pdf-ocr]
+supacrawl scrape https://example.com/scanned.pdf --parse-pdf ocr
+
+# Extract structured data from PDF
+supacrawl scrape https://example.com/report.pdf -f json --prompt "Extract revenue figures"
+
+# Disable PDF parsing (render in browser)
+supacrawl scrape https://example.com/report.pdf --parse-pdf off
+```
+
+### Mobile Emulation
+
+Scrape pages as a mobile device using Playwright's device descriptors. This sets the viewport, user agent, device scale factor, and touch support.
+
+```bash
+# Scrape as default mobile device (iPhone 14)
+supacrawl scrape https://example.com --mobile
+
+# Emulate a specific device
+supacrawl scrape https://example.com --device "iPhone 15"
+supacrawl scrape https://example.com --device "Pixel 7"
+
+# Capture mobile screenshot
+supacrawl scrape https://example.com --mobile -f screenshot -o mobile.png
+
+# List all available device presets
+supacrawl scrape --list-devices
 ```
 
 ### Extracting Structured Data
@@ -471,6 +602,7 @@ supacrawl scrape https://example.com --language en-AU --timezone Australia/Sydne
 - `SUPACRAWL_HEADLESS` - Run headless (default: `true`)
 - `SUPACRAWL_TIMEOUT` - Page load timeout in ms (default: `30000`)
 - `SUPACRAWL_WAIT_UNTIL` - Default page load strategy (`commit`, `domcontentloaded`, `load`, `networkidle`; default: `domcontentloaded`)
+- `SUPACRAWL_ENGINE` - Default browser engine: `playwright`, `patchright`, `camoufox` (overridden by `--engine`)
 - `SUPACRAWL_PROXY` - Proxy URL (http/socks5)
 - `SUPACRAWL_CACHE_DIR` - Cache directory (default: `~/.supacrawl/cache`)
 
@@ -518,9 +650,12 @@ All errors include correlation IDs for debugging:
 - Run `playwright install chromium` to verify Playwright browsers are installed
 - For 4xx client errors, fix cookies/auth/proxy; retries are skipped by design
 - For rate limits, use `--wait-for` to add delays between requests or reduce crawl `--limit`
-- Use `--stealth` for bot-protected sites (requires `pip install supacrawl[stealth]`)
+- Use `--stealth` or `--engine patchright` for bot-protected sites (requires `pip install supacrawl[stealth]`)
+- Use `--engine camoufox` for Akamai-protected sites (requires `pip install supacrawl[camoufox]`)
+- HTTP/2 protocol errors are automatically retried with Camoufox if installed
 - Use `--solve-captcha` for CAPTCHA-protected sites (requires `pip install supacrawl[captcha]` and `CAPTCHA_API_KEY`)
 - Set `SUPACRAWL_HEADLESS=false` to see what the browser sees during debugging
+- For PDF URLs returning empty content, check `--parse-pdf` mode (default `auto` detects `.pdf` extensions)
 
 ## Best Practices
 

@@ -7,6 +7,28 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.3.0] - 2026-03-03
+
+### Features
+
+- **Camoufox anti-detection engine** (Closes #80): New `--engine camoufox` option provides Tier 3 anti-bot protection using patched Firefox. Effective against Akamai Bot Manager and advanced TLS fingerprinting. Install: `pip install supacrawl[camoufox]`
+- **Change tracking** (Closes #81): New `-f changeTracking` format detects content changes between scrapes by comparing against cached previous versions. Supports `--change-tracking-modes git-diff` for unified diffs
+- **PDF URL parsing** (Closes #82): Auto-detects `.pdf` URLs and extracts text directly, bypassing the browser. OCR fallback available via `pip install supacrawl[pdf-ocr]`. Controlled with `--parse-pdf [auto|fast|ocr|off]`
+- **Mobile device emulation** (Closes #83): New `--mobile` and `--device TEXT` flags for scraping as mobile devices using Playwright device descriptors. Use `--list-devices` to see available presets
+- **Iframe content extraction** (Closes #85): New `--expand-iframes [none|same-origin|all]` option (default: same-origin) expands iframe content inline during scraping
+- **JSON comparison mode for change tracking** (Closes #87): `--change-tracking-modes json` compares structured extracted fields between scrapes
+- **Change tracking in crawl** (Closes #88): `-f changeTracking` now works in the `crawl` command with `--change-tracking-modes` and `--cache-dir` support
+- **Per-request engine in MCP tools** (Closes #90): `engine` parameter on `supacrawl_scrape` and `supacrawl_crawl` MCP tools allows per-request engine selection. Server default configurable via `SUPACRAWL_ENGINE` environment variable
+
+### Fixed
+
+- **ERR_HTTP2_PROTOCOL_ERROR automatic fallback** (Closes #92): Two-stage auto-retry chain (Chromium to Camoufox to Camoufox + HTTP/1.1) handles servers that reject Chromium's TLS fingerprint
+- **Camoufox async wrapper** (Closes #91): Use correct `AsyncCamoufox` context manager instead of `AsyncNewBrowser`
+
+### Performance
+
+- **Reduced scrape overhead by ~1.7s per page** (Closes #89): Removed unnecessary PDF HEAD request from the scrape hot path
+
 ## [2026.2.3] - 2026-02-26
 
 ### Fixed
