@@ -48,19 +48,43 @@ def _get_llm_config() -> dict[str, Any]:
 
 
 def _get_search_config() -> dict[str, Any]:
-    """Get search provider configuration."""
-    provider = settings.search_provider
+    """Get search provider configuration and effective runtime state."""
+    configured_provider = settings.search_provider
+    has_brave_key = bool(os.getenv("BRAVE_API_KEY"))
+
+    # Determine effective provider (matches SearchService fallback logic)
+    if configured_provider == "brave" and has_brave_key:
+        effective_provider = "brave"
+        status = "ready"
+    elif configured_provider == "brave" and not has_brave_key:
+        effective_provider = "duckduckgo"
+        status = "degraded"
+    else:
+        # Explicitly configured as duckduckgo
+        effective_provider = "duckduckgo"
+        status = "degraded"
+
+    # Determine effective rate limit
+    from supacrawl.services.search import _PROVIDER_RATE_LIMITS
+
+    if settings.search_rate_limit is not None:
+        rate_limit = settings.search_rate_limit
+    else:
+        rate_limit = _PROVIDER_RATE_LIMITS.get(effective_provider, 10.0)
+
     config: dict[str, Any] = {
-        "provider": provider,
-        "status": "ready",
+        "configured_provider": configured_provider,
+        "effective_provider": effective_provider,
+        "status": status,
+        "brave_api_key_configured": has_brave_key,
+        "rate_limit_rps": rate_limit,
     }
 
-    # Check if Brave API key is configured (if using Brave)
-    if provider == "brave":
-        has_key = bool(os.getenv("BRAVE_API_KEY"))
-        config["api_key_configured"] = has_key
-        if not has_key:
-            config["status"] = "missing_api_key"
+    if status == "degraded":
+        config["warning"] = (
+            "Using DuckDuckGo fallback (deprecated, unreliable). "
+            "Set BRAVE_API_KEY for reliable search — see https://brave.com/search/api/"
+        )
 
     return config
 
