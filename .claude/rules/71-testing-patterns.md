@@ -112,4 +112,4 @@ def test_scrape_command(runner):
 
 - `.claude/rules/master/71-testing-patterns.md` - Universal testing requirements
 - `.claude/rules/70-error-handling.md` - Error handling patterns to test
-- `docs/70-reliability/testing-supacrawl.md` - Comprehensive testing strategies
+- `docs/development/testing.md` - Comprehensive testing strategies

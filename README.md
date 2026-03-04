@@ -94,16 +94,16 @@ playwright install chromium
 
 ### Available Tools
 
-| Tool                 | Description                                          |
-| -------------------- | ---------------------------------------------------- |
-| `supacrawl_scrape`   | Scrape a URL to markdown, HTML, screenshot, or PDF   |
-| `supacrawl_crawl`    | Crawl multiple pages from a site                     |
-| `supacrawl_map`      | Discover URLs on a website without fetching content   |
-| `supacrawl_search`   | Web search (DuckDuckGo or Brave)                     |
-| `supacrawl_extract`  | Scrape pages for LLM-powered structured extraction   |
-| `supacrawl_summary`  | Scrape a page for LLM-powered summarisation          |
-| `supacrawl_diagnose` | Diagnose scraping issues (CDN, bot detection, etc.)  |
-| `supacrawl_health`   | Server health check and capability report            |
+| Tool                 | Description                                         |
+| -------------------- | --------------------------------------------------- |
+| `supacrawl_scrape`   | Scrape a URL to markdown, HTML, screenshot, or PDF  |
+| `supacrawl_crawl`    | Crawl multiple pages from a site                    |
+| `supacrawl_map`      | Discover URLs on a website without fetching content |
+| `supacrawl_search`   | Web search (DuckDuckGo or Brave)                    |
+| `supacrawl_extract`  | Scrape pages for LLM-powered structured extraction  |
+| `supacrawl_summary`  | Scrape a page for LLM-powered summarisation         |
+| `supacrawl_diagnose` | Diagnose scraping issues (CDN, bot detection, etc.) |
+| `supacrawl_health`   | Server health check and capability report           |
 
 The CLI's `agent` command is intentionally omitted. When used via MCP, your LLM orchestrates the primitives directly; it *is* the agent. For standalone agentic workflows, use `supacrawl agent` from the CLI.
 
@@ -177,12 +177,12 @@ Each markdown file includes YAML frontmatter with source URL and metadata.
 
 ### Core Settings
 
-| Variable             | Default      | Description                                        |
-| -------------------- | ------------ | -------------------------------------------------- |
-| `SUPACRAWL_HEADLESS` | `true`       | Set `false` to see browser                         |
-| `SUPACRAWL_TIMEOUT`  | `30000`      | Page load timeout (ms)                             |
+| Variable             | Default      | Description                                            |
+| -------------------- | ------------ | ------------------------------------------------------ |
+| `SUPACRAWL_HEADLESS` | `true`       | Set `false` to see browser                             |
+| `SUPACRAWL_TIMEOUT`  | `30000`      | Page load timeout (ms)                                 |
 | `SUPACRAWL_ENGINE`   | `playwright` | Browser engine: `playwright`, `patchright`, `camoufox` |
-| `SUPACRAWL_PROXY`    | -            | Proxy URL (http/socks5)                            |
+| `SUPACRAWL_PROXY`    | -            | Proxy URL (http/socks5)                                |
 
 ### LLM Features
 
@@ -289,19 +289,19 @@ Supacrawl does one thing well: get clean markdown from the web.
 
 ## Comparison
 
-|                          | Supacrawl                 | crawl4ai                  | Firecrawl (self-hosted)        | Firecrawl (cloud) |
-| ------------------------ | ------------------------- | ------------------------- | ------------------------------ | ----------------- |
-| **Infrastructure**       | `pip install`             | `pip install`             | Docker + PostgreSQL + Redis    | Hosted API        |
-| **MCP Server**           | Built-in (`[mcp]` extra)  | Not included              | Not included                   | Yes               |
-| **Web Search**           | Built-in (DuckDuckGo)     | Not included              | Via SearXNG                    | Yes               |
-| **LLM Providers**        | Ollama, OpenAI, Anthropic | Any via LiteLLM           | OpenAI (Ollama experimental)   | OpenAI            |
-| **Intelligent Crawling** | Yes (agent command)       | Yes (adaptive crawling)   | No                             | Yes (/agent)      |
+|                          | Supacrawl                           | crawl4ai                 | Firecrawl (self-hosted)        | Firecrawl (cloud) |
+| ------------------------ | ----------------------------------- | ------------------------ | ------------------------------ | ----------------- |
+| **Infrastructure**       | `pip install`                       | `pip install`            | Docker + PostgreSQL + Redis    | Hosted API        |
+| **MCP Server**           | Built-in (`[mcp]` extra)            | Not included             | Not included                   | Yes               |
+| **Web Search**           | Built-in (DuckDuckGo)               | Not included             | Via SearXNG                    | Yes               |
+| **LLM Providers**        | Ollama, OpenAI, Anthropic           | Any via LiteLLM          | OpenAI (Ollama experimental)   | OpenAI            |
+| **Intelligent Crawling** | Yes (agent command)                 | Yes (adaptive crawling)  | No                             | Yes (/agent)      |
 | **Stealth/Anti-bot**     | Yes (3-tier: Patchright + Camoufox) | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
-| **PDF Parsing**          | Yes (text + OCR)          | No                        | No                             | No                |
-| **CAPTCHA Solving**      | Yes (2Captcha)            | Optional (CapSolver)      | No                             | No                |
-| **Caching**              | Local files               | Built-in                  | PostgreSQL                     | Managed           |
-| **Licence**              | MIT                       | Apache-2.0                | AGPL-3.0                       | AGPL-3.0          |
-| **Cost**                 | Free                      | Free                      | Free                           | Pay-per-use       |
+| **PDF Parsing**          | Yes (text + OCR)                    | No                       | No                             | No                |
+| **CAPTCHA Solving**      | Yes (2Captcha)                      | Optional (CapSolver)     | No                             | No                |
+| **Caching**              | Local files                         | Built-in                 | PostgreSQL                     | Managed           |
+| **Licence**              | MIT                                 | Apache-2.0               | AGPL-3.0                       | AGPL-3.0          |
+| **Cost**                 | Free                                | Free                     | Free                           | Pay-per-use       |
 
 **Supacrawl** is minimal and focused. **crawl4ai** is a feature-rich framework with adaptive crawling and chunking. **Firecrawl** is an API server for applications needing a scraping backend.
 
