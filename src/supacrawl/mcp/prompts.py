@@ -433,8 +433,8 @@ supacrawl_search(
 ```
 
 ## Search Providers
-- **duckduckgo**: Free, no API key (default)
-- **brave**: Requires BRAVE_API_KEY
+- **brave**: Recommended default. Requires BRAVE_API_KEY (free tier: ~1,000 searches/month)
+- **duckduckgo**: Deprecated fallback. Free but unreliable due to bot detection
 
 ## Best Practices
 1. Use specific, focused queries

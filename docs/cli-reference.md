@@ -11,7 +11,7 @@ The `supacrawl` CLI provides commands for web scraping, URL mapping, search, and
 - `scrape` - Scrape a single URL to markdown
 - `crawl` - Crawl a website from a starting URL
 - `map` - Map URLs from a website
-- `search` - Search the web using DuckDuckGo or Brave
+- `search` - Search the web using Brave Search (or DuckDuckGo fallback)
 - `llm-extract` - Extract structured data using LLM
 - `agent` - Run autonomous web agent
 - `cache` - Manage the local scrape cache
@@ -232,7 +232,7 @@ $ supacrawl map https://example.com --ignore-query-params
 
 ### search
 
-Search the web using DuckDuckGo or Brave.
+Search the web using Brave Search (or DuckDuckGo fallback).
 
 **Usage:**
 ```bash
@@ -246,7 +246,7 @@ supacrawl search QUERY [OPTIONS]
 - `-l, --limit INT` - Maximum results per source type (1-10, default: 5)
 - `-s, --source TYPE` - Source types: `web`, `images`, `news`, or `all` (default: `web`, can specify multiple)
 - `--scrape/--no-scrape` - Scrape content from result pages (default: no-scrape)
-- `--provider PROVIDER` - Search provider: `duckduckgo` or `brave` (default: `duckduckgo`)
+- `--provider PROVIDER` - Search provider: `brave` or `duckduckgo` (default: `brave`). Requires `BRAVE_API_KEY` for Brave; falls back to DuckDuckGo (deprecated) if not set
 - `-o, --output PATH` - Output file (JSON). If omitted, prints to stdout
 
 **Example:**

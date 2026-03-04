@@ -97,9 +97,12 @@ class SupacrawlSettings(BaseSettings):
 
     # Search settings (LLM config is read directly from env by supacrawl)
     search_provider: Literal["duckduckgo", "brave"] = Field(
-        default="duckduckgo", description="Web search provider (duckduckgo or brave)"
+        default="brave",
+        description=(
+            "Web search provider. Brave Search (default) requires BRAVE_API_KEY. "
+            "DuckDuckGo is a deprecated fallback — unreliable due to bot detection."
+        ),
     )
-
     # MCP Server Configuration (without SUPACRAWL_ prefix)
     allowed_origins: list[str] = Field(
         default_factory=lambda: ["*"],

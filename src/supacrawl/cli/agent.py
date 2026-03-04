@@ -8,7 +8,7 @@ import click
 from supacrawl.cli._common import app
 
 
-@app.command("search", help="Search the web using DuckDuckGo or Brave.")
+@app.command("search", help="Search the web using Brave Search (or DuckDuckGo fallback).")
 @click.argument("query")
 @click.option(
     "--limit",
@@ -36,10 +36,10 @@ from supacrawl.cli._common import app
 )
 @click.option(
     "--provider",
-    type=click.Choice(["duckduckgo", "brave"], case_sensitive=False),
-    default="duckduckgo",
+    type=click.Choice(["brave", "duckduckgo"], case_sensitive=False),
+    default="brave",
     show_default=True,
-    help="Search provider to use.",
+    help="Search provider. Brave (default) requires BRAVE_API_KEY. DuckDuckGo is deprecated.",
 )
 @click.option(
     "--output",
@@ -57,6 +57,9 @@ def search(
     output: Path | None,
 ) -> None:
     """Search the web and optionally scrape results.
+
+    Requires BRAVE_API_KEY for Brave Search (default). Falls back to
+    DuckDuckGo (deprecated) if no API key is set.
 
     Examples:
         supacrawl search "python web scraping"
