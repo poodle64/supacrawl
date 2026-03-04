@@ -103,6 +103,16 @@ class SupacrawlSettings(BaseSettings):
             "DuckDuckGo is a deprecated fallback — unreliable due to bot detection."
         ),
     )
+    search_rate_limit: float | None = Field(
+        default=None,
+        ge=0.1,
+        le=100.0,
+        description=(
+            "Search requests per second. Overrides provider default "
+            "(Brave: 10/s, DuckDuckGo: 1/s). Set to throttle API usage."
+        ),
+    )
+
     # MCP Server Configuration (without SUPACRAWL_ prefix)
     allowed_origins: list[str] = Field(
         default_factory=lambda: ["*"],
