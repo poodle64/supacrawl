@@ -9,6 +9,7 @@ import pytest
 from supacrawl.exceptions import ProviderError
 from supacrawl.models import SearchResult, SearchResultItem, SearchSourceType
 from supacrawl.services.search import SearchService
+from supacrawl.services.search.duckduckgo import DuckDuckGoProvider
 
 
 def _ddg_service(**kwargs) -> SearchService:
@@ -310,17 +311,17 @@ class TestDuckDuckGoCaptchaDetection:
             text=self.CAPTCHA_HTML,
             request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
         )
-        service = _ddg_service()
+        provider = DuckDuckGoProvider()
         try:
-            with patch.object(service, "_get_client") as mock_get:
+            with patch.object(provider, "_get_client") as mock_get:
                 mock_client = AsyncMock()
                 mock_client.get.return_value = mock_response
                 mock_get.return_value = mock_client
 
                 with pytest.raises(ProviderError, match="CAPTCHA"):
-                    await service._search_duckduckgo("hello", 5, "test-corr")
+                    await provider.search_web("hello", 5, "test-corr")
         finally:
-            await service.close()
+            await provider.close()
 
     @pytest.mark.asyncio
     async def test_captcha_anomaly_modal_in_html_raises_provider_error(self):
@@ -330,17 +331,17 @@ class TestDuckDuckGoCaptchaDetection:
             text=self.CAPTCHA_HTML,
             request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
         )
-        service = _ddg_service()
+        provider = DuckDuckGoProvider()
         try:
-            with patch.object(service, "_get_client") as mock_get:
+            with patch.object(provider, "_get_client") as mock_get:
                 mock_client = AsyncMock()
                 mock_client.get.return_value = mock_response
                 mock_get.return_value = mock_client
 
                 with pytest.raises(ProviderError, match="CAPTCHA"):
-                    await service._search_duckduckgo("hello", 5, "test-corr")
+                    await provider.search_web("hello", 5, "test-corr")
         finally:
-            await service.close()
+            await provider.close()
 
     @pytest.mark.asyncio
     async def test_normal_response_returns_results(self):
@@ -350,19 +351,19 @@ class TestDuckDuckGoCaptchaDetection:
             text=self.NORMAL_HTML,
             request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
         )
-        service = _ddg_service()
+        provider = DuckDuckGoProvider()
         try:
-            with patch.object(service, "_get_client") as mock_get:
+            with patch.object(provider, "_get_client") as mock_get:
                 mock_client = AsyncMock()
                 mock_client.get.return_value = mock_response
                 mock_get.return_value = mock_client
 
-                results = await service._search_duckduckgo("hello", 5, "test-corr")
+                results = await provider.search_web("hello", 5, "test-corr")
                 assert len(results) == 1
                 assert results[0].url == "https://example.com"
                 assert results[0].title == "Example"
         finally:
-            await service.close()
+            await provider.close()
 
     @pytest.mark.asyncio
     async def test_captcha_surfaces_as_search_failure(self):

@@ -99,8 +99,16 @@ class SupacrawlSettings(BaseSettings):
     search_provider: Literal["duckduckgo", "brave"] = Field(
         default="brave",
         description=(
-            "Web search provider. Brave Search (default) requires BRAVE_API_KEY. "
-            "DuckDuckGo is a deprecated fallback — unreliable due to bot detection."
+            "Legacy single search provider. Use SUPACRAWL_SEARCH_PROVIDERS for multi-provider fallback chains instead."
+        ),
+    )
+    search_providers: str | None = Field(
+        default=None,
+        description=(
+            "Comma-separated ordered list of search providers. "
+            "Supacrawl tries each in order, falling back on failure. "
+            "Supported: brave, tavily, serper, serpapi, exa, duckduckgo. "
+            "Example: 'brave,tavily,serper,duckduckgo'"
         ),
     )
     search_rate_limit: float | None = Field(
