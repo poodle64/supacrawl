@@ -8,7 +8,7 @@ import click
 from supacrawl.cli._common import app
 
 
-@app.command("search", help="Search the web using Brave Search (or DuckDuckGo fallback).")
+@app.command("search", help="Search the web with multi-provider fallback.")
 @click.argument("query")
 @click.option(
     "--limit",
@@ -36,10 +36,13 @@ from supacrawl.cli._common import app
 )
 @click.option(
     "--provider",
-    type=click.Choice(["brave", "duckduckgo"], case_sensitive=False),
-    default="brave",
-    show_default=True,
-    help="Search provider. Brave (default) requires BRAVE_API_KEY. DuckDuckGo is deprecated.",
+    type=str,
+    default=None,
+    help=(
+        "Search provider(s). Comma-separated for fallback chain. "
+        "Supported: brave, tavily, serper, serpapi, exa, duckduckgo. "
+        "Default: brave (or SUPACRAWL_SEARCH_PROVIDERS env var)."
+    ),
 )
 @click.option(
     "--output",
@@ -53,13 +56,13 @@ def search(
     limit: int,
     sources: tuple[str, ...],
     scrape: bool,
-    provider: str,
+    provider: str | None,
     output: Path | None,
 ) -> None:
     """Search the web and optionally scrape results.
 
-    Requires BRAVE_API_KEY for Brave Search (default). Falls back to
-    DuckDuckGo (deprecated) if no API key is set.
+    Supports multiple search providers with automatic fallback.
+    Configure via --provider flag or SUPACRAWL_SEARCH_PROVIDERS env var.
 
     Examples:
         supacrawl search "python web scraping"
@@ -69,6 +72,7 @@ def search(
         supacrawl search "tech news" --source news
         supacrawl search "AI announcements" --source web --source news
         supacrawl search "topic" --source all
+        supacrawl search "topic" --provider brave,tavily,duckduckgo
     """
     import json
 
@@ -103,7 +107,7 @@ def search(
 
         service = SearchService(
             scrape_service=scrape_service,
-            provider=provider,  # type: ignore[arg-type]
+            providers=provider,  # Accepts comma-separated string or None
         )
 
         try:
@@ -116,6 +120,8 @@ def search(
             return result
         finally:
             await service.close()
+            if scrape_service:
+                await scrape_service.close()
 
     result = asyncio.run(run())
 
