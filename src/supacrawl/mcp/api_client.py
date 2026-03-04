@@ -200,6 +200,8 @@ async def create_supacrawl_services() -> SupacrawlServices:
         scrape_service=scrape_service,
         provider=settings.search_provider,
         brave_api_key=os.getenv("BRAVE_API_KEY"),
+        rate_limit=settings.search_rate_limit,
+        locale_config=locale_config,
     )
 
     logger.info("Supacrawl services initialised")

@@ -1,5 +1,6 @@
 """Tests for search service."""
 
+import warnings
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -10,13 +11,20 @@ from supacrawl.models import SearchResult, SearchResultItem, SearchSourceType
 from supacrawl.services.search import SearchService
 
 
+def _ddg_service(**kwargs) -> SearchService:
+    """Create a SearchService using DuckDuckGo (deprecated) for network tests."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        return SearchService(provider="duckduckgo", **kwargs)
+
+
 class TestSearchService:
-    """Tests for SearchService."""
+    """Tests for SearchService using DuckDuckGo (network-dependent)."""
 
     @pytest.mark.asyncio
     async def test_search_returns_web_results(self):
         """Test that search returns web results by default."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("python programming language", limit=3)
             assert isinstance(result, SearchResult)
@@ -31,7 +39,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_respects_limit(self):
         """Test that search respects the limit parameter."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("python", limit=2)
             assert result.success
@@ -42,7 +50,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_result_structure(self):
         """Test that search results have correct structure."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("example", limit=1)
             assert result.success
@@ -59,7 +67,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_with_web_source(self):
         """Test search with explicit web source."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("python", limit=3, sources=["web"])
             assert result.success
@@ -71,7 +79,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_with_images_source(self):
         """Test search with images source type."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("cat", limit=3, sources=["images"])
             assert isinstance(result, SearchResult)
@@ -85,7 +93,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_with_news_source(self):
         """Test search with news source type."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("technology", limit=3, sources=["news"])
             assert isinstance(result, SearchResult)
@@ -98,7 +106,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_with_multiple_sources(self):
         """Test search with multiple source types."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("technology", limit=3, sources=["web", "news"])
             assert isinstance(result, SearchResult)
@@ -113,7 +121,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_image_result_fields(self):
         """Test that image results have image-specific fields."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("landscape", limit=5, sources=["images"])
             # If we got image results, check image-specific fields
@@ -129,7 +137,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_news_result_fields(self):
         """Test that news results have news-specific fields."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             result = await service.search("technology", limit=5, sources=["news"])
             # If we got news results, check news-specific fields
@@ -143,7 +151,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_handles_unknown_source_type(self):
         """Test that search handles unknown source types gracefully."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             # This should not raise, just skip unknown sources
             result = await service.search(
@@ -158,7 +166,7 @@ class TestSearchService:
     @pytest.mark.asyncio
     async def test_search_clamps_limit(self):
         """Test that search clamps limit to valid range."""
-        service = SearchService()
+        service = _ddg_service()
         try:
             # Limit below minimum should be clamped to 1
             result = await service.search("python", limit=0)
@@ -247,6 +255,33 @@ class TestSearchResultItem:
         assert item.html == "<h1>Heading</h1><p>Content</p>"
 
 
+class TestDefaultProviderSelection:
+    """Tests for default provider selection and fallback behaviour."""
+
+    def test_default_provider_is_brave(self):
+        """Default provider should be brave."""
+        service = SearchService(brave_api_key="test-key")
+        assert service._provider == "brave"
+
+    def test_brave_without_key_falls_back_to_duckduckgo(self):
+        """Brave without API key should fall back to DuckDuckGo."""
+        with patch.dict("os.environ", {"BRAVE_API_KEY": ""}, clear=False):
+            # brave_api_key=None forces reading from env, which is empty
+            service = SearchService(brave_api_key=None)
+            assert service._provider == "duckduckgo"
+
+    def test_duckduckgo_explicit_emits_deprecation_warning(self):
+        """Explicitly selecting DuckDuckGo should emit a DeprecationWarning."""
+        with pytest.warns(DeprecationWarning, match="DuckDuckGo search is deprecated"):
+            SearchService(provider="duckduckgo")
+
+    def test_brave_with_key_uses_brave(self):
+        """Brave with API key should use Brave."""
+        service = SearchService(brave_api_key="test-key")
+        assert service._provider == "brave"
+        assert service._brave_api_key == "test-key"
+
+
 class TestDuckDuckGoCaptchaDetection:
     """Tests for DuckDuckGo CAPTCHA/bot detection handling."""
 
@@ -275,7 +310,7 @@ class TestDuckDuckGoCaptchaDetection:
             text=self.CAPTCHA_HTML,
             request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
         )
-        service = SearchService()
+        service = _ddg_service()
         try:
             with patch.object(service, "_get_client") as mock_get:
                 mock_client = AsyncMock()
@@ -295,7 +330,7 @@ class TestDuckDuckGoCaptchaDetection:
             text=self.CAPTCHA_HTML,
             request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
         )
-        service = SearchService()
+        service = _ddg_service()
         try:
             with patch.object(service, "_get_client") as mock_get:
                 mock_client = AsyncMock()
@@ -315,7 +350,7 @@ class TestDuckDuckGoCaptchaDetection:
             text=self.NORMAL_HTML,
             request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
         )
-        service = SearchService()
+        service = _ddg_service()
         try:
             with patch.object(service, "_get_client") as mock_get:
                 mock_client = AsyncMock()
@@ -337,7 +372,7 @@ class TestDuckDuckGoCaptchaDetection:
             text=self.CAPTCHA_HTML,
             request=httpx.Request("GET", "https://lite.duckduckgo.com/lite/"),
         )
-        service = SearchService()
+        service = _ddg_service()
         try:
             with patch.object(service, "_get_client") as mock_get:
                 mock_client = AsyncMock()
@@ -357,3 +392,171 @@ class TestDuckDuckGoCaptchaDetection:
 
         assert "Supacrawl" not in _SEARCH_USER_AGENT
         assert "Mozilla" in _SEARCH_USER_AGENT
+
+
+class TestBrowserHeaders:
+    """Tests for realistic browser header profile."""
+
+    def test_browser_headers_include_all_required_fields(self):
+        """Header profile should include all headers a real Chrome session sends."""
+        from supacrawl.services.search import _BROWSER_HEADERS
+
+        required = [
+            "User-Agent",
+            "Accept",
+            "Accept-Language",
+            "Accept-Encoding",
+            "Sec-Fetch-Dest",
+            "Sec-Fetch-Mode",
+            "Sec-Fetch-Site",
+            "Sec-Fetch-User",
+            "Upgrade-Insecure-Requests",
+            "Sec-Ch-Ua",
+            "Sec-Ch-Ua-Mobile",
+            "Sec-Ch-Ua-Platform",
+            "Connection",
+        ]
+        for header in required:
+            assert header in _BROWSER_HEADERS, f"Missing header: {header}"
+
+    def test_sec_ch_ua_version_matches_user_agent(self):
+        """Sec-Ch-Ua Chrome version should match the User-Agent version."""
+        import re
+
+        from supacrawl.services.search import _BROWSER_HEADERS, _SEARCH_USER_AGENT
+
+        # Extract Chrome version from User-Agent (e.g., "Chrome/131.0.0.0")
+        ua_match = re.search(r"Chrome/(\d+)", _SEARCH_USER_AGENT)
+        assert ua_match, "Could not extract Chrome version from User-Agent"
+        ua_version = ua_match.group(1)
+
+        # Sec-Ch-Ua should reference the same major version
+        assert ua_version in _BROWSER_HEADERS["Sec-Ch-Ua"]
+
+    def test_default_accept_language_is_en_us(self):
+        """Default Accept-Language should be en-US when no locale is configured."""
+        service = SearchService(brave_api_key="test-key")
+        headers = service._build_headers()
+        assert headers["Accept-Language"] == "en-US,en;q=0.9"
+
+    def test_locale_config_sets_accept_language(self):
+        """Locale config should override Accept-Language header."""
+        from supacrawl.models import LocaleConfig
+
+        locale = LocaleConfig(language="en-AU")
+        service = SearchService(brave_api_key="test-key", locale_config=locale)
+        headers = service._build_headers()
+        assert headers["Accept-Language"] == "en-AU,en;q=0.9"
+
+    def test_env_locale_sets_accept_language(self):
+        """SUPACRAWL_LOCALE env var should set Accept-Language when no locale_config."""
+        with patch.dict("os.environ", {"SUPACRAWL_LOCALE": "de-DE"}):
+            service = SearchService(brave_api_key="test-key")
+            headers = service._build_headers()
+            assert headers["Accept-Language"] == "de-DE,de;q=0.9"
+
+    def test_locale_config_takes_precedence_over_env(self):
+        """Explicit locale_config should take precedence over env var."""
+        from supacrawl.models import LocaleConfig
+
+        locale = LocaleConfig(language="fr-FR")
+        with patch.dict("os.environ", {"SUPACRAWL_LOCALE": "de-DE"}):
+            service = SearchService(brave_api_key="test-key", locale_config=locale)
+            headers = service._build_headers()
+            assert headers["Accept-Language"] == "fr-FR,fr;q=0.9"
+
+    @pytest.mark.asyncio
+    async def test_client_uses_full_browser_headers(self):
+        """HTTP client should be created with the full browser header set."""
+        service = SearchService(brave_api_key="test-key")
+        try:
+            client = await service._get_client()
+            # Check key headers are set on the client
+            assert "Mozilla" in client.headers["user-agent"]
+            assert "text/html" in client.headers["accept"]
+            assert client.headers["sec-fetch-dest"] == "document"
+            assert client.headers["upgrade-insecure-requests"] == "1"
+        finally:
+            await service.close()
+
+
+class TestRateLimiting:
+    """Tests for search service rate limiting."""
+
+    def test_ddg_default_rate_limit(self):
+        """DuckDuckGo should default to 1 req/s."""
+        service = _ddg_service()
+        assert service._rate_limiter.requests_per_second == 1.0
+
+    def test_brave_default_rate_limit(self):
+        """Brave should default to 10 req/s."""
+        service = SearchService(brave_api_key="test-key")
+        assert service._rate_limiter.requests_per_second == 10.0
+
+    def test_explicit_rate_limit_overrides_default(self):
+        """Explicit rate_limit parameter should override provider default."""
+        service = SearchService(brave_api_key="test-key", rate_limit=5.0)
+        assert service._rate_limiter.requests_per_second == 5.0
+
+    def test_env_var_rate_limit(self):
+        """SUPACRAWL_SEARCH_RATE_LIMIT env var should override provider default."""
+        with patch.dict("os.environ", {"SUPACRAWL_SEARCH_RATE_LIMIT": "3.5"}):
+            service = SearchService(brave_api_key="test-key")
+            assert service._rate_limiter.requests_per_second == 3.5
+
+    def test_invalid_env_var_uses_provider_default(self):
+        """Invalid SUPACRAWL_SEARCH_RATE_LIMIT should fall back to provider default."""
+        with patch.dict("os.environ", {"SUPACRAWL_SEARCH_RATE_LIMIT": "not-a-number"}):
+            service = SearchService(brave_api_key="test-key")
+            assert service._rate_limiter.requests_per_second == 10.0
+
+    @pytest.mark.asyncio
+    async def test_rate_limiter_allows_burst(self):
+        """Rate limiter should allow burst requests up to burst limit."""
+        from supacrawl.services.search import _RateLimiter
+
+        limiter = _RateLimiter(requests_per_second=100.0, burst=3)
+        # Should be able to acquire 3 immediately
+        for _ in range(3):
+            await limiter.acquire(timeout=1.0)
+            limiter.release()
+
+    @pytest.mark.asyncio
+    async def test_rate_limiter_timeout(self):
+        """Rate limiter should raise TimeoutError when queue is full."""
+        import asyncio
+
+        from supacrawl.services.search import _RateLimiter
+
+        # Very slow rate, burst=1 — second request should time out quickly
+        limiter = _RateLimiter(requests_per_second=0.1, burst=1)
+        await limiter.acquire(timeout=1.0)
+        # Don't release — the semaphore is held
+
+        with pytest.raises(asyncio.TimeoutError, match="rate limit queue timeout"):
+            await limiter.acquire(timeout=0.1)
+
+        limiter.release()
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_timeout_surfaces_as_search_failure(self):
+        """Rate limit timeout should surface as success=False in search result."""
+        from supacrawl.services.search import _RateLimiter
+
+        # Create service with DDG provider
+        service = _ddg_service(rate_limit=0.1)
+
+        # Replace with burst=1 + short queue_timeout so the test is fast
+        service._rate_limiter = _RateLimiter(requests_per_second=0.1, burst=1, queue_timeout=0.1)
+
+        # Hold the single semaphore slot
+        await service._rate_limiter.acquire(timeout=1.0)
+
+        try:
+            result = await service.search("hello", limit=1)
+            assert not result.success
+            assert result.error is not None
+            assert "rate limit" in result.error.lower()
+        finally:
+            service._rate_limiter.release()
+            await service.close()
