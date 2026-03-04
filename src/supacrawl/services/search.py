@@ -1,8 +1,8 @@
 """
 Web search service for supacrawl.
 
-Provides search functionality using DuckDuckGo (free, no API key)
-or Brave Search (requires API key for higher limits).
+Provides search functionality using Brave Search (recommended, requires API key)
+or DuckDuckGo (deprecated fallback, unreliable due to bot detection).
 
 Supports multiple search source types:
 - web: Standard web search (default)
@@ -14,6 +14,8 @@ import asyncio
 import logging
 import os
 import re
+import time
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import parse_qs, urlparse
@@ -22,7 +24,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from supacrawl.exceptions import ProviderError, generate_correlation_id
-from supacrawl.models import SearchResult, SearchResultItem, SearchSourceType
+from supacrawl.models import LocaleConfig, SearchResult, SearchResultItem, SearchSourceType
 from supacrawl.utils import log_with_correlation
 
 if TYPE_CHECKING:
@@ -40,6 +42,105 @@ _SEARCH_USER_AGENT = (
     "Chrome/131.0.0.0 Safari/537.36"
 )
 
+# Complete browser header profile matching a real Chrome session.
+# Missing headers beyond User-Agent are a strong fingerprinting signal
+# for bot detection systems.
+_DEFAULT_ACCEPT_LANGUAGE = "en-US,en;q=0.9"
+
+_BROWSER_HEADERS: dict[str, str] = {
+    "User-Agent": _SEARCH_USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": _DEFAULT_ACCEPT_LANGUAGE,
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Ch-Ua": '"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Connection": "keep-alive",
+}
+
+# Default rate limits per provider (requests per second)
+_PROVIDER_RATE_LIMITS: dict[str, float] = {
+    "duckduckgo": 1.0,  # Aggressive bot detection — keep it slow
+    "brave": 10.0,  # Well under Brave's 50 QPS limit
+}
+
+# Maximum time a request will wait in the rate limit queue before failing
+_RATE_LIMIT_QUEUE_TIMEOUT = 30.0  # seconds
+
+
+class _RateLimiter:
+    """
+    Async rate limiter using token bucket with concurrency control.
+
+    Limits both concurrency (max simultaneous requests) and throughput
+    (requests per second). Requests that cannot be served within the
+    queue timeout raise asyncio.TimeoutError.
+    """
+
+    def __init__(
+        self,
+        requests_per_second: float,
+        burst: int = 3,
+        queue_timeout: float = _RATE_LIMIT_QUEUE_TIMEOUT,
+    ):
+        """
+        Args:
+            requests_per_second: Sustained rate limit.
+            burst: Maximum concurrent requests allowed (burst capacity).
+            queue_timeout: Max seconds to wait in queue before failing.
+        """
+        self._interval = 1.0 / requests_per_second if requests_per_second > 0 else 0
+        self._semaphore = asyncio.Semaphore(burst)
+        self._lock = asyncio.Lock()
+        self._last_request_time = 0.0
+        self.requests_per_second = requests_per_second
+        self.burst = burst
+        self.queue_timeout = queue_timeout
+
+    async def acquire(self, timeout: float | None = None) -> None:
+        """
+        Acquire permission to make a request.
+
+        Blocks until the rate limit allows the request, or raises
+        asyncio.TimeoutError if the queue timeout is exceeded.
+        """
+        effective_timeout = timeout if timeout is not None else self.queue_timeout
+        try:
+            await asyncio.wait_for(self._semaphore.acquire(), timeout=effective_timeout)
+        except TimeoutError:
+            raise asyncio.TimeoutError(
+                f"Search rate limit queue timeout ({effective_timeout}s). Too many concurrent search requests."
+            ) from None
+
+        try:
+            async with self._lock:
+                now = time.monotonic()
+                elapsed = now - self._last_request_time
+                if elapsed < self._interval:
+                    wait_time = self._interval - elapsed
+                    await asyncio.sleep(wait_time)
+                self._last_request_time = time.monotonic()
+        except BaseException:
+            self._semaphore.release()
+            raise
+
+    def release(self) -> None:
+        """Release the semaphore after a request completes."""
+        self._semaphore.release()
+
+    async def __aenter__(self) -> "_RateLimiter":
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> bool:
+        self.release()
+        return False
+
 
 @dataclass
 class ScrapeOptions:
@@ -53,10 +154,11 @@ class SearchService:
     """
     Web search with optional content scraping.
 
-    Supports DuckDuckGo (default, free) and Brave Search (requires API key).
+    Supports Brave Search (recommended, requires API key) and DuckDuckGo
+    (deprecated fallback — unreliable due to aggressive bot detection).
 
     Example usage:
-        >>> service = SearchService()
+        >>> service = SearchService(brave_api_key="your-key")
         >>> result = await service.search("python web scraping", limit=5)
         >>> for item in result.data:
         ...     print(item.title, item.url)
@@ -65,28 +167,99 @@ class SearchService:
     def __init__(
         self,
         scrape_service: "ScrapeService | None" = None,
-        provider: Literal["duckduckgo", "brave"] = "duckduckgo",
+        provider: Literal["duckduckgo", "brave"] = "brave",
         brave_api_key: str | None = None,
+        rate_limit: float | None = None,
+        locale_config: LocaleConfig | None = None,
     ):
         """
         Initialise search service.
 
         Args:
             scrape_service: Optional ScrapeService for scraping results.
-            provider: Search provider ("duckduckgo" or "brave").
-            brave_api_key: API key for Brave Search (required if using brave).
+            provider: Search provider ("brave" or "duckduckgo").
+                Defaults to "brave". If Brave is selected but no API key
+                is available, falls back to DuckDuckGo with a warning.
+            brave_api_key: API key for Brave Search. Also read from
+                BRAVE_API_KEY environment variable.
+            rate_limit: Requests per second (overrides provider default).
+                Also configurable via SUPACRAWL_SEARCH_RATE_LIMIT env var.
+            locale_config: Optional locale configuration. Sets
+                Accept-Language header to match the configured locale
+                (e.g., "en-AU,en;q=0.9"). Falls back to SUPACRAWL_LOCALE
+                env var, then "en-US,en;q=0.9".
         """
         self._scrape_service = scrape_service
-        self._provider = provider
         self._brave_api_key = brave_api_key or os.getenv("BRAVE_API_KEY")
+        self._locale_config = locale_config
+
+        # Resolve effective provider: fall back to DDG if Brave requested but no key
+        if provider == "brave" and not self._brave_api_key:
+            LOGGER.warning(
+                "Brave Search selected but BRAVE_API_KEY not set. "
+                "Falling back to DuckDuckGo (deprecated, unreliable). "
+                "Set BRAVE_API_KEY for reliable search — "
+                "see https://brave.com/search/api/"
+            )
+            self._provider: Literal["duckduckgo", "brave"] = "duckduckgo"
+        elif provider == "duckduckgo":
+            warnings.warn(
+                "DuckDuckGo search is deprecated due to unreliable bot detection. "
+                "Switch to Brave Search (set BRAVE_API_KEY) for reliable results.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._provider = "duckduckgo"
+        else:
+            self._provider = provider
+
+        # Resolve rate limit: explicit > env var > provider default
+        if rate_limit is not None:
+            effective_rate = rate_limit
+        else:
+            env_rate = os.getenv("SUPACRAWL_SEARCH_RATE_LIMIT")
+            if env_rate:
+                try:
+                    effective_rate = float(env_rate)
+                except ValueError:
+                    LOGGER.warning(f"Invalid SUPACRAWL_SEARCH_RATE_LIMIT={env_rate!r}, using provider default")
+                    effective_rate = _PROVIDER_RATE_LIMITS.get(self._provider, 10.0)
+            else:
+                effective_rate = _PROVIDER_RATE_LIMITS.get(self._provider, 10.0)
+
+        self._rate_limiter = _RateLimiter(effective_rate)
         self._http_client: httpx.AsyncClient | None = None
 
+        LOGGER.debug(
+            f"Search rate limit: {effective_rate} req/s (provider={self._provider}, burst={self._rate_limiter.burst})"
+        )
+
+    def _build_headers(self) -> dict[str, str]:
+        """Build browser-realistic HTTP headers.
+
+        Uses locale config (if provided) or SUPACRAWL_LOCALE env var
+        to set Accept-Language. Falls back to en-US.
+        """
+        headers = dict(_BROWSER_HEADERS)
+
+        # Resolve Accept-Language from locale config or env var
+        locale = self._locale_config
+        if locale is None:
+            env_locale = os.getenv("SUPACRAWL_LOCALE")
+            if env_locale:
+                locale = LocaleConfig(language=env_locale)
+
+        if locale is not None:
+            headers["Accept-Language"] = locale.get_accept_language_header()
+
+        return headers
+
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
+        """Get or create HTTP client with realistic browser headers."""
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(
                 timeout=30.0,
-                headers={"User-Agent": _SEARCH_USER_AGENT},
+                headers=self._build_headers(),
             )
         return self._http_client
 
@@ -148,31 +321,41 @@ class SearchService:
 
             all_results: list[SearchResultItem] = []
 
-            # Search each source type
+            # Search each source type (rate-limited per request)
             for source in sources:
-                if source == "web":
-                    if self._provider == "brave" and self._brave_api_key:
-                        results = await self._search_brave(query, limit, correlation_id)
-                    else:
-                        results = await self._search_duckduckgo(query, limit, correlation_id)
-                elif source == "images":
-                    if self._provider == "brave" and self._brave_api_key:
-                        results = await self._search_brave_images(query, limit, correlation_id)
-                    else:
-                        results = await self._search_duckduckgo_images(query, limit, correlation_id)
-                elif source == "news":
-                    if self._provider == "brave" and self._brave_api_key:
-                        results = await self._search_brave_news(query, limit, correlation_id)
-                    else:
-                        results = await self._search_duckduckgo_news(query, limit, correlation_id)
-                else:
+                try:
+                    async with self._rate_limiter:
+                        if source == "web":
+                            if self._provider == "brave" and self._brave_api_key:
+                                results = await self._search_brave(query, limit, correlation_id)
+                            else:
+                                results = await self._search_duckduckgo(query, limit, correlation_id)
+                        elif source == "images":
+                            if self._provider == "brave" and self._brave_api_key:
+                                results = await self._search_brave_images(query, limit, correlation_id)
+                            else:
+                                results = await self._search_duckduckgo_images(query, limit, correlation_id)
+                        elif source == "news":
+                            if self._provider == "brave" and self._brave_api_key:
+                                results = await self._search_brave_news(query, limit, correlation_id)
+                            else:
+                                results = await self._search_duckduckgo_news(query, limit, correlation_id)
+                        else:
+                            log_with_correlation(
+                                LOGGER,
+                                logging.WARNING,
+                                f"Unknown source type: {source}",
+                                correlation_id=correlation_id,
+                            )
+                            continue
+                except asyncio.TimeoutError as e:
                     log_with_correlation(
                         LOGGER,
                         logging.WARNING,
-                        f"Unknown source type: {source}",
+                        f"Rate limit queue timeout for source={source}",
                         correlation_id=correlation_id,
                     )
-                    continue
+                    return SearchResult(success=False, data=[], error=str(e))
 
                 all_results.extend(results)
 
