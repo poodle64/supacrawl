@@ -232,7 +232,7 @@ $ supacrawl map https://example.com --ignore-query-params
 
 ### search
 
-Search the web using Brave Search (or DuckDuckGo fallback).
+Search the web with multi-provider fallback. Supports 6 providers: Brave, Tavily, Serper, SerpAPI, Exa, and DuckDuckGo. Providers are tried in order; if one fails (rate limit, quota, CAPTCHA), the next is tried automatically.
 
 **Usage:**
 ```bash
@@ -246,7 +246,7 @@ supacrawl search QUERY [OPTIONS]
 - `-l, --limit INT` - Maximum results per source type (1-10, default: 5)
 - `-s, --source TYPE` - Source types: `web`, `images`, `news`, or `all` (default: `web`, can specify multiple)
 - `--scrape/--no-scrape` - Scrape content from result pages (default: no-scrape)
-- `--provider PROVIDER` - Search provider: `brave` or `duckduckgo` (default: `brave`). Requires `BRAVE_API_KEY` for Brave; falls back to DuckDuckGo (deprecated) if not set
+- `--provider PROVIDERS` - Search provider(s), comma-separated for fallback chain. Supported: `brave`, `tavily`, `serper`, `serpapi`, `exa`, `duckduckgo` (default: `brave`). Also configurable via `SUPACRAWL_SEARCH_PROVIDERS` env var
 - `-o, --output PATH` - Output file (JSON). If omitted, prints to stdout
 
 **Example:**
@@ -262,6 +262,9 @@ $ supacrawl search "machine learning tutorials" --provider brave --limit 10
 
 $ supacrawl search "tech updates" --source all
 # Search web, images, and news simultaneously
+
+$ supacrawl search "topic" --provider brave,tavily,serper
+# Use multiple providers with automatic fallback
 ```
 
 ### llm-extract

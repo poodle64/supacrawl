@@ -99,7 +99,7 @@ playwright install chromium
 | `supacrawl_scrape`   | Scrape a URL to markdown, HTML, screenshot, or PDF  |
 | `supacrawl_crawl`    | Crawl multiple pages from a site                    |
 | `supacrawl_map`      | Discover URLs on a website without fetching content |
-| `supacrawl_search`   | Web search (Brave Search default, DuckDuckGo fallback) |
+| `supacrawl_search`   | Web search with multi-provider fallback             |
 | `supacrawl_extract`  | Scrape pages for LLM-powered structured extraction  |
 | `supacrawl_summary`  | Scrape a page for LLM-powered summarisation         |
 | `supacrawl_diagnose` | Diagnose scraping issues (CDN, bot detection, etc.) |
@@ -124,14 +124,16 @@ Pass environment variables via your MCP client config to customise behaviour:
         "SUPACRAWL_STEALTH": "true",
         "SUPACRAWL_LOCALE": "en-AU",
         "SUPACRAWL_TIMEZONE": "Australia/Sydney",
-        "BRAVE_API_KEY": "your-key-here"
+        "BRAVE_API_KEY": "your-key-here",
+        "TAVILY_API_KEY": "your-key-here",
+        "SUPACRAWL_SEARCH_PROVIDERS": "brave,tavily"
       }
     }
   }
 }
 ```
 
-All [configuration](#configuration) environment variables apply. The MCP server also supports `SUPACRAWL_LOG_LEVEL` (default: `INFO`).
+All [configuration](#configuration) environment variables apply. The MCP server also supports `SUPACRAWL_LOG_LEVEL` (default: `INFO`). Search providers fall back automatically when one hits a rate limit or quota.
 
 ### Troubleshooting
 
@@ -152,7 +154,7 @@ pip install supacrawl[mcp,captcha]    # 2Captcha CAPTCHA solving
 | `scrape <url>`      | Scrape single page to markdown                  |
 | `crawl <url>`       | Crawl website, save to directory                |
 | `map <url>`         | Discover URLs from sitemap/links                |
-| `search <query>`    | Web search (Brave default, DuckDuckGo fallback) |
+| `search <query>`    | Web search with multi-provider fallback         |
 | `llm-extract <url>` | Extract structured data with LLM                |
 | `agent <prompt>`    | Autonomous agent for complex tasks              |
 | `cache`             | Cache management (clear, stats, prune)          |
@@ -198,12 +200,21 @@ Required for `llm-extract`, `agent`, and `--summarize`:
 
 ### Search
 
-| Variable                    | Default | Description                                                                                      |
-| --------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
-| `BRAVE_API_KEY`             | -       | Brave Search API key (recommended). Free tier: ~1,000 searches/month. Get one at [brave.com/search/api](https://brave.com/search/api/) |
-| `SUPACRAWL_SEARCH_PROVIDER` | `brave` | Search provider (`brave` or `duckduckgo`). Falls back to DuckDuckGo if Brave key is not set     |
+Supacrawl supports multiple search providers with automatic fallback. If the primary provider hits a rate limit or quota, the next provider in the chain is tried automatically.
 
-> **Note**: DuckDuckGo is a deprecated fallback. It has no official API and actively blocks automated access with CAPTCHA challenges. Set `BRAVE_API_KEY` for reliable search.
+| Variable                       | Default | Description                                                                                      |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------ |
+| `BRAVE_API_KEY`                | -       | Brave Search API key (recommended). Free tier: ~1,000 searches/month. Get one at [brave.com/search/api](https://brave.com/search/api/) |
+| `TAVILY_API_KEY`               | -       | [Tavily](https://tavily.com/) API key. Supports web and news search                             |
+| `SERPER_API_KEY`               | -       | [Serper.dev](https://serper.dev/) API key. Google Search results                                 |
+| `SERPAPI_API_KEY`              | -       | [SerpAPI](https://serpapi.com/) API key. Google Search results                                   |
+| `EXA_API_KEY`                  | -       | [Exa.ai](https://exa.ai/) API key. Neural search for web and news                               |
+| `SUPACRAWL_SEARCH_PROVIDERS`   | `brave` | Comma-separated provider chain with fallback order (e.g., `brave,tavily,serper`)                 |
+| `SUPACRAWL_SEARCH_RATE_LIMIT`  | -       | Override default rate limit (requests/second). Provider defaults: Brave 1/s, DuckDuckGo 0.5/s   |
+
+Providers are tried in order. Set API keys for each provider you want to use; providers without keys are skipped. If no keys are configured, DuckDuckGo is used as a last-resort fallback.
+
+> **Note**: DuckDuckGo is a deprecated fallback. It has no official API and actively blocks automated access with CAPTCHA challenges. Configure at least one API-keyed provider for reliable search.
 
 ### Caching
 
@@ -296,7 +307,7 @@ Supacrawl does one thing well: get clean markdown from the web.
 | ------------------------ | ----------------------------------- | ------------------------ | ------------------------------ | ----------------- |
 | **Infrastructure**       | `pip install`                       | `pip install`            | Docker + PostgreSQL + Redis    | Hosted API        |
 | **MCP Server**           | Built-in (`[mcp]` extra)            | Not included             | Not included                   | Yes               |
-| **Web Search**           | Built-in (Brave Search)             | Not included             | Via SearXNG                    | Yes               |
+| **Web Search**           | Built-in (6 providers with fallback)| Not included             | Via SearXNG                    | Yes               |
 | **LLM Providers**        | Ollama, OpenAI, Anthropic           | Any via LiteLLM          | OpenAI (Ollama experimental)   | OpenAI            |
 | **Intelligent Crawling** | Yes (agent command)                 | Yes (adaptive crawling)  | No                             | Yes (/agent)      |
 | **Stealth/Anti-bot**     | Yes (3-tier: Patchright + Camoufox) | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
