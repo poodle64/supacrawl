@@ -33,6 +33,13 @@ LOGGER = logging.getLogger(__name__)
 # Type alias for source types
 type SourceType = Literal["web", "images", "news"]
 
+# Browser-like User-Agent to avoid bot detection on search engines
+_SEARCH_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
 
 @dataclass
 class ScrapeOptions:
@@ -79,7 +86,7 @@ class SearchService:
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(
                 timeout=30.0,
-                headers={"User-Agent": "Supacrawl/1.0"},
+                headers={"User-Agent": _SEARCH_USER_AGENT},
             )
         return self._http_client
 
@@ -206,6 +213,9 @@ class SearchService:
         Search using DuckDuckGo HTML interface.
 
         Uses DuckDuckGo Lite for simpler HTML parsing.
+
+        Raises:
+            ProviderError: If DuckDuckGo returns a CAPTCHA challenge.
         """
         client = await self._get_client()
 
@@ -214,6 +224,15 @@ class SearchService:
         response.raise_for_status()
 
         html = response.text
+
+        # Detect CAPTCHA/bot challenge: DDG returns HTTP 202 with an anomaly modal
+        if response.status_code == 202 or "anomaly-modal" in html:
+            raise ProviderError(
+                "DuckDuckGo returned a CAPTCHA challenge (bot detection). Search results are unavailable.",
+                provider="duckduckgo",
+                correlation_id=correlation_id,
+            )
+
         results = self._parse_ddg_results(html, limit)
 
         log_with_correlation(
