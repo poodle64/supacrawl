@@ -40,6 +40,9 @@ desktop.ini
 .supacrawl/
 scraped-pages/
 
+# Product definition (private planning docs)
+docs/product/
+
 # ============================================================================
 # Python
 # ============================================================================

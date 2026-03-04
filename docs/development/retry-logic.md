@@ -203,4 +203,4 @@ for attempt in range(_max_attempts):
 
 - `.claude/rules/master/70-reliability.md` - Universal retry requirements
 - `.claude/rules/50-scraper-provider-patterns.md` - Provider retry patterns
-- `docs/70-reliability/error-handling-supacrawl.md` - Error handling patterns
+- `docs/development/error-handling.md` - Error handling patterns

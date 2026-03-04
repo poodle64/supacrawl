@@ -114,4 +114,4 @@ async with BrowserManager() as browser:
 
 - `.claude/rules/master/70-reliability.md` - Universal error handling and retry requirements
 - `.claude/rules/70-error-handling.md` - Supacrawl-specific error handling patterns
-- `docs/30-architecture/data-flow-llm.md` - Complete data flow documentation
+- `docs/development/data-flow-llm.md` - Complete data flow documentation
