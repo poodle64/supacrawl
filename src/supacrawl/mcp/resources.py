@@ -122,15 +122,15 @@ ACTION_TYPES = {
 
 # Search providers
 SEARCH_PROVIDERS = {
-    "duckduckgo": {
-        "description": "DuckDuckGo search - free, no API key required",
-        "requires_api_key": False,
+    "brave": {
+        "description": "Brave Search API (recommended) - requires BRAVE_API_KEY",
+        "requires_api_key": True,
         "default": True,
         "sources": ["web", "images", "news"],
     },
-    "brave": {
-        "description": "Brave Search - requires BRAVE_API_KEY",
-        "requires_api_key": True,
+    "duckduckgo": {
+        "description": "DuckDuckGo search (deprecated) - free but unreliable due to bot detection",
+        "requires_api_key": False,
         "default": False,
         "sources": ["web", "images", "news"],
     },

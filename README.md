@@ -99,7 +99,7 @@ playwright install chromium
 | `supacrawl_scrape`   | Scrape a URL to markdown, HTML, screenshot, or PDF  |
 | `supacrawl_crawl`    | Crawl multiple pages from a site                    |
 | `supacrawl_map`      | Discover URLs on a website without fetching content |
-| `supacrawl_search`   | Web search (DuckDuckGo or Brave)                    |
+| `supacrawl_search`   | Web search (Brave Search default, DuckDuckGo fallback) |
 | `supacrawl_extract`  | Scrape pages for LLM-powered structured extraction  |
 | `supacrawl_summary`  | Scrape a page for LLM-powered summarisation         |
 | `supacrawl_diagnose` | Diagnose scraping issues (CDN, bot detection, etc.) |
@@ -152,7 +152,7 @@ pip install supacrawl[mcp,captcha]    # 2Captcha CAPTCHA solving
 | `scrape <url>`      | Scrape single page to markdown                  |
 | `crawl <url>`       | Crawl website, save to directory                |
 | `map <url>`         | Discover URLs from sitemap/links                |
-| `search <query>`    | Web search (DuckDuckGo default, Brave optional) |
+| `search <query>`    | Web search (Brave default, DuckDuckGo fallback) |
 | `llm-extract <url>` | Extract structured data with LLM                |
 | `agent <prompt>`    | Autonomous agent for complex tasks              |
 | `cache`             | Cache management (clear, stats, prune)          |
@@ -198,9 +198,12 @@ Required for `llm-extract`, `agent`, and `--summarize`:
 
 ### Search
 
-| Variable        | Description                                      |
-| --------------- | ------------------------------------------------ |
-| `BRAVE_API_KEY` | Optional: use Brave Search instead of DuckDuckGo |
+| Variable                    | Default | Description                                                                                      |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `BRAVE_API_KEY`             | -       | Brave Search API key (recommended). Free tier: ~1,000 searches/month. Get one at [brave.com/search/api](https://brave.com/search/api/) |
+| `SUPACRAWL_SEARCH_PROVIDER` | `brave` | Search provider (`brave` or `duckduckgo`). Falls back to DuckDuckGo if Brave key is not set     |
+
+> **Note**: DuckDuckGo is a deprecated fallback. It has no official API and actively blocks automated access with CAPTCHA challenges. Set `BRAVE_API_KEY` for reliable search.
 
 ### Caching
 
@@ -293,7 +296,7 @@ Supacrawl does one thing well: get clean markdown from the web.
 | ------------------------ | ----------------------------------- | ------------------------ | ------------------------------ | ----------------- |
 | **Infrastructure**       | `pip install`                       | `pip install`            | Docker + PostgreSQL + Redis    | Hosted API        |
 | **MCP Server**           | Built-in (`[mcp]` extra)            | Not included             | Not included                   | Yes               |
-| **Web Search**           | Built-in (DuckDuckGo)               | Not included             | Via SearXNG                    | Yes               |
+| **Web Search**           | Built-in (Brave Search)             | Not included             | Via SearXNG                    | Yes               |
 | **LLM Providers**        | Ollama, OpenAI, Anthropic           | Any via LiteLLM          | OpenAI (Ollama experimental)   | OpenAI            |
 | **Intelligent Crawling** | Yes (agent command)                 | Yes (adaptive crawling)  | No                             | Yes (/agent)      |
 | **Stealth/Anti-bot**     | Yes (3-tier: Patchright + Camoufox) | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |

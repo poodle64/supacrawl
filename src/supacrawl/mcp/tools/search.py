@@ -225,8 +225,8 @@ async def supacrawl_search(
         )
 
     Note:
-        - DuckDuckGo (default) is free but may have rate limits
-        - Brave Search requires BRAVE_API_KEY
+        - Brave Search (default) requires BRAVE_API_KEY environment variable
+        - DuckDuckGo is a deprecated fallback — unreliable due to bot detection
         - Scraping is only applied to "web" source type results
         - Metadata fetch uses lightweight HEAD requests (fast, no page content)
     """
