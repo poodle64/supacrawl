@@ -7,10 +7,14 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
-## [2026.3.0] - 2026-03-03
+## [2026.3.0] - 2026-03-04
 
 ### Features
 
+- **Multi-provider search with automatic fallback** (Closes #101): Refactored monolithic search into a pluggable provider architecture. Supports 6 providers (Brave, Tavily, Serper, SerpAPI, Exa, DuckDuckGo) with automatic fallback on quota exhaustion, rate limiting, or CAPTCHA detection. Configure via `SUPACRAWL_SEARCH_PROVIDERS` env var or `--provider` CLI flag
+- **Configurable search rate limiting** (Closes #99): New `SUPACRAWL_SEARCH_RATE_LIMIT` env var. Enhanced health endpoint shows per-provider status and rate limit configuration
+- **Brave Search as default provider** (Closes #95): Brave Search replaces DuckDuckGo as the default. DuckDuckGo is deprecated but remains as a last-resort fallback
+- **Realistic browser headers for search** (Closes #96): Search requests use full browser-like headers (User-Agent, Sec-CH-UA, Accept-Language) to avoid bot detection. Locale-aware via `SUPACRAWL_LOCALE`
 - **Camoufox anti-detection engine** (Closes #80): New `--engine camoufox` option provides Tier 3 anti-bot protection using patched Firefox. Effective against Akamai Bot Manager and advanced TLS fingerprinting. Install: `pip install supacrawl[camoufox]`
 - **Change tracking** (Closes #81): New `-f changeTracking` format detects content changes between scrapes by comparing against cached previous versions. Supports `--change-tracking-modes git-diff` for unified diffs
 - **PDF URL parsing** (Closes #82): Auto-detects `.pdf` URLs and extracts text directly, bypassing the browser. OCR fallback available via `pip install supacrawl[pdf-ocr]`. Controlled with `--parse-pdf [auto|fast|ocr|off]`
@@ -22,8 +26,10 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ### Fixed
 
+- **DuckDuckGo CAPTCHA detection** (Closes #97): Detect and report CAPTCHA challenges from DuckDuckGo instead of returning empty results
 - **ERR_HTTP2_PROTOCOL_ERROR automatic fallback** (Closes #92): Two-stage auto-retry chain (Chromium to Camoufox to Camoufox + HTTP/1.1) handles servers that reject Chromium's TLS fingerprint
 - **Camoufox async wrapper** (Closes #91): Use correct `AsyncCamoufox` context manager instead of `AsyncNewBrowser`
+- **CLI ScrapeService resource leak**: ScrapeService is now properly closed in the CLI search command's finally block
 
 ### Performance
 
