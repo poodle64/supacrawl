@@ -30,7 +30,7 @@ dependencies = [
   "markdownify>=1.2.2",
   "ollama>=0.6.1",
   "pdfplumber>=0.11.9",
-  "playwright>=1.58.0,<2.0.0",
+  "playwright>=1.40.0,<2.0.0",
   "pydantic>=2.12.5",
   "pyyaml>=6.0.3",
   "rich>=14.3.3",
@@ -52,7 +52,7 @@ dev = [
   "types-PyYAML>=6.0.12.20250915",
 ]
 stealth = [
-  "patchright>=1.58.0",
+  "patchright>=1.40.0",
 ]
 camoufox = [
   "camoufox[geoip]>=0.4.11",
