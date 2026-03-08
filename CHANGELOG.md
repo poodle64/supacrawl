@@ -7,6 +7,12 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.3.1] - 2026-03-08
+
+### Fixed
+
+- **Playwright/Patchright lower bound regressed to >=1.58.0** (Closes #104): v2026.3.0 accidentally bumped the Playwright lower bound from `>=1.40.0` to `>=1.58.0`, breaking NixOS users whose package repositories provide 1.52.0 (stable) or 1.57.0 (unstable). Audit confirmed supacrawl uses only core Playwright APIs available since 1.0; restored `>=1.40.0` bound. Added inline comments and CLAUDE.md guardrail to prevent recurrence.
+
 ## [2026.3.0] - 2026-03-04
 
 ### Features
