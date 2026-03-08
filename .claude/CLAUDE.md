@@ -20,6 +20,7 @@ Zero-infrastructure CLI web scraper with LLM extraction.
 - Local-first: pip install and go, no Docker/databases/infrastructure
 - CLI-first: designed for terminal workflows and pipelines
 - Quality first: maintain high-quality markdown output
+- **Playwright/Patchright lower bound is `>=1.40.0` intentionally** (NixOS compatibility; see #79, #104). Do NOT bump it unless new Playwright APIs are actually used.
 
 ## Sources of Truth
 
