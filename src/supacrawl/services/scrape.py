@@ -33,6 +33,7 @@ from supacrawl.exceptions import ProviderError
 from supacrawl.models import ActionsOutput, ScrapeActionResult, ScrapeData, ScrapeMetadata, ScrapeResult
 from supacrawl.services.browser import BrowserManager
 from supacrawl.services.converter import MarkdownConverter
+from supacrawl.services.platform import detect_platform
 
 LOGGER = logging.getLogger(__name__)
 
@@ -633,6 +634,64 @@ class ScrapeService:
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint()}")
+
+                # Platform detection: if content is thin and a known platform
+                # is detected, retry with the platform's optimal settings.
+                # Only check when markdown was actually computed (avoids false
+                # positives for screenshot-only or rawHtml-only requests).
+                if markdown is not None and len(markdown.split()) < 50:
+                    platform = detect_platform(page_content.html)
+                    if platform is not None:
+                        # Only retry if the caller hasn't already set the
+                        # platform's key settings (avoid infinite loops).
+                        already_tuned = engine == platform.engine and expand_iframes == platform.expand_iframes
+                        if not already_tuned:
+                            LOGGER.info(
+                                "Thin content (%d words) on %s platform for %s; retrying with tuned settings",
+                                len(markdown.split()),
+                                platform.name,
+                                url,
+                            )
+                            if owns_browser and browser:
+                                await browser.__aexit__(None, None, None)
+
+                            platform_service = ScrapeService(
+                                converter=self._converter,
+                                locale_config=self._locale_config,
+                                cache_dir=self._cache.cache_dir if self._cache else None,
+                                stealth=self._stealth,
+                                proxy=self._proxy,
+                                solve_captcha=self._solve_captcha,
+                                headless=self._headless,
+                                engine=platform.engine or engine,
+                                firefox_user_prefs=self._firefox_user_prefs,
+                            )
+                            return await platform_service.scrape(
+                                url=url,
+                                formats=formats,
+                                only_main_content=(
+                                    platform.only_main_content
+                                    if platform.only_main_content is not None
+                                    else only_main_content
+                                ),
+                                wait_for=platform.wait_for if platform.wait_for is not None else wait_for,
+                                timeout=timeout,
+                                screenshot_full_page=screenshot_full_page,
+                                actions=platform.actions or actions,
+                                json_schema=json_schema,
+                                json_prompt=json_prompt,
+                                include_tags=include_tags,
+                                exclude_tags=exclude_tags,
+                                max_age=max_age,
+                                wait_until=wait_until,
+                                change_tracking_modes=change_tracking_modes,
+                                expand_iframes=(
+                                    platform.expand_iframes if platform.expand_iframes is not None else expand_iframes
+                                ),
+                                device=device,
+                                parse_pdf=parse_pdf,
+                                engine=platform.engine or engine,
+                            )
 
                 # Check for CAPTCHA and solve if enabled
                 captcha_detected = self._looks_like_captcha(page_content.html)
