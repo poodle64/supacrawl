@@ -147,6 +147,42 @@ pip install supacrawl[mcp,camoufox]   # Camoufox for Akamai/Cloudflare (Tier 3)
 pip install supacrawl[mcp,captcha]    # 2Captcha CAPTCHA solving
 ```
 
+## REST API
+
+Supacrawl includes an optional REST API server compatible with the [Firecrawl v2](https://docs.firecrawl.dev) protocol. Any tool that already integrates with Firecrawl (n8n, LangChain, LlamaIndex) can use Supacrawl as a self-hosted drop-in backend.
+
+```bash
+pip install supacrawl[api]
+supacrawl serve
+```
+
+The server starts on port 8308 by default. Test it:
+
+```bash
+curl -X POST http://localhost:8308/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
+```
+
+### Endpoints
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/scrape` | POST | Scrape a single URL (synchronous) |
+| `/crawl` | POST | Start a crawl job (async, returns job ID) |
+| `/crawl/{id}` | GET | Poll crawl job status and results |
+| `/map` | POST | Discover URLs on a site (synchronous) |
+| `/search` | POST | Web search (synchronous) |
+| `/extract` | POST | LLM extraction (async, returns job ID) |
+| `/batch/scrape` | POST | Batch scrape multiple URLs (async) |
+| `/supacrawl/health` | GET | Server health and version |
+| `/supacrawl/diagnose` | POST | Pre-scrape diagnostics |
+| `/supacrawl/summary` | POST | Summarise a page |
+
+Authentication is optional. Set `SUPACRAWL_API_KEY` to require a Bearer token; leave it unset for open access.
+
+See [docs/api-reference.md](docs/api-reference.md) for full endpoint documentation, request/response examples, and n8n integration guide.
+
 ## Commands
 
 | Command             | Description                                     |
@@ -157,6 +193,7 @@ pip install supacrawl[mcp,captcha]    # 2Captcha CAPTCHA solving
 | `search <query>`    | Web search with multi-provider fallback         |
 | `llm-extract <url>` | Extract structured data with LLM                |
 | `agent <prompt>`    | Autonomous agent for complex tasks              |
+| `serve`             | Start the REST API server                       |
 | `cache`             | Cache management (clear, stats, prune)          |
 
 Run `supacrawl <command> --help` for options.
@@ -165,7 +202,7 @@ Run `supacrawl <command> --help` for options.
 
 Crawl produces a flat directory of markdown files:
 
-```
+```text
 output/
 ├── manifest.json          # URLs crawled (for resume)
 ├── index.md
@@ -238,6 +275,7 @@ supacrawl cache clear   # Clear all cache (with confirmation)
 ```
 
 **Cache Behaviour:**
+
 - No automatic eviction; run `cache prune` periodically to clean expired entries
 - No size limits; cache grows unbounded, use `cache clear` if disk space is a concern
 - Files stored as `<hash>.json` where hash is SHA256 of normalised URL
@@ -281,7 +319,7 @@ pytest -q -m "not e2e"
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         Where Supacrawl Fits                                │
 ├─────────────────┬─────────────────┬─────────────────┬───────────────────────┤
