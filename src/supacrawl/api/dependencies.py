@@ -10,7 +10,7 @@ from supacrawl.services import ExtractService
 
 if TYPE_CHECKING:
     from supacrawl.mcp.api_client import SupacrawlServices
-    from supacrawl.services import ScrapeService
+    from supacrawl.services import MapService, ScrapeService
 
 
 def get_services(request: Request) -> "SupacrawlServices":
@@ -21,6 +21,11 @@ def get_services(request: Request) -> "SupacrawlServices":
 def get_scrape_service(request: Request) -> "ScrapeService":
     """Return the shared ``ScrapeService``."""
     return get_services(request).scrape_service
+
+
+def get_map_service(request: Request) -> "MapService":
+    """Return the shared ``MapService``."""
+    return get_services(request).map_service
 
 
 def get_extract_service(request: Request) -> ExtractService:
