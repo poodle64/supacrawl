@@ -72,4 +72,9 @@ def create_app() -> FastAPI:
             content=ErrorResponse(error=str(exc)).model_dump(),
         )
 
+    # --- Routers -----------------------------------------------------------
+    from supacrawl.api.routers.scrape import router as scrape_router
+
+    app.include_router(scrape_router)
+
     return app
