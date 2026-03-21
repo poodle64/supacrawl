@@ -75,6 +75,7 @@ def create_app() -> FastAPI:
         )
 
     # --- Routers -----------------------------------------------------------
+    from supacrawl.api.routers.batch import router as batch_router
     from supacrawl.api.routers.crawl import router as crawl_router
     from supacrawl.api.routers.extract import router as extract_router
     from supacrawl.api.routers.map import router as map_router
@@ -86,5 +87,6 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(crawl_router)
     app.include_router(extract_router)
+    app.include_router(batch_router)
 
     return app
