@@ -49,9 +49,9 @@ def _batch_request_to_scrape_request(req: BatchScrapeRequest, url: str) -> Scrap
         actions=req.actions,
         location=req.location,
         headers=req.headers,
-        max_age=req.max_age,
+        maxAge=req.max_age,
         proxy=req.proxy,
-        store_in_cache=req.store_in_cache,
+        storeInCache=req.store_in_cache,
     )
 
 

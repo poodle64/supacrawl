@@ -20,7 +20,7 @@ Zero-infrastructure CLI web scraper with LLM extraction. Designed for individual
 
 ### What This Project Does NOT Do
 
-- Does NOT provide web UI or REST API (CLI-only)
+- Does NOT provide web UI (CLI-only, optional REST API via `supacrawl serve`)
 - Does NOT store scraped content in databases (outputs to stdout/files)
 - Does NOT handle authentication/authorization (Playwright browser-level only)
 - Does NOT provide a hosted service (local execution only)
@@ -43,7 +43,7 @@ This rule documents project-specific practice and relies on master rules for req
 
 ### Architecture
 
-```
+```text
 CLI Command → Service Layer → Playwright/httpx → Content Processing → Output
                   ↓
              LLM Provider (optional) → Structured Extraction
@@ -80,6 +80,7 @@ Supacrawl is designed around **zero-infrastructure local execution**.
 ### Output Contract
 
 Commands produce:
+
 - **scrape**: Markdown content (or HTML/links as requested)
 - **crawl**: JSONL of scraped pages
 - **map**: List of discovered URLs
