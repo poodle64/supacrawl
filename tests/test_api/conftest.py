@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from supacrawl.api.app import create_app
-from supacrawl.api.dependencies import get_map_service, get_scrape_service
+from supacrawl.api.dependencies import get_map_service, get_scrape_service, get_search_service
 from supacrawl.models import (
     MapEvent,
     MapLink,
@@ -19,8 +19,12 @@ from supacrawl.models import (
     ScrapeData,
     ScrapeMetadata,
     ScrapeResult,
+    SearchResult,
+    SearchResultItem,
+    SearchSourceType,
 )
 from supacrawl.services import MapService, ScrapeService
+from supacrawl.services.search.service import SearchService
 
 
 def _make_scrape_result(**overrides: Any) -> ScrapeResult:
@@ -81,12 +85,55 @@ def mock_map_service() -> AsyncMock:
     return mock
 
 
+def _make_search_result() -> SearchResult:
+    """Build a ``SearchResult`` with mixed source types."""
+    return SearchResult(
+        success=True,
+        data=[
+            SearchResultItem(
+                url="https://example.com",
+                title="Example",
+                description="An example page",
+                source_type=SearchSourceType.WEB,
+                markdown="# Example",
+            ),
+            SearchResultItem(
+                url="https://example.com/photo.jpg",
+                title="Photo",
+                source_type=SearchSourceType.IMAGES,
+                thumbnail="https://example.com/thumb.jpg",
+            ),
+            SearchResultItem(
+                url="https://news.example.com/article",
+                title="Breaking News",
+                description="Something happened",
+                source_type=SearchSourceType.NEWS,
+                published_at="2026-03-21T00:00:00Z",
+                source_name="Example News",
+            ),
+        ],
+    )
+
+
 @pytest.fixture()
-def app(mock_scrape_service: AsyncMock, mock_map_service: AsyncMock) -> FastAPI:
+def mock_search_service() -> AsyncMock:
+    """Return an ``AsyncMock`` standing in for ``SearchService``."""
+    mock = AsyncMock(spec=SearchService)
+    mock.search.return_value = _make_search_result()
+    return mock
+
+
+@pytest.fixture()
+def app(
+    mock_scrape_service: AsyncMock,
+    mock_map_service: AsyncMock,
+    mock_search_service: AsyncMock,
+) -> FastAPI:
     """Create the FastAPI app with mocked services."""
     application = create_app()
     application.dependency_overrides[get_scrape_service] = lambda: mock_scrape_service
     application.dependency_overrides[get_map_service] = lambda: mock_map_service
+    application.dependency_overrides[get_search_service] = lambda: mock_search_service
     return application
 
 
