@@ -64,6 +64,10 @@ pdf-ocr = [
   "pytesseract>=0.3.13",
   "pdf2image>=1.17.0",
 ]
+api = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.34.0",
+]
 mcp = [
   "anyio>=4.12.1",
   "fastmcp>=3.1.0",
