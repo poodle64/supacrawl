@@ -15,6 +15,7 @@ The `supacrawl` CLI provides commands for web scraping, URL mapping, search, and
 - `llm-extract` - Extract structured data using LLM
 - `agent` - Run autonomous web agent
 - `cache` - Manage the local scrape cache
+- `serve` - Start the REST API server
 
 ## Command Reference
 
@@ -28,9 +29,11 @@ supacrawl scrape URL [OPTIONS]
 ```
 
 **Arguments:**
+
 - `URL` - The URL to scrape
 
 **Options:**
+
 - `-f, --format FORMAT` - Output formats: `markdown`, `html`, `rawHtml`, `links`, `images`, `screenshot`, `pdf`, `json`, `branding`, `summary` (default: `markdown`, can specify multiple)
 - `--schema PATH` - Path to JSON schema file (for json format)
 - `-p, --prompt TEXT` - Extraction prompt (for json format)
@@ -138,9 +141,11 @@ supacrawl crawl URL [OPTIONS]
 ```
 
 **Arguments:**
+
 - `URL` - The starting URL for the crawl
 
 **Options:**
+
 - `--limit INT` - Maximum pages to crawl (default: 100)
 - `--depth INT` - Maximum crawl depth (default: 3)
 - `--include TEXT` - URL patterns to include (glob patterns, can specify multiple)
@@ -196,9 +201,11 @@ supacrawl map URL [OPTIONS]
 ```
 
 **Arguments:**
+
 - `URL` - The starting URL to map
 
 **Options:**
+
 - `--limit INT` - Maximum number of URLs to discover (default: 200)
 - `--depth INT` - Maximum BFS crawl depth (default: 3)
 - `--sitemap CHOICE` - Sitemap handling: `include` (default), `skip`, or `only`
@@ -240,9 +247,11 @@ supacrawl search QUERY [OPTIONS]
 ```
 
 **Arguments:**
+
 - `QUERY` - Search query string
 
 **Options:**
+
 - `-l, --limit INT` - Maximum results per source type (1-10, default: 5)
 - `-s, --source TYPE` - Source types: `web`, `images`, `news`, or `all` (default: `web`, can specify multiple)
 - `--scrape/--no-scrape` - Scrape content from result pages (default: no-scrape)
@@ -277,14 +286,17 @@ supacrawl llm-extract URLS... [OPTIONS]
 ```
 
 **Arguments:**
+
 - `URLS` - One or more URLs to extract data from
 
 **Options:**
+
 - `-p, --prompt TEXT` - Extraction prompt describing what to extract (required)
 - `-s, --schema FILE` - Path to JSON schema file for structured output
 - `-o, --output PATH` - Output file (JSON). If omitted, prints to stdout
 
 **Environment Variables (required):**
+
 - `SUPACRAWL_LLM_PROVIDER` - LLM provider: `ollama`, `openai`, or `anthropic`
 - `SUPACRAWL_LLM_MODEL` - Model name (e.g., `qwen3:8b`, `gpt-4o-mini`)
 - `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` - API key for cloud providers
@@ -311,9 +323,11 @@ supacrawl agent PROMPT [OPTIONS]
 ```
 
 **Arguments:**
+
 - `PROMPT` - Natural language description of data to find
 
 **Options:**
+
 - `-u, --url URL` - Starting URLs (can specify multiple). If omitted, agent searches first
 - `-s, --schema FILE` - Path to JSON schema for structured output
 - `--max-steps INT` - Maximum pages to visit (default: 10)
@@ -321,6 +335,7 @@ supacrawl agent PROMPT [OPTIONS]
 - `-q, --quiet` - Suppress progress output, only show final result
 
 **Environment Variables (required):**
+
 - `SUPACRAWL_LLM_PROVIDER` - LLM provider: `ollama`, `openai`, or `anthropic`
 - `SUPACRAWL_LLM_MODEL` - Model name
 - `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` - API key for cloud providers
@@ -347,14 +362,17 @@ supacrawl cache COMMAND [OPTIONS]
 ```
 
 **Subcommands:**
+
 - `stats` - Show cache statistics (entry count, size, directory)
 - `clear` - Clear cached entries (all or by URL)
 - `prune` - Remove expired cache entries
 
 **Options (all subcommands):**
+
 - `--cache-dir PATH` - Cache directory (default: `~/.supacrawl/cache`)
 
 **Options (clear only):**
+
 - `--url URL` - Clear cache for specific URL only
 - `-y, --yes` - Skip confirmation prompt
 
@@ -375,6 +393,37 @@ $ supacrawl cache clear -y
 $ supacrawl cache prune
 # Remove expired entries
 ```
+
+### serve
+
+Start the REST API server. Requires the `api` optional extra (`pip install supacrawl[api]`).
+
+**Usage:**
+
+```bash
+supacrawl serve [OPTIONS]
+```
+
+**Options:**
+
+- `--host TEXT` - Host to bind to (default: `0.0.0.0`, or `SUPACRAWL_API_HOST`)
+- `--port INTEGER` - Port to listen on (default: `8308`, or `SUPACRAWL_API_PORT`)
+- `--reload` - Enable auto-reload on code changes (development only)
+
+**Example:**
+
+```bash
+# Start with defaults (0.0.0.0:8308)
+supacrawl serve
+
+# Custom port with auto-reload
+supacrawl serve --port 9000 --reload
+
+# Bind to localhost only
+supacrawl serve --host 127.0.0.1
+```
+
+The server exposes a Firecrawl v2-compatible REST API. See [api-reference.md](api-reference.md) for endpoint documentation.
 
 ## Common Patterns
 
@@ -620,21 +669,21 @@ See `.env.example` for additional browser configuration options.
 ### Common Errors
 
 **URL Not Reachable:**
-```
+```text
 Error: Failed to fetch URL: https://example.com [correlation_id=abc12345]
 ```
 
 **Solution:** Check the URL is correct and accessible. The site may be blocking automated requests. Try `--stealth` mode.
 
 **LLM Provider Error:**
-```
+```text
 Error: LLM extraction failed: Connection refused [correlation_id=abc12345]
 ```
 
 **Solution:** Ensure Ollama is running (`ollama serve`) or check API keys for cloud providers. Verify `SUPACRAWL_LLM_PROVIDER` and `SUPACRAWL_LLM_MODEL` are set.
 
 **Timeout Error:**
-```
+```text
 Error: Page load timeout exceeded [correlation_id=abc12345]
 ```
 
