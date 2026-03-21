@@ -11,6 +11,7 @@ Zero-infrastructure CLI web scraper with LLM extraction.
 ## Stack
 
 - **Backend**: Python 3.12, Click (CLI), Pydantic, asyncio
+- **REST API**: FastAPI + uvicorn (optional, `supacrawl[api]`), port 8308
 - **Scraping**: Playwright, httpx, BeautifulSoup, markdownify
 - **LLM**: Ollama, OpenAI, Anthropic (configurable providers)
 - **Storage**: Local cache (`.supacrawl/cache/`)
