@@ -76,6 +76,7 @@ def create_app() -> FastAPI:
 
     # --- Routers -----------------------------------------------------------
     from supacrawl.api.routers.crawl import router as crawl_router
+    from supacrawl.api.routers.extract import router as extract_router
     from supacrawl.api.routers.map import router as map_router
     from supacrawl.api.routers.scrape import router as scrape_router
     from supacrawl.api.routers.search import router as search_router
@@ -84,5 +85,6 @@ def create_app() -> FastAPI:
     app.include_router(map_router)
     app.include_router(search_router)
     app.include_router(crawl_router)
+    app.include_router(extract_router)
 
     return app
