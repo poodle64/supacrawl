@@ -40,8 +40,9 @@ desktop.ini
 .supacrawl/
 scraped-pages/
 
-# Product definition (private planning docs)
+# Private planning docs (not for public repos)
 docs/product/
+docs/superpowers/
 
 # ============================================================================
 # Python
