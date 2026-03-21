@@ -19,10 +19,12 @@ logger = logging.getLogger("supacrawl.api")
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Create shared services on startup, tear down on shutdown."""
+    from supacrawl.api.jobs import JobStore
     from supacrawl.mcp.api_client import create_supacrawl_services
 
     services = await create_supacrawl_services()
     app.state.services = services
+    app.state.job_store = JobStore()
     logger.info("Supacrawl API services initialised")
 
     yield
@@ -73,10 +75,14 @@ def create_app() -> FastAPI:
         )
 
     # --- Routers -----------------------------------------------------------
+    from supacrawl.api.routers.crawl import router as crawl_router
     from supacrawl.api.routers.map import router as map_router
     from supacrawl.api.routers.scrape import router as scrape_router
+    from supacrawl.api.routers.search import router as search_router
 
     app.include_router(scrape_router)
     app.include_router(map_router)
+    app.include_router(search_router)
+    app.include_router(crawl_router)
 
     return app
