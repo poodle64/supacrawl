@@ -7,6 +7,20 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.3.2] - 2026-03-21
+
+### Added
+
+- **REST API server via `supacrawl serve`** (Closes #109): Firecrawl v2-compatible REST API with Supacrawl-native extensions. Existing Firecrawl clients (n8n, LangChain, LlamaIndex) work as drop-in backends by pointing their base URL at Supacrawl. Install with `pip install supacrawl[api]`.
+  - Synchronous endpoints: POST /scrape, POST /map, POST /search
+  - Async job endpoints: POST /crawl, POST /extract, POST /batch/scrape with GET polling and DELETE cancellation
+  - Native endpoints: GET /supacrawl/health, POST /supacrawl/diagnose, POST /supacrawl/summary
+  - Credential verification stub: GET /team/credit-usage (for n8n compatibility)
+  - Optional Bearer token authentication via `SUPACRAWL_API_KEY`
+  - In-memory async job store with configurable TTL and concurrency limits
+  - camelCase request/response translation matching the v2 protocol
+- **Foleon platform detection** with auto-tuned scrape settings
+
 ## [2026.3.1] - 2026-03-08
 
 ### Fixed
