@@ -81,6 +81,8 @@ def create_app() -> FastAPI:
     from supacrawl.api.routers.map import router as map_router
     from supacrawl.api.routers.scrape import router as scrape_router
     from supacrawl.api.routers.search import router as search_router
+    from supacrawl.api.routers.supacrawl import router as supacrawl_router
+    from supacrawl.api.routers.team import router as team_router
 
     app.include_router(scrape_router)
     app.include_router(map_router)
@@ -88,5 +90,8 @@ def create_app() -> FastAPI:
     app.include_router(crawl_router)
     app.include_router(extract_router)
     app.include_router(batch_router)
+    app.include_router(team_router)
+    # supacrawl router: /health has no auth dependency on the endpoint itself
+    app.include_router(supacrawl_router)
 
     return app
