@@ -64,3 +64,4 @@ htmlcov/
 .cache/
 .git-backup
 issues-archive-*.json
+.venv

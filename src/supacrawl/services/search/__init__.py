@@ -12,6 +12,7 @@ Supported providers:
 - serpapi: SerpAPI Google Search (requires SERPAPI_API_KEY)
 - exa: Exa.ai neural search (requires EXA_API_KEY)
 - duckduckgo: DuckDuckGo HTML scraping (deprecated, no key needed)
+- searxng: SearXNG self-hosted metasearch (requires SEARXNG_URL)
 """
 
 from supacrawl.services.search.providers import (

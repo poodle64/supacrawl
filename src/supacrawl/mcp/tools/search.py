@@ -8,6 +8,7 @@ import asyncio
 from typing import Any, Literal
 
 import httpx
+from fastmcp import Context
 
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
@@ -113,6 +114,7 @@ async def _enrich_results_with_metadata(
 
 async def supacrawl_search(
     api_client: SupacrawlServices,
+    ctx: Context,
     query: str,
     limit: int = 5,
     sources: list[Literal["web", "images", "news"]] | None = None,
@@ -259,11 +261,23 @@ async def supacrawl_search(
                 only_main_content=only_main_content,
             )
 
+        # Create progress callback for gateway keepalive
+        async def on_scrape_progress(completed: int, total: int, url: str) -> None:
+            await ctx.report_progress(
+                progress=completed,
+                total=total,
+                message=f"Scraped {completed}/{total}: {url}",
+            )
+            await ctx.info(f"Scrape progress: {completed}/{total} pages completed")
+
+        progress_cb = on_scrape_progress if scrape_results else None
+
         result = await api_client.search_service.search(
             query=validated_query,
             limit=validated_limit,
             sources=typed_sources,
             scrape_options=scrape_options,
+            progress_callback=progress_cb,
         )
 
         response = result.model_dump()
