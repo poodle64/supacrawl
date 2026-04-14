@@ -14,7 +14,7 @@ from supacrawl.services.search.providers import ProviderChain, SearchProvider
 LOGGER = logging.getLogger(__name__)
 
 # All supported provider names
-SUPPORTED_PROVIDERS = ("brave", "tavily", "serper", "serpapi", "exa", "duckduckgo")
+SUPPORTED_PROVIDERS = ("brave", "tavily", "serper", "serpapi", "exa", "duckduckgo", "searxng")
 
 # Default provider order when SUPACRAWL_SEARCH_PROVIDERS is not set.
 # Just brave (preserving existing default behaviour).
@@ -27,6 +27,7 @@ _PROVIDER_API_KEY_ENVS: dict[str, str] = {
     "serper": "SERPER_API_KEY",
     "serpapi": "SERPAPI_API_KEY",
     "exa": "EXA_API_KEY",
+    "searxng": "SEARXNG_URL",
 }
 
 
@@ -80,6 +81,11 @@ def create_provider(
         from supacrawl.services.search.exa import ExaProvider
 
         return ExaProvider()
+
+    if name == "searxng":
+        from supacrawl.services.search.searxng import SearXNGProvider
+
+        return SearXNGProvider(http_client=http_client)
 
     raise ValueError(f"Unknown search provider: {name!r}. Supported providers: {', '.join(SUPPORTED_PROVIDERS)}")
 

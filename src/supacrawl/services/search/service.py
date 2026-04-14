@@ -16,6 +16,7 @@ import os
 import time
 import warnings
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Literal
 
 import httpx
@@ -276,6 +277,7 @@ class SearchService:
         limit: int = 5,
         sources: list[SourceType] | None = None,
         scrape_options: ScrapeOptions | None = None,
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> SearchResult:
         """Search the web using the provider chain with automatic fallback.
 
@@ -332,7 +334,7 @@ class SearchService:
                 web_results = [r for r in all_results if r.source_type == SearchSourceType.WEB]
                 other_results = [r for r in all_results if r.source_type != SearchSourceType.WEB]
                 if web_results:
-                    web_results = await self._scrape_results(web_results, scrape_options, correlation_id)
+                    web_results = await self._scrape_results(web_results, scrape_options, correlation_id, progress_callback)
                 all_results = web_results + other_results
 
             log_with_correlation(
@@ -359,6 +361,7 @@ class SearchService:
         results: list[SearchResultItem],
         options: ScrapeOptions,
         correlation_id: str,
+        progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
     ) -> list[SearchResultItem]:
         """Scrape content from search result URLs."""
         if not self._scrape_service:
@@ -387,5 +390,24 @@ class SearchService:
                 )
             return item
 
-        scraped = await asyncio.gather(*[scrape_one(r) for r in results])
-        return list(scraped)
+        total = len(results)
+
+        # Create indexed tasks to preserve original ordering
+        async def scrape_indexed(idx: int, item: SearchResultItem) -> tuple[int, SearchResultItem]:
+            return idx, await scrape_one(item)
+
+        completed = 0
+        indexed_results: dict[int, SearchResultItem] = {}
+        tasks = [scrape_indexed(i, r) for i, r in enumerate(results)]
+
+        for coro in asyncio.as_completed(tasks):
+            idx, result_item = await coro
+            indexed_results[idx] = result_item
+            completed += 1
+            if progress_callback:
+                try:
+                    await progress_callback(completed, total, result_item.url)
+                except Exception:
+                    pass  # Don't let callback errors break scraping
+
+        return [indexed_results[i] for i in range(total)]
