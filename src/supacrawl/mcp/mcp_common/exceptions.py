@@ -5,7 +5,7 @@ Provides a standard exception hierarchy with context that all MCP servers can us
 or extend with service-specific exceptions.
 
 Usage:
-    >>> from mcp_common.exceptions import MCPNotFoundError
+    >>> from .exceptions import MCPNotFoundError
     >>> raise MCPNotFoundError(
     ...     message="User not found",
     ...     endpoint="/users/123",
@@ -13,10 +13,15 @@ Usage:
     ... )
 """
 
+import functools
+import inspect
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 class MCPError(Exception):
@@ -163,7 +168,11 @@ class MCPUnauthorizedError(MCPClientError):
     Raised when authentication fails or credentials are missing.
     """
 
-    def __init__(self, message: str = "Unauthorized - invalid or missing credentials", **kwargs: Any) -> None:
+    def __init__(
+        self,
+        message: str = "Unauthorized - invalid or missing credentials",
+        **kwargs: Any,
+    ) -> None:
         # Remove status_code from kwargs if present to avoid duplicate
         kwargs.pop("status_code", None)
         super().__init__(message, status_code=401, **kwargs)
@@ -341,3 +350,83 @@ def log_tool_exception(
             f"{correlation_msg}TOOL ERROR: {tool_name} failed: {exception}",
             exc_info=True,
         )
+
+
+def translate_exceptions(
+    *,
+    catch: type[Exception] | tuple[type[Exception], ...],
+    raise_as: type[Exception],
+    endpoint_attr: str | None = None,
+) -> Callable[[F], F]:
+    """Decorator that maps low-level exceptions to a server's hierarchy.
+
+    Wrap a sync or async method so any exception in ``catch`` becomes
+    an instance of ``raise_as``. Used at the boundary between shared
+    infrastructure (e.g. :class:`mcp_common.executors.SSHConnection`)
+    and a server's own exception hierarchy, replacing per-method
+    try/except wrappers.
+
+    Args:
+        catch: Exception type or tuple of types to catch. Subclasses
+            are caught too.
+        raise_as: The exception class to raise. Constructed as
+            ``raise_as(message, endpoint=endpoint)`` if ``endpoint_attr``
+            is set and resolvable on the bound instance, otherwise
+            ``raise_as(message)``.
+        endpoint_attr: Optional attribute name on ``self`` (or on a
+            ``self.<attr>`` chain like ``"_conn.endpoint"``) whose
+            value is passed as the ``endpoint=`` kwarg. Useful when the
+            target exception class accepts an endpoint for diagnostics.
+
+    Example:
+        >>> @translate_exceptions(
+        ...     catch=SSHError, raise_as=GamekeeperConnectionError,
+        ...     endpoint_attr="_conn.endpoint",
+        ... )
+        ... async def read_file(self, path: str) -> str: ...
+    """
+
+    def _resolve_endpoint(instance: Any) -> str | None:
+        if endpoint_attr is None or instance is None:
+            return None
+        target: Any = instance
+        for part in endpoint_attr.split("."):
+            target = getattr(target, part, None)
+            if target is None:
+                return None
+        return str(target)
+
+    def decorator(func: F) -> F:
+        is_async = inspect.iscoroutinefunction(func)
+
+        if is_async:
+
+            @functools.wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    return await func(*args, **kwargs)
+                except catch as exc:
+                    instance = args[0] if args else None
+                    endpoint = _resolve_endpoint(instance)
+                    if endpoint is not None:
+                        # raise_as is a user-supplied class; whether it accepts
+                        # ``endpoint=`` is its concern, not the decorator's.
+                        raise raise_as(str(exc), endpoint=endpoint) from exc  # type: ignore[call-arg]
+                    raise raise_as(str(exc)) from exc
+
+            return async_wrapper  # type: ignore[return-value]
+
+        @functools.wraps(func)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except catch as exc:
+                instance = args[0] if args else None
+                endpoint = _resolve_endpoint(instance)
+                if endpoint is not None:
+                    raise raise_as(str(exc), endpoint=endpoint) from exc  # type: ignore[call-arg]
+                raise raise_as(str(exc)) from exc
+
+        return sync_wrapper  # type: ignore[return-value]
+
+    return decorator

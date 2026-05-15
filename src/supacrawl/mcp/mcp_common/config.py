@@ -4,7 +4,7 @@ Configuration validation utilities for MCP servers.
 Provides Pydantic field validators for common configuration patterns.
 
 Usage:
-    >>> from mcp_common.config import validate_base_url, parse_comma_separated
+    >>> from .config import validate_base_url, parse_comma_separated
     >>> validate_base_url("https://api.example.com")
     'https://api.example.com'
     >>> parse_comma_separated("a, b, c")

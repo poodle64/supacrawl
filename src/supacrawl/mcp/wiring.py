@@ -5,14 +5,34 @@ using mcp-common patterns.
 """
 
 import inspect
+from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.tools.tool import ToolAnnotations
 
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.mcp_common.tool_registration import create_tool_wrapper
 from supacrawl.mcp.tools import crawl, diagnose, extract, health, scrape, search, summary
 from supacrawl.mcp.tools import map as map_module
+
+# All supacrawl tools are read-only: they fetch external URLs but do not
+# mutate any local or remote state. openWorldHint=True because the target
+# URLs are open-world (arbitrary external sites).
+_READ_ONLY_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=True,
+)
+
+# Diagnostic / health tools are purely observational (no network writes).
+_OBSERVATIONAL_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
 
 
 def register_all_tools(mcp: FastMCP, api_client: SupacrawlServices) -> None:
@@ -33,23 +53,24 @@ def register_all_tools(mcp: FastMCP, api_client: SupacrawlServices) -> None:
     # NOTE: Agent tools are intentionally omitted. When using supacrawl via MCP,
     # the controlling LLM (Claude, ChatGPT, etc.) IS the agent - it orchestrates
     # the primitives below. See README for rationale.
-    tool_functions = [
-        # Core scraping tools
-        (scrape.supacrawl_scrape, api_client),
-        (map_module.supacrawl_map, api_client),
-        (crawl.supacrawl_crawl, api_client),
-        # Search tool
-        (search.supacrawl_search, api_client),
-        # LLM-assisted tools (scrape + context for calling LLM)
-        (extract.supacrawl_extract, api_client),
-        (summary.supacrawl_summary, api_client),
-        # Operational
-        (health.supacrawl_health, api_client),
-        (diagnose.supacrawl_diagnose, api_client),
+    # (func, api_client, annotations)
+    tool_functions: list[tuple[Any, Any, ToolAnnotations]] = [
+        # Core scraping tools — open-world reads
+        (scrape.supacrawl_scrape, api_client, _READ_ONLY_ANNOTATIONS),
+        (map_module.supacrawl_map, api_client, _READ_ONLY_ANNOTATIONS),
+        (crawl.supacrawl_crawl, api_client, _READ_ONLY_ANNOTATIONS),
+        # Search tool — open-world read
+        (search.supacrawl_search, api_client, _READ_ONLY_ANNOTATIONS),
+        # LLM-assisted tools — open-world reads
+        (extract.supacrawl_extract, api_client, _READ_ONLY_ANNOTATIONS),
+        (summary.supacrawl_summary, api_client, _READ_ONLY_ANNOTATIONS),
+        # Operational — local/observational only
+        (health.supacrawl_health, api_client, _OBSERVATIONAL_ANNOTATIONS),
+        (diagnose.supacrawl_diagnose, api_client, _OBSERVATIONAL_ANNOTATIONS),
     ]
 
     tool_count = 0
-    for tool_func, api_client_instance in tool_functions:
+    for tool_func, api_client_instance, annotations in tool_functions:
         # Verify it's a coroutine function
         if not inspect.iscoroutinefunction(tool_func):
             logger.warning(f"Skipping {tool_func.__name__}: not an async function")
@@ -62,7 +83,7 @@ def register_all_tools(mcp: FastMCP, api_client: SupacrawlServices) -> None:
             tool_func,
             api_client_instance,
         )
-        mcp.tool(tool_wrapper)
+        mcp.tool(tool_wrapper, annotations=annotations)
         tool_count += 1
 
     logger.info(f"Registered {tool_count} Supacrawl tools")

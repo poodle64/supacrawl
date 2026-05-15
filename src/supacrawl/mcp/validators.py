@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from supacrawl.mcp.exceptions import SupacrawlValidationError
 from supacrawl.mcp.mcp_common.exceptions import MCPValidationError
-from supacrawl.mcp.mcp_common.validation import validate_positive_int as _validate_positive_int
+from supacrawl.mcp.mcp_common.validators import validate_positive_int as _validate_positive_int
 
 # Words that indicate a time-sensitive search where current year matters
 TIME_SENSITIVE_KEYWORDS = {

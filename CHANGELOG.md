@@ -7,6 +7,20 @@ and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
 
+## [2026.5.0] - 2026-05-15
+
+### Added
+
+- **`/healthz` and `/readyz` HTTP probes on the embedded MCP server** (Closes poodle64/mcp-servers#270): The MCP server now exposes the canonical container-orchestration probes alongside the legacy `/health` route. `/healthz` always returns 200 while the process is alive (suitable for liveness); `/readyz` returns 200 once the FastMCP app is serving (suitable for readiness). Containers using the standard `/healthz` Docker healthcheck no longer need a per-service exception. Routes are registered automatically by `BaseMCPServer.__init__`; no caller changes required.
+- **`SUPACRAWL_MASK_ERROR_DETAILS` env var** (default `True`): Operators can flip this to `False` in dev/CI to expose raw exception text in MCP tool errors. Production should keep the default. Wired to FastMCP 3.x's `mask_error_details` constructor flag, replacing the silent fallback to FastMCP's own `FASTMCP_MASK_ERROR_DETAILS` env var.
+- **`ToolAnnotations` on all 8 MCP tools**: Every scraping/search tool now declares `readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True`; health and diagnose tools declare the same minus `openWorldHint=False`. Lets MCP clients render correct affordances and skip pre-call confirmations on read-only operations.
+
+### Internal
+
+- **Re-vendored `mcp_common` from `poodle64/mcp-servers`**: Replaced the months-stale single-file vendored copy with the current package layout (`server/`, `validators/`, plus new `redaction.py`, `executors/`, `host_shell/`). This is what unlocks `/healthz` and brings the MCP server into line with the rest of the household's MCP fleet. Internal imports rewritten from absolute (`from mcp_common.X`) to relative (`from .X`) to support the nested sub-package layout (`supacrawl.mcp.mcp_common`); `mcp_common.__version__` is now read lazily inside `register_server_info_resource()` to avoid a circular import.
+- **`SupacrawlSettings.mask_error_details` field** added to `config.py` under the existing `SUPACRAWL_` env_prefix.
+- One pre-existing test (`test_settings_loads_defaults` asserting `search_provider == "duckduckgo"`) remains failing; the assertion drifted out of step with the `brave` default in 2026.3.0. Tracked separately, not introduced by this release.
+
 ## [2026.3.2] - 2026-03-21
 
 ### Added

@@ -1,3 +1,4 @@
+# ruff: noqa: UP007 — Union used at runtime for dynamic type construction; X | Y creates types.UnionType which behaves differently
 """
 Utility functions for registering MCP tools with proper function metadata.
 
@@ -5,7 +6,7 @@ This module provides Pythonic, industry-standard patterns for creating
 tool wrappers that preserve function metadata without monkey patching.
 
 Usage:
-    >>> from mcp_common.tool_registration import create_tool_wrapper
+    >>> from .tool_registration import create_tool_wrapper
     >>> wrapper = create_tool_wrapper(func, api_client)
 """
 
@@ -15,7 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from functools import update_wrapper
 from types import UnionType
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, Union, get_args, get_origin  # noqa: UP035
 
 from pydantic import Field
 

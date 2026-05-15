@@ -4,7 +4,7 @@ Structured JSON logging utilities for MCP servers.
 Provides JSON formatter with correlation ID support and sensitive data redaction.
 
 Usage:
-    >>> from mcp_common.logging import JSONFormatter, setup_logging
+    >>> from .logging import JSONFormatter, setup_logging
     >>> formatter = JSONFormatter("my-service", "1.0.0")
     >>> setup_logging(formatter)
 """
@@ -459,13 +459,14 @@ def setup_logging(
     Args:
         formatter: JSONFormatter instance
         level: Logging level (default: DEBUG)
-        stream: Output stream (default: sys.stdout for 12-factor compliance)
+        stream: Output stream (default: sys.stderr; stdio MCP transport
+            reserves stdout exclusively for JSON-RPC protocol messages)
 
     Returns:
         Root logger instance
     """
     if stream is None:
-        stream = sys.stdout
+        stream = sys.stderr
 
     # Get root logger and remove existing handlers
     root_logger = logging.getLogger()
@@ -598,7 +599,7 @@ def setup_server_logging(
         Named logger instance for the service
 
     Example:
-        >>> from mcp_common.logging import setup_server_logging
+        >>> from .logging import setup_server_logging
         >>> logger = setup_server_logging("n8n-mcp", "v1")
         >>> logger.info("Server starting...")
 
@@ -608,5 +609,5 @@ def setup_server_logging(
     if level is None:
         level = get_log_level_from_env()
     formatter = JSONFormatter(service_name=service_name, service_version=service_version)
-    setup_logging(formatter, level=level, stream=sys.stdout)
+    setup_logging(formatter, level=level, stream=sys.stderr)
     return logging.getLogger(service_name)

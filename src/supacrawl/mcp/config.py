@@ -30,6 +30,15 @@ class SupacrawlSettings(BaseSettings):
         extra="ignore",
     )
 
+    # Error handling
+    mask_error_details: bool = Field(
+        default=True,
+        description=(
+            "Strip exception messages and tracebacks from tool error responses. "
+            "Set to false in dev/CI to see full exception details."
+        ),
+    )
+
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
 
@@ -187,6 +196,7 @@ settings = get_settings()
 ALLOWED_ORIGINS = settings.allowed_origins
 ALLOWED_HOSTS = settings.allowed_hosts
 SERVICE_NAME = settings.service_name
+SUPACRAWL_MASK_ERROR_DETAILS = settings.mask_error_details
 
 # Setup logging using mcp-common structured JSON logging
 # Version tracks the underlying supacrawl library for debugging clarity

@@ -5,7 +5,7 @@ Provides correlation ID generation (8 characters, UUID-based) for request tracki
 as required by master error handling rules.
 
 Usage:
-    >>> from mcp_common.correlation import generate_correlation_id
+    >>> from .correlation import generate_correlation_id
     >>> corr_id = generate_correlation_id()
     >>> len(corr_id)
     8

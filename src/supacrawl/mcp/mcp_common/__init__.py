@@ -39,6 +39,11 @@ from .logging import (
     redact_sensitive_data,
     setup_server_logging,
 )
+from .redaction import (
+    DEFAULT_SECRET_KEYS,
+    make_masker,
+    redact_secrets,
+)
 from .server import (
     BaseMCPServer,
     create_argument_parser,
@@ -50,7 +55,7 @@ from .tool_registration import (
     create_tool_wrapper,
     remove_parameters_from_signature,
 )
-from .validation import (
+from .validators import (
     sanitize_string,
     validate_boolean,
     validate_date,
@@ -90,6 +95,10 @@ __all__ = [
     "JSONFormatter",
     "redact_sensitive_data",
     "setup_server_logging",
+    # Response-time secret redaction
+    "DEFAULT_SECRET_KEYS",
+    "make_masker",
+    "redact_secrets",
     # Config
     "validate_base_url",
     "parse_comma_separated",
@@ -117,4 +126,4 @@ __all__ = [
     "remove_parameters_from_signature",
 ]
 
-__version__ = "2026.1.0"
+__version__ = "2026.5.2"

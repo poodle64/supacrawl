@@ -8,7 +8,7 @@ functionality as MCP tools for AI agents.
 from typing import Any
 
 from supacrawl.mcp.api_client import create_supacrawl_services
-from supacrawl.mcp.config import ALLOWED_HOSTS, ALLOWED_ORIGINS, logger
+from supacrawl.mcp.config import ALLOWED_HOSTS, ALLOWED_ORIGINS, SUPACRAWL_MASK_ERROR_DETAILS, logger
 from supacrawl.mcp.mcp_common.server import BaseMCPServer
 from supacrawl.mcp.wiring import register_all_tools, register_prompts, register_resources
 
@@ -38,7 +38,11 @@ class SupacrawlServer(BaseMCPServer):
     logger = logger
 
     def __init__(self, server_name: str = "supacrawl"):
-        super().__init__(server_name, instructions=SUPACRAWL_INSTRUCTIONS)
+        super().__init__(
+            server_name,
+            instructions=SUPACRAWL_INSTRUCTIONS,
+            mask_error_details=SUPACRAWL_MASK_ERROR_DETAILS,
+        )
 
     async def create_api_client(self) -> Any:
         """Create and return the supacrawl services wrapper."""
