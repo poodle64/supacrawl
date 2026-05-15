@@ -14,5 +14,9 @@ on:
 
 jobs:
   auto-label:
+    permissions:
+      issues: write
+      models: read
+      contents: read
     uses: poodle64/master-project/.github/workflows/auto-label-issues.yaml@main
     secrets: inherit
