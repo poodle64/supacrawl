@@ -4,14 +4,14 @@ paths: "**/*"
 
 # Development Environment
 
-This rule extends `.claude/rules/master/20-development-environment.md` with supacrawl-specific patterns. Universal conda environment and environment variable patterns are covered in the master rule.
+This rule extends `.claude/rules/master/20-development-environment.md` with supacrawl-specific patterns. Universal micromamba environment and environment variable patterns are covered in the master rule.
 
-## Conda Environment
+## Micromamba Environment
 
-- Use `supacrawl` conda environment (see `.claude/rules/master/20-development-environment.md` for activation requirements)
-- Activate conda environment before running CLI commands, tests, or installing packages
-- Install all dependencies using `conda env create -f environment.yaml` (includes dev, stealth, captcha extras)
-- Use conda environment for all development work (ruff, mypy, pytest)
+- Use `supacrawl` micromamba environment (see `.claude/rules/master/20-development-environment.md` for activation requirements)
+- Activate micromamba environment before running CLI commands, tests, or installing packages
+- Install all dependencies using `micromamba env create -f environment.yaml` (includes dev, stealth, captcha extras)
+- Use micromamba environment for all development work (ruff, mypy, pytest)
 
 ## Directory Structure
 

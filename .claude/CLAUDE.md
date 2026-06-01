@@ -4,7 +4,7 @@ Zero-infrastructure CLI web scraper with LLM extraction.
 
 ## Dev Environment
 
-- Environment: `supacrawl` (conda)
+- Environment: `supacrawl` (micromamba)
 - CLI tool: `supacrawl` command
 - Python: 3.12
 

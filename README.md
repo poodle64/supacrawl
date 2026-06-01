@@ -308,7 +308,7 @@ Skip `playwright install`; your system already provides the binaries.
 
 ```bash
 # From source
-conda env create -f environment.yaml && conda activate supacrawl
+micromamba env create -f environment.yaml && micromamba activate supacrawl
 pip install -e .[dev]
 playwright install chromium
 
