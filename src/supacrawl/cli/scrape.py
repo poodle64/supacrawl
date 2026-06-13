@@ -239,6 +239,18 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
         "Use --no-http-first to always render in the browser."
     ),
 )
+@click.option(
+    "--expect",
+    type=str,
+    default=None,
+    help=(
+        "Require asserted content to be present before returning. A bare integer "
+        "is a minimum word count; any other value is matched first as a CSS "
+        "selector and then as a text substring. If unmet, the scrape waits and "
+        "retries with escalation rather than returning a pre-hydration skeleton. "
+        "Example: --expect '.product-price' or --expect 'In stock' or --expect 200"
+    ),
+)
 def scrape_url(
     url: str | None,
     formats: tuple[str, ...],
@@ -272,6 +284,7 @@ def scrape_url(
     content_mode: float,
     query: str | None,
     http_first: bool,
+    expect: str | None,
 ) -> None:
     """Scrape a single URL and extract content.
 
@@ -469,6 +482,7 @@ def scrape_url(
             content_mode=content_mode,
             query=query,
             http_first=http_first,
+            expect=expect,
         )
         return result
 

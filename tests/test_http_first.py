@@ -112,6 +112,7 @@ class TestTryHttpFirst:
             "change_tracking_modes": None,
             "max_age": 0,
             "cache_variant": None,
+            "expect": None,
         }
         kwargs.update(overrides)
         return await service._try_http_first(**kwargs)  # type: ignore[arg-type]

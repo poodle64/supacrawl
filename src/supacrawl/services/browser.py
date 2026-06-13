@@ -296,6 +296,11 @@ IFRAME_BLOCKED_DOMAINS = frozenset(
 # Maximum iframes to expand per page (performance guard)
 MAX_IFRAMES_PER_PAGE = 10
 
+# Upper bound for the expect-content selector wait, so a selector that never
+# appears does not block for the full page-load timeout (and double that again
+# on an escalated retry). Generous enough for normal hydration.
+EXPECT_SELECTOR_TIMEOUT_MS = 15000
+
 
 def _is_blocked_iframe_domain(hostname: str) -> bool:
     """Check if hostname matches a blocked iframe domain."""
@@ -764,6 +769,7 @@ class BrowserManager:
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
         device: str | None = None,
         extra_headers: dict[str, str] | None = None,
+        wait_for_selector: str | None = None,
     ) -> PageContent:
         """Fetch a page with browser rendering.
 
@@ -771,6 +777,10 @@ class BrowserManager:
             url: URL to fetch
             wait_for_spa: Wait for SPA content to stabilize
             spa_timeout_ms: Max time to wait for SPA stability
+            wait_for_selector: Optional CSS selector to wait for before extracting
+                content, so caller-asserted (post-hydration) content is present.
+                Best-effort: a timeout or invalid selector is swallowed and the
+                page is returned regardless (the caller re-checks the assertion).
             capture_screenshot: Capture PNG screenshot of page
             capture_pdf: Generate PDF of page
             screenshot_full_page: Capture full scrollable page (default True)
@@ -844,6 +854,16 @@ class BrowserManager:
             # and the extra polling can trigger bot detection
             if wait_for_spa and wait_until_resolved != "networkidle":
                 await self._wait_for_spa_stability(page, spa_timeout_ms)
+
+            # Best-effort wait for caller-asserted content (expect-content gate).
+            # Returns as soon as the selector appears; a timeout or invalid
+            # selector is swallowed so the caller can re-check and escalate.
+            if wait_for_selector:
+                selector_timeout = min(self.timeout_ms, EXPECT_SELECTOR_TIMEOUT_MS)
+                try:
+                    await page.wait_for_selector(wait_for_selector, timeout=selector_timeout)
+                except Exception as e:
+                    LOGGER.debug("wait_for_selector %r did not resolve: %s", wait_for_selector, e)
 
             # Execute actions if provided
             action_results_list: list[Any] | None = None

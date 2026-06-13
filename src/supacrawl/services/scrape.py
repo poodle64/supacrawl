@@ -537,6 +537,7 @@ class ScrapeService:
         content_mode: float = 0.5,
         query: str | None = None,
         http_first: bool = True,
+        expect: str | None = None,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -602,6 +603,14 @@ class ScrapeService:
                     skipping Playwright entirely. Any render-needed or bot signal —
                     or a browser-only request (screenshot/pdf/actions/device/stealth/
                     non-default engine) — falls through to the full browser path.
+            expect: Optional content assertion that makes hydration a retryable
+                    condition. A bare integer is a minimum word count; any other
+                    string is matched first as a CSS selector and then as a
+                    visible-text substring. When the assertion is unmet the HTTP-first
+                    path escalates to the browser, the browser waits for a
+                    selector-shaped expectation, and an unmet assertion after a
+                    stealth + longer-wait retry returns success=False rather than a
+                    pre-hydration skeleton.
 
         Returns:
             ScrapeResult with scraped content
@@ -692,6 +701,7 @@ class ScrapeService:
                 change_tracking_modes=change_tracking_modes,
                 max_age=max_age,
                 cache_variant=cache_variant,
+                expect=expect,
             )
             if fast_result is not None:
                 return fast_result
@@ -737,7 +747,8 @@ class ScrapeService:
                 capture_screenshot = "screenshot" in formats
                 capture_pdf = "pdf" in formats
 
-                # Fetch page with actions
+                # Fetch page with actions. A selector-shaped expectation is passed
+                # as a wait target so the browser holds for that content to hydrate.
                 page_content = await browser.fetch_page(
                     url,
                     wait_for_spa=wait_for > 0,
@@ -750,6 +761,7 @@ class ScrapeService:
                     expand_iframes=expand_iframes,
                     device=device,
                     extra_headers=headers,
+                    wait_for_selector=self._expect_selector(expect),
                 )
 
                 # Extract metadata
@@ -812,6 +824,7 @@ class ScrapeService:
                             # Already committed to the browser; don't re-run the
                             # HTTP-first probe on the stealth retry.
                             http_first=False,
+                            expect=expect,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint(bot_suspected=True)}")
@@ -878,6 +891,7 @@ class ScrapeService:
                                 # Platform tuning requires a real browser render;
                                 # skip the HTTP-first probe on this retry.
                                 http_first=False,
+                                expect=expect,
                             )
 
                 # Check for CAPTCHA and solve if enabled
@@ -936,6 +950,76 @@ class ScrapeService:
                         soft_msg = quality_reason[len("SOFT: ") :]
                         LOGGER.debug("Content quality soft warning for %s: %s", url, soft_msg)
                         content_quality_warnings = [soft_msg]
+
+                # Expect-content gate: the caller asserted specific content but it
+                # is not present. Treat as a soft failure — escalate once to stealth
+                # with a longer hydration wait, then report a first-class failure
+                # rather than returning a pre-hydration skeleton.
+                if expect is not None and not self._expect_satisfied(page_content.html, markdown, expect):
+                    explicit_engine = engine is not None or self._engine is not None
+                    # Escalate to stealth + a longer hydration wait only when the
+                    # caller has not pinned an engine (pinning to e.g. camoufox is a
+                    # deliberate choice the stealth switch must not silently override)
+                    # and patchright is actually installed.
+                    if not self._stealth and not explicit_engine and _is_patchright_available():
+                        LOGGER.info(
+                            "Expected content %r absent for %s; retrying with stealth + longer wait", expect, url
+                        )
+                        if owns_browser and browser:
+                            await browser.__aexit__(None, None, None)
+                        expect_service = ScrapeService(
+                            converter=self._converter,
+                            locale_config=self._locale_config,
+                            cache_dir=self._cache.cache_dir if self._cache else None,
+                            stealth=True,
+                            proxy=self._proxy,
+                            solve_captcha=self._solve_captcha,
+                            headless=self._headless,
+                        )
+                        return await expect_service.scrape(
+                            url=url,
+                            formats=formats,
+                            only_main_content=only_main_content,
+                            wait_for=max(wait_for, 5000),
+                            timeout=timeout,
+                            screenshot_full_page=screenshot_full_page,
+                            actions=actions,
+                            json_schema=json_schema,
+                            json_prompt=json_prompt,
+                            include_tags=include_tags,
+                            exclude_tags=exclude_tags,
+                            max_age=max_age,
+                            wait_until=wait_until,
+                            change_tracking_modes=change_tracking_modes,
+                            expand_iframes=expand_iframes,
+                            device=device,
+                            parse_pdf=parse_pdf,
+                            headers=headers,
+                            content_mode=content_mode,
+                            query=query,
+                            http_first=False,
+                            expect=expect,
+                        )
+
+                    # No (further) escalation available — report a first-class
+                    # failure whose remediation reflects what was actually tried.
+                    correlation_id = generate_correlation_id()
+                    if self._stealth:
+                        remediation = "Try a larger wait_for or --engine camoufox."
+                    elif explicit_engine:
+                        remediation = "Try a larger wait_for, or drop the engine override to allow a stealth retry."
+                    elif not _is_patchright_available():
+                        remediation = "Install supacrawl[stealth] to enable a stealth retry, or increase wait_for."
+                    else:
+                        remediation = "Try a larger wait_for or --engine camoufox."
+                    return ScrapeResult(
+                        success=False,
+                        error=(
+                            f"Expected content not found: {expect!r}. The page loaded but the "
+                            f"asserted content never appeared. {remediation} "
+                            f"[correlation_id={correlation_id}]"
+                        ),
+                    )
 
                 return await self._assemble_result(
                     url=url,
@@ -1018,6 +1102,7 @@ class ScrapeService:
                         parse_pdf=parse_pdf,
                         headers=headers,
                         http_first=False,
+                        expect=expect,
                     )
 
                 # Stage 2: Camoufox also failed → retry with HTTP/2 disabled.
@@ -1058,6 +1143,7 @@ class ScrapeService:
                         parse_pdf=parse_pdf,
                         headers=headers,
                         http_first=False,
+                        expect=expect,
                     )
 
             # Add stealth hint for errors, gated on whether a bot challenge was
@@ -1130,6 +1216,58 @@ class ScrapeService:
         effective_engine = engine or self._engine
         return effective_engine in (None, "playwright")
 
+    @staticmethod
+    def _expect_satisfied(html: str, markdown: str | None, expect: str | None) -> bool:
+        """Whether the page satisfies a caller-supplied content assertion.
+
+        Three modes share one ``expect`` string:
+            - a bare integer  -> minimum word count;
+            - a CSS selector that matches at least one element -> satisfied;
+            - otherwise a case-insensitive visible-text substring.
+
+        Args:
+            html: Raw HTML of the fetched page.
+            markdown: Converted markdown, when available (used for word count and
+                text search; falls back to the page's visible text otherwise).
+            expect: The assertion string, or None.
+
+        Returns:
+            True when the assertion holds (or there is none).
+        """
+        if expect is None:
+            return True
+
+        soup = BeautifulSoup(html, "html.parser")
+        text = markdown if markdown is not None else soup.get_text(" ", strip=True)
+
+        if expect.isdigit():
+            return len(text.split()) >= int(expect)
+
+        # A matching CSS selector satisfies the assertion outright.
+        try:
+            if soup.select(expect):
+                return True
+        except Exception:
+            pass  # not valid selector syntax — fall through to text matching
+
+        return expect.lower() in text.lower()
+
+    @staticmethod
+    def _expect_selector(expect: str | None) -> str | None:
+        """Return ``expect`` when it is selector-shaped, else None.
+
+        Used to decide whether the browser should wait for the asserted content.
+        Only single-token strings carrying a CSS structural character qualify, so
+        free-text or word-count assertions never become a wasteful selector wait.
+        """
+        if expect is None or expect.isdigit():
+            return None
+        if " " in expect.strip():
+            return None
+        if any(ch in expect for ch in ".#[]>+~"):
+            return expect
+        return None
+
     async def _try_http_first(
         self,
         *,
@@ -1151,13 +1289,14 @@ class ScrapeService:
         change_tracking_modes: list[str] | None,
         max_age: int,
         cache_variant: str | None,
+        expect: str | None,
     ) -> ScrapeResult | None:
         """Attempt to satisfy a scrape with a single httpx GET, no browser.
 
         Returns a fully-built ScrapeResult when the fetched HTML is usable as-is,
         or None to signal that the caller should escalate to the browser path
-        (render-needed, bot challenge, suspect quality, fetch failure, or a page
-        with iframes that need expanding).
+        (render-needed, bot challenge, suspect quality, fetch failure, an unmet
+        ``expect`` assertion, or a page with iframes that need expanding).
         """
         accept_language = self._locale_config.get_accept_language_header() if self._locale_config else None
         fetched = await fetch_static(
@@ -1229,6 +1368,12 @@ class ScrapeService:
                 LOGGER.debug("HTTP-first escalating %s: content quality hard-failed", url)
                 return None
             content_quality_warnings = [quality_reason[len("SOFT: ") :]]
+
+        # Caller asserted specific content; if a cheap GET doesn't satisfy it the
+        # content is likely hydrated client-side, so escalate to the browser.
+        if expect is not None and not self._expect_satisfied(html, markdown, expect):
+            LOGGER.debug("HTTP-first escalating %s: expected content %r not present", url, expect)
+            return None
 
         LOGGER.debug("HTTP-first served %s without a browser (HTTP %d)", url, fetched.status_code)
 

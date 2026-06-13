@@ -74,6 +74,9 @@ def _build_service_kwargs(req: ScrapeRequest) -> dict[str, Any]:
 
     kwargs["http_first"] = req.http_first
 
+    if req.expect is not None:
+        kwargs["expect"] = req.expect
+
     return kwargs
 
 

@@ -42,6 +42,7 @@ class ScrapeRequest(BaseModel):
     content_mode: float | None = Field(None, ge=0.0, le=1.0)
     query: str | None = None
     http_first: bool = True
+    expect: str | None = None
 
 
 # ---------------------------------------------------------------------------

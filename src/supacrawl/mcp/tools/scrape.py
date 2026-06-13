@@ -52,6 +52,7 @@ async def supacrawl_scrape(
     content_mode: float = 0.5,
     query: str | None = None,
     http_first: bool = True,
+    expect: str | None = None,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -155,6 +156,12 @@ async def supacrawl_scrape(
             Static pages return faster; pages needing JavaScript or showing a bot
             challenge transparently escalate to the full browser render. Set False
             to always render in the browser.
+        expect: Require asserted content before returning. A bare integer is a
+            minimum word count; any other string is matched first as a CSS selector
+            then as a text substring. When unmet, the scrape escalates (HTTP-first to
+            browser, then a stealth + longer-wait retry) and ultimately returns
+            success=False instead of a pre-hydration skeleton. Use this when an agent
+            must be sure the data it asked for is actually present.
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -250,6 +257,7 @@ async def supacrawl_scrape(
             content_mode=content_mode,
             query=query,
             http_first=http_first,
+            expect=expect,
         )
 
         response = result.model_dump()
