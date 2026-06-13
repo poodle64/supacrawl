@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 from bs4 import BeautifulSoup
 
 from supacrawl.cache import CacheManager
-from supacrawl.exceptions import ProviderError
+from supacrawl.exceptions import ProviderError, generate_correlation_id
 from supacrawl.models import ActionsOutput, ScrapeActionResult, ScrapeData, ScrapeMetadata, ScrapeResult
 from supacrawl.services.browser import BrowserManager
 from supacrawl.services.converter import MarkdownConverter
@@ -61,6 +61,20 @@ BOT_DETECTION_PATTERNS = [
     r"ray.id",  # Cloudflare Ray ID
 ]
 BOT_DETECTION_REGEX = re.compile("|".join(BOT_DETECTION_PATTERNS), re.IGNORECASE)
+
+# Content-quality thresholds for binary/garbage detection.
+# The prefix sampled for non-printable ratio analysis (bytes).
+_CONTENT_QUALITY_SAMPLE_BYTES = 8192
+# Non-printable ratio above this → HARD failure (binary/encrypted body).
+_NON_PRINTABLE_RATIO_THRESHOLD = 0.30
+# HTML structure tags; absence in a non-trivial body → SOFT suspect.
+_HTML_STRUCTURE_TAGS = ("<html", "<head", "<body", "<div", "<p", "<a")
+# Minimum HTML length (chars) before the structure / density checks apply.
+_MIN_HTML_LENGTH_FOR_QUALITY_CHECK = 200
+# Words-per-KB ratio below this (combined with substantial HTML) → SOFT suspect.
+# Kept deliberately low: legitimate markup-heavy articles run 3-50+ words/KB, so
+# only near-empty or garbled pages (well under 1 word/KB) are flagged.
+_LOW_DENSITY_WORDS_PER_KB = 1.0
 
 
 def _is_patchright_available() -> bool:
@@ -108,6 +122,60 @@ def _looks_like_bot_block(status_code: int, html: str, markdown: str | None) -> 
     return False
 
 
+def _assess_content_quality(html: str, markdown: str | None) -> str | None:
+    """Assess whether scraped content looks like a usable page or a bot challenge.
+
+    Returns a human-readable reason string when content is suspect, else None.
+    Severity is encoded in the prefix of the returned string:
+        "HARD:" — binary/garbage content; caller should set success=False.
+        "SOFT:" — printable but very low density; caller should add a warning.
+
+    Args:
+        html: Raw HTML content from the response.
+        markdown: Converted markdown content, or None.
+
+    Returns:
+        A reason string prefixed with "HARD:" or "SOFT:", or None when content
+        passes all quality checks.
+    """
+    if not html:
+        return None
+
+    html_len = len(html)
+    if html_len < _MIN_HTML_LENGTH_FOR_QUALITY_CHECK:
+        # Too short to draw meaningful conclusions; rely on _looks_like_bot_block.
+        return None
+
+    # --- HARD check: non-printable / binary character ratio ---
+    # Sample a prefix to avoid iterating multi-megabyte payloads.
+    sample = html[:_CONTENT_QUALITY_SAMPLE_BYTES]
+    non_printable = sum(1 for ch in sample if ord(ch) < 32 and ch not in "\t\n\r")
+    ratio = non_printable / len(sample)
+    if ratio > _NON_PRINTABLE_RATIO_THRESHOLD:
+        pct = int(ratio * 100)
+        return (
+            f"HARD: Response appears to be a bot challenge or non-text content "
+            f"({pct}% non-printable characters); page could not be read as text."
+        )
+
+    # --- SOFT check: absent HTML structure ---
+    html_lower = html[:4096].lower()
+    has_structure = any(tag in html_lower for tag in _HTML_STRUCTURE_TAGS)
+    if not has_structure:
+        return (
+            "SOFT: Response may be a bot challenge page; content quality is suspect "
+            "(no recognisable HTML structure detected)."
+        )
+
+    # --- SOFT check: very low word-to-byte ratio ---
+    word_count = len(markdown.split()) if markdown else 0
+    words_per_kb = (word_count / html_len) * 1024
+    if words_per_kb < _LOW_DENSITY_WORDS_PER_KB:
+        return "SOFT: Response may be a bot challenge page; content quality is suspect (low text density)."
+
+    return None
+
+
 def _is_camoufox_available() -> bool:
     """Check if camoufox is installed for Tier 3 anti-detection."""
     try:
@@ -118,13 +186,26 @@ def _is_camoufox_available() -> bool:
         return False
 
 
-def _stealth_hint() -> str:
-    """Return a hint about stealth mode based on availability.
+def _stealth_hint(*, bot_suspected: bool = False) -> str:
+    """Return a hint about stealth mode, gated on whether a bot challenge was detected.
 
-    Returns a structured hint for both humans and LLM consumers.
-    Basic stealth (fingerprint evasion) is always active.
-    This hint covers both Patchright (Tier 2) and Camoufox (Tier 3).
+    When bot_suspected is False (pure network/timeout failure with no challenge
+    signature), engine switching is unlikely to help, so a softer note is returned
+    rather than promising that --engine patchright will fix the problem.
+
+    Args:
+        bot_suspected: True when _looks_like_bot_block or _assess_content_quality
+            flagged a bot challenge for this request.
+
+    Returns:
+        A structured hint string for humans and LLM consumers.
     """
+    if not bot_suspected:
+        return (
+            " [Note: some sites block all automated access regardless of engine; "
+            "switching engines is unlikely to help for a pure network or timeout error.]"
+        )
+
     if _is_patchright_available():
         hint = (
             " [HINT: Basic anti-bot evasion is already active. "
@@ -647,7 +728,7 @@ class ScrapeService:
                             parse_pdf=parse_pdf,
                         )
                     else:
-                        LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint()}")
+                        LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint(bot_suspected=True)}")
 
                 # Platform detection: if content is thin and a known platform
                 # is detected, retry with the platform's optimal settings.
@@ -742,6 +823,26 @@ class ScrapeService:
                                 f"CAPTCHA detected for {url} - content extraction may be incomplete.{_captcha_hint()}"
                             )
 
+                # Content-quality check: catch binary/garbage responses that
+                # slip through _looks_like_bot_block because they have HTTP 200.
+                # Only run when _looks_like_bot_block did NOT already flag the
+                # request (to avoid double-flagging).
+                quality_reason = _assess_content_quality(page_content.html, markdown)
+                content_quality_warnings: list[str] | None = None
+                if quality_reason is not None:
+                    if quality_reason.startswith("HARD:"):
+                        LOGGER.warning("Content quality hard failure for %s: %s", url, quality_reason)
+                        correlation_id = generate_correlation_id()
+                        return ScrapeResult(
+                            success=False,
+                            error=(f"{quality_reason[len('HARD: ') :]} [correlation_id={correlation_id}]"),
+                        )
+                    else:
+                        # SOFT: keep success=True but surface via warnings
+                        soft_msg = quality_reason[len("SOFT: ") :]
+                        LOGGER.debug("Content quality soft warning for %s: %s", url, soft_msg)
+                        content_quality_warnings = [soft_msg]
+
                 if "html" in formats:
                     # Clean HTML (boilerplate removed)
                     html = self._get_clean_html(
@@ -824,6 +925,7 @@ class ScrapeService:
 
                 result = ScrapeResult(
                     success=True,
+                    warnings=content_quality_warnings,
                     data=ScrapeData(  # type: ignore[call-arg]
                         markdown=markdown,
                         html=html,
@@ -974,12 +1076,18 @@ class ScrapeService:
                         parse_pdf=parse_pdf,
                     )
 
-            # Add stealth hint for common bot-detection related errors
-            if not self._stealth and any(
+            # Add stealth hint for errors, gated on whether a bot challenge was
+            # actually signalled.  Pure network / timeout failures do not benefit
+            # from engine switching, so a softer note is used instead.
+            _bot_pattern_in_error = not self._stealth and any(
                 pattern in error_msg.lower()
                 for pattern in ["403", "429", "timeout", "blocked", "denied", "err_http2_protocol_error"]
-            ):
-                error_msg += _stealth_hint()
+            )
+            if _bot_pattern_in_error:
+                _bot_suspected_error = any(
+                    pattern in error_msg.lower() for pattern in ["403", "429", "blocked", "denied"]
+                )
+                error_msg += _stealth_hint(bot_suspected=_bot_suspected_error)
 
             LOGGER.error(f"Scrape failed for {url}: {e}", exc_info=True)
 
