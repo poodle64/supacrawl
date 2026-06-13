@@ -9,9 +9,11 @@ from supacrawl.exceptions import ProviderError
 from supacrawl.models import SearchResultItem, SearchSourceType
 from supacrawl.services.search import SearchService
 from supacrawl.services.search.providers import (
+    ALERT_DEBOUNCE_SECONDS,
     ProviderChain,
     ProviderHealth,
     ProviderStatus,
+    is_auth_billing_error,
     is_fallback_error,
 )
 from supacrawl.services.search.registry import SUPPORTED_PROVIDERS, build_provider_chain
@@ -170,9 +172,180 @@ class TestFallbackErrorDetection:
         error = httpx.ConnectTimeout("connection timed out")
         assert is_fallback_error(error)
 
+    def test_http_401_is_fallback(self):
+        response = httpx.Response(401, request=httpx.Request("GET", "https://api.example.com"))
+        error = httpx.HTTPStatusError("unauthorized", request=response.request, response=response)
+        assert is_fallback_error(error)
+
+    def test_http_400_with_api_key_body_is_fallback(self):
+        response = httpx.Response(
+            400,
+            request=httpx.Request("GET", "https://api.example.com"),
+            content=b'{"error": "Invalid api key supplied"}',
+        )
+        error = httpx.HTTPStatusError("bad request", request=response.request, response=response)
+        assert is_fallback_error(error)
+
+    def test_http_400_plain_malformed_query_is_not_fallback(self):
+        response = httpx.Response(
+            400,
+            request=httpx.Request("GET", "https://api.example.com"),
+            content=b'{"error": "Query parameter q is required"}',
+        )
+        error = httpx.HTTPStatusError("bad request", request=response.request, response=response)
+        assert not is_fallback_error(error)
+
+    def test_http_403_with_expired_body_is_fallback(self):
+        response = httpx.Response(
+            403,
+            request=httpx.Request("GET", "https://api.example.com"),
+            content=b'{"message": "Your subscription has expired"}',
+        )
+        error = httpx.HTTPStatusError("forbidden", request=response.request, response=response)
+        assert is_fallback_error(error)
+
     def test_value_error_is_not_fallback(self):
         error = ValueError("bad argument")
         assert not is_fallback_error(error)
+
+
+# ---------------------------------------------------------------------------
+# Auth/billing error classification
+# ---------------------------------------------------------------------------
+
+
+class TestAuthBillingErrorDetection:
+    """Tests for is_auth_billing_error()."""
+
+    def test_http_401_is_auth_billing(self):
+        response = httpx.Response(401, request=httpx.Request("GET", "https://api.example.com"))
+        error = httpx.HTTPStatusError("unauthorized", request=response.request, response=response)
+        assert is_auth_billing_error(error)
+
+    def test_http_402_is_auth_billing(self):
+        response = httpx.Response(402, request=httpx.Request("GET", "https://api.example.com"))
+        error = httpx.HTTPStatusError("payment required", request=response.request, response=response)
+        assert is_auth_billing_error(error)
+
+    def test_http_403_with_billing_body_is_auth_billing(self):
+        response = httpx.Response(
+            403,
+            request=httpx.Request("GET", "https://api.example.com"),
+            content=b'{"error": "billing account suspended"}',
+        )
+        error = httpx.HTTPStatusError("forbidden", request=response.request, response=response)
+        assert is_auth_billing_error(error)
+
+    def test_http_400_with_invalid_key_body_is_auth_billing(self):
+        response = httpx.Response(
+            400,
+            request=httpx.Request("GET", "https://api.example.com"),
+            content=b'{"error": "invalid key"}',
+        )
+        error = httpx.HTTPStatusError("bad request", request=response.request, response=response)
+        assert is_auth_billing_error(error)
+
+    def test_http_429_is_not_auth_billing(self):
+        """Rate limiting is not an auth/billing issue."""
+        response = httpx.Response(429, request=httpx.Request("GET", "https://api.example.com"))
+        error = httpx.HTTPStatusError("too many requests", request=response.request, response=response)
+        assert not is_auth_billing_error(error)
+
+    def test_http_500_is_not_auth_billing(self):
+        response = httpx.Response(500, request=httpx.Request("GET", "https://api.example.com"))
+        error = httpx.HTTPStatusError("server error", request=response.request, response=response)
+        assert not is_auth_billing_error(error)
+
+    def test_generic_exception_is_not_auth_billing(self):
+        assert not is_auth_billing_error(RuntimeError("something went wrong"))
+
+
+# ---------------------------------------------------------------------------
+# ProviderHealth alert debouncing
+# ---------------------------------------------------------------------------
+
+
+class TestProviderHealthAlertDebouncing:
+    """Tests for ProviderHealth.should_alert() / record_alert()."""
+
+    def test_alert_fires_on_first_call(self):
+        health = ProviderHealth()
+        # last_alert_time defaults to 0.0, so monotonic() - 0.0 >> ALERT_DEBOUNCE_SECONDS
+        assert health.should_alert()
+
+    def test_alert_suppressed_immediately_after_record(self):
+        health = ProviderHealth()
+        health.record_alert()
+        assert not health.should_alert()
+
+    def test_alert_fires_again_after_debounce_window(self):
+        health = ProviderHealth()
+        # Backdate the alert time beyond the debounce window
+        health.last_alert_time = 0.0  # effectively very long ago
+        assert health.should_alert()
+
+    def test_alert_debounce_constant_is_300(self):
+        assert ALERT_DEBOUNCE_SECONDS == 300.0
+
+
+# ---------------------------------------------------------------------------
+# Provider chain: auth/billing alert integration
+# ---------------------------------------------------------------------------
+
+
+class TestProviderChainAuthBillingAlert:
+    """Tests that the chain emits exactly one debounced warning on auth/billing failure."""
+
+    @pytest.mark.asyncio
+    async def test_auth_billing_failure_logs_warning(self):
+        """A 401 failure should emit a LOGGER.warning and still fall back."""
+        response = httpx.Response(401, request=httpx.Request("GET", "https://api.example.com"))
+        error = httpx.HTTPStatusError("unauthorized", request=response.request, response=response)
+
+        p1 = MockProvider("serper", fail_with=error)
+        p2 = MockProvider("tavily")
+        chain = ProviderChain(providers=[p1, p2])
+
+        with patch("supacrawl.services.search.providers.LOGGER") as mock_logger:
+            results = await chain.search("web", "test", 5, "corr-1")
+
+        # Fallback succeeded
+        assert len(results) == 1
+        assert results[0].url == "https://tavily.com/1"
+
+        # Warning was emitted
+        warning_calls = list(mock_logger.warning.call_args_list)
+        assert any("ACTION REQUIRED" in str(call) for call in warning_calls)
+
+    @pytest.mark.asyncio
+    async def test_auth_billing_alert_debounced_on_repeated_failure(self):
+        """Second failure within debounce window should NOT emit another warning."""
+        response = httpx.Response(401, request=httpx.Request("GET", "https://api.example.com"))
+        error = httpx.HTTPStatusError("unauthorized", request=response.request, response=response)
+
+        p1 = MockProvider("serper", fail_with=error)
+        p2 = MockProvider("tavily")
+        chain = ProviderChain(providers=[p1, p2])
+
+        # First call — alert fires
+        with patch("supacrawl.services.search.providers.LOGGER") as mock_logger:
+            await chain.search("web", "test1", 5, "corr-1")
+            first_warning_count = sum(
+                1 for call in mock_logger.warning.call_args_list if "ACTION REQUIRED" in str(call)
+            )
+
+        # Reset p2 so it can be called again, but keep p1 failing
+        p2._calls.clear()
+
+        # Second call within debounce window — alert should be suppressed
+        with patch("supacrawl.services.search.providers.LOGGER") as mock_logger2:
+            await chain.search("web", "test2", 5, "corr-2")
+            second_warning_count = sum(
+                1 for call in mock_logger2.warning.call_args_list if "ACTION REQUIRED" in str(call)
+            )
+
+        assert first_warning_count == 1
+        assert second_warning_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +437,7 @@ class TestProviderChain:
         p1 = MockProvider("brave", available=False)
         chain = ProviderChain(providers=[p1])
 
-        with pytest.raises(RuntimeError, match="No search providers available"):
+        with pytest.raises(RuntimeError, match="No usable search provider"):
             await chain.search("web", "test", 5, "corr-1")
 
     @pytest.mark.asyncio

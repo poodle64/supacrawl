@@ -32,6 +32,17 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
+
+def _describe_error(exc: BaseException) -> str:
+    """Return a non-empty human-readable description of an exception.
+
+    str(exc) is empty for some built-in exceptions (e.g. asyncio.TimeoutError()
+    with no message), so we fall back to the class name to guarantee the caller
+    always gets a useful string.
+    """
+    return str(exc).strip() or type(exc).__name__
+
+
 # Type alias for source types
 type SourceType = Literal["web", "images", "news"]
 
@@ -319,13 +330,18 @@ class SearchService:
                             correlation_id=correlation_id,
                         )
                 except asyncio.TimeoutError as e:
+                    msg = (
+                        _describe_error(e)
+                        if str(e).strip()
+                        else "Search rate-limit queue timed out before a provider slot was free"
+                    )
                     log_with_correlation(
                         LOGGER,
                         logging.WARNING,
                         f"Rate limit queue timeout for source={source}",
                         correlation_id=correlation_id,
                     )
-                    return SearchResult(success=False, data=[], error=str(e))
+                    return SearchResult(success=False, data=[], error=msg)
 
                 all_results.extend(results)
 
@@ -349,14 +365,15 @@ class SearchService:
             return SearchResult(success=True, data=all_results)
 
         except Exception as e:
+            msg = _describe_error(e)
             log_with_correlation(
                 LOGGER,
                 logging.ERROR,
-                f"Search failed: {e}",
+                f"Search failed: {msg}",
                 correlation_id=correlation_id,
-                error=str(e),
+                error=msg,
             )
-            return SearchResult(success=False, data=[], error=str(e))
+            return SearchResult(success=False, data=[], error=msg)
 
     async def _scrape_results(
         self,

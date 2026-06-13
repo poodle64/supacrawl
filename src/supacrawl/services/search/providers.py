@@ -15,6 +15,9 @@ from supacrawl.models import SearchResultItem
 
 LOGGER = logging.getLogger(__name__)
 
+# Seconds between repeated auth/billing alert logs for the same provider.
+ALERT_DEBOUNCE_SECONDS: float = 300.0
+
 
 # ---------------------------------------------------------------------------
 # Provider status tracking
@@ -43,6 +46,7 @@ class ProviderHealth:
     last_failure_time: float = 0.0
     last_error: str | None = None
     requests_made: int = 0
+    last_alert_time: float = 0.0
 
     def record_success(self) -> None:
         """Record a successful request."""
@@ -70,6 +74,14 @@ class ProviderHealth:
             return False
         elapsed = time.monotonic() - self.last_failure_time
         return elapsed < self.COOLDOWN_SECONDS
+
+    def should_alert(self) -> bool:
+        """Whether an auth/billing alert should fire now (debounced per ALERT_DEBOUNCE_SECONDS)."""
+        return time.monotonic() - self.last_alert_time >= ALERT_DEBOUNCE_SECONDS
+
+    def record_alert(self) -> None:
+        """Record that an alert was emitted, resetting the debounce window."""
+        self.last_alert_time = time.monotonic()
 
     def to_dict(self) -> dict:
         """Serialise to dict for health endpoint."""
@@ -123,16 +135,37 @@ class SearchProvider(Protocol):
 # HTTP status codes that always indicate provider exhaustion (should fallback)
 FALLBACK_HTTP_CODES = frozenset(
     {
-        429,  # Too Many Requests / rate limited / quota exhausted
+        401,  # Unauthorised — expired or invalid key
         402,  # Payment Required
+        429,  # Too Many Requests / rate limited / quota exhausted
     }
 )
 
-# 403 is ambiguous (could be invalid key or quota exceeded).
-# Only fallback on 403 if the response body suggests quota exhaustion.
-_403_FALLBACK_PATTERNS = ("quota", "rate limit", "exceeded", "too many")
+# 400 is ambiguous (could be a malformed query or an auth/credit problem).
+# Only fallback on 400 if the response body suggests an auth/billing issue.
+# 403 is also ambiguous (could be invalid key or an unrelated permissions error).
+# Fallback on 403 when the body suggests auth, quota, or billing problems.
+_AUTH_BILLING_BODY_PATTERNS = (
+    "api key",
+    "invalid key",
+    "expired",
+    "credit",
+    "quota",
+    "billing",
+    "subscription",
+    "unauthorized",
+    "payment",
+    "rate limit",
+    "exceeded",
+    "too many",
+)
 
-# Strings in error messages that indicate provider exhaustion
+# Strings in ProviderError messages that indicate provider exhaustion.
+# These are matched against the str() of a ProviderError, so they must be
+# phrases that appear in messages raised by provider code — not in HTTP bodies.
+# Deliberately excludes "api key" / "invalid key": a ProviderError("… key not
+# configured") means the provider was never usable and should NOT fall back
+# (there is no point trying it again).
 FALLBACK_ERROR_PATTERNS = (
     "quota",
     "rate limit",
@@ -144,11 +177,31 @@ FALLBACK_ERROR_PATTERNS = (
 )
 
 
+def is_auth_billing_error(error: BaseException) -> bool:
+    """Return True when the error almost certainly means an expired or invalid credential.
+
+    Used to decide whether to emit a loud LOGGER.warning prompting the operator
+    to renew their API key.  Separate from is_fallback_error so the two
+    decisions (should we fall back? should we alert?) can diverge in future.
+    """
+    import httpx
+
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        if status in (401, 402):
+            return True
+        if status in (400, 403):
+            body = error.response.text.lower()
+            return any(p in body for p in _AUTH_BILLING_BODY_PATTERNS)
+
+    return False
+
+
 def is_fallback_error(error: BaseException) -> bool:
     """Determine whether an error should trigger fallback to next provider.
 
-    Returns True for quota/rate-limit/CAPTCHA errors.
-    Returns False for malformed queries, network-wide outages, etc.
+    Returns True for quota/rate-limit/CAPTCHA/auth/billing errors.
+    Returns False for malformed queries (plain 400), network-wide outages, etc.
     """
     import httpx
 
@@ -159,10 +212,11 @@ def is_fallback_error(error: BaseException) -> bool:
         status = error.response.status_code
         if status in FALLBACK_HTTP_CODES:
             return True
-        # 403 is ambiguous — only fallback if response suggests quota exhaustion
-        if status == 403:
+        # 400 and 403 are ambiguous — only fallback when the response body
+        # indicates an auth, quota, or billing problem.
+        if status in (400, 403):
             body = error.response.text.lower()
-            if any(p in body for p in _403_FALLBACK_PATTERNS):
+            if any(p in body for p in _AUTH_BILLING_BODY_PATTERNS):
                 return True
 
     # Check ProviderError messages (e.g. CAPTCHA detection)
@@ -249,9 +303,27 @@ class ProviderChain:
             active = [p for p in self.providers if p.is_available()]
 
         if not active:
-            raise RuntimeError(
-                "No search providers available. Configure at least one provider with valid API credentials."
-            )
+            # Build an actionable message that names the configured providers
+            # and their missing credentials.  The registry mapping is imported
+            # here to avoid a circular dependency at module level.
+            from supacrawl.services.search.registry import _PROVIDER_API_KEY_ENVS
+
+            configured = [p.name for p in self.providers]
+            if configured:
+                details = "; ".join(
+                    f"{name} needs {_PROVIDER_API_KEY_ENVS.get(name, 'configuration')} (not set)" for name in configured
+                )
+                msg = (
+                    f"No usable search provider. Configured: {configured}. "
+                    f"{details}. "
+                    "Set the required environment variable(s) or change SUPACRAWL_SEARCH_PROVIDERS."
+                )
+            else:
+                msg = (
+                    "No search providers configured. "
+                    "Set SUPACRAWL_SEARCH_PROVIDERS (e.g. 'brave,tavily') and supply the required API keys."
+                )
+            raise RuntimeError(msg)
 
         last_error: BaseException | None = None
 
@@ -282,6 +354,16 @@ class ProviderChain:
                 last_error = e
                 error_msg = str(e)
                 health.record_failure(error_msg)
+
+                if is_auth_billing_error(e) and health.should_alert():
+                    health.record_alert()
+                    LOGGER.warning(
+                        f"ACTION REQUIRED — {provider.name} search provider is returning an auth/billing error "
+                        f"({error_msg}). Likely cause: expired API key, exhausted credits, or cancelled "
+                        f"subscription. Search will fall back to the next configured provider if one is "
+                        f"available, but you should renew the credential for {provider.name} "
+                        f"[correlation_id={correlation_id}]"
+                    )
 
                 if is_fallback_error(e):
                     LOGGER.warning(
