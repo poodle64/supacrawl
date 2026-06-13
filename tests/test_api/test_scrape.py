@@ -2,9 +2,36 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
+
+from supacrawl.models import ScrapeData, ScrapeMetadata, ScrapeResult
+
+
+def _make_rich_scrape_result() -> ScrapeResult:
+    """Build a ``ScrapeResult`` that includes images, pdf, summary, and llm_extraction."""
+    return ScrapeResult(
+        success=True,
+        data=ScrapeData(
+            markdown="# Example",
+            html="<h1>Example</h1>",
+            raw_html="<html><body><h1>Example</h1></body></html>",
+            links=["https://example.com/about"],
+            images=["https://example.com/logo.png", "https://example.com/hero.jpg"],
+            pdf="JVBERi0xLjQ=",  # minimal base64 placeholder
+            summary="A brief summary of the page.",
+            llm_extraction={"name": "Example Corp", "founded": 2001},
+            metadata=ScrapeMetadata(
+                title="Example Domain",
+                description="Example page",
+                source_url="https://example.com",
+                status_code=200,
+                language="en",
+            ),
+        ),
+    )
 
 
 class TestScrapeEndpoint:
@@ -63,3 +90,48 @@ class TestScrapeEndpoint:
         body = resp.json()
         assert body["success"] is False
         assert "error" in body
+
+    def test_images_in_response(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+        """images list is present in the response when the service returns it."""
+        mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
+        client = TestClient(app)
+        resp = client.post("/scrape", json={"url": "https://example.com"})
+        data = resp.json()["data"]
+        assert data["images"] == [
+            "https://example.com/logo.png",
+            "https://example.com/hero.jpg",
+        ]
+
+    def test_pdf_in_response(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+        """pdf field is present in the response when the service returns it."""
+        mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
+        client = TestClient(app)
+        resp = client.post("/scrape", json={"url": "https://example.com"})
+        data = resp.json()["data"]
+        assert data["pdf"] == "JVBERi0xLjQ="
+
+    def test_summary_in_response(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+        """summary field is present in the response when the service returns it."""
+        mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
+        client = TestClient(app)
+        resp = client.post("/scrape", json={"url": "https://example.com"})
+        data = resp.json()["data"]
+        assert data["summary"] == "A brief summary of the page."
+
+    def test_llm_extraction_serialised_as_json_key(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+        """llm_extraction is serialised under the wire key 'json'."""
+        mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
+        client = TestClient(app)
+        resp = client.post("/scrape", json={"url": "https://example.com"})
+        data = resp.json()["data"]
+        assert data["json"] == {"name": "Example Corp", "founded": 2001}
+        assert "llm_extraction" not in data
+
+    def test_absent_fields_are_null(self, client: TestClient) -> None:
+        """images, pdf, summary, and json are null when the service omits them."""
+        resp = client.post("/scrape", json={"url": "https://example.com"})
+        data = resp.json()["data"]
+        assert data["images"] is None
+        assert data["pdf"] is None
+        assert data["summary"] is None
+        assert data["json"] is None
