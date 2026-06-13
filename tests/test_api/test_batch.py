@@ -199,6 +199,61 @@ class TestBatchScrapeStatus:
         assert call_kwargs.kwargs.get("actions") == [{"type": "wait", "milliseconds": 100}]
 
 
+class TestBatchScrapeRichFields:
+    """Regression guard: images, pdf, summary, and json appear in batch results."""
+
+    def test_rich_fields_in_batch_results(
+        self,
+        batch_client: TestClient,
+        mock_batch_scrape_service: AsyncMock,
+    ) -> None:
+        """images, pdf, summary, and json (llm_extraction) appear under correct wire keys.
+
+        The batch router reuses ``_scrape_result_to_response`` from the scrape
+        router. This test guards against that indirection silently dropping the
+        four fields added in #117, and confirms that ``llm_extraction`` is NOT
+        present as a raw key (it must be serialised as ``json``).
+        """
+        rich_result = ScrapeResult(
+            success=True,
+            data=ScrapeData(
+                markdown="# Rich",
+                html="<h1>Rich</h1>",
+                metadata=ScrapeMetadata(
+                    title="Rich Page",
+                    source_url="https://rich.example.com",
+                    status_code=200,
+                ),
+                images=["https://rich.example.com/logo.png"],
+                pdf="JVBERi0xLjQ=",
+                summary="A rich summary.",
+                llm_extraction={"key": "value"},
+            ),
+        )
+        mock_batch_scrape_service.scrape.side_effect = lambda url, **kw: rich_result
+
+        post_resp = batch_client.post(
+            "/batch/scrape",
+            json={"urls": ["https://rich.example.com"]},
+        )
+        job_id = post_resp.json()["id"]
+        _wait_for_tasks(batch_client, job_id)
+
+        get_resp = batch_client.get(f"/batch/scrape/{job_id}")
+        assert get_resp.status_code == 200
+
+        body = get_resp.json()
+        assert body["status"] == "completed"
+        assert len(body["data"]) == 1
+
+        item = body["data"][0]
+        assert item["images"] == ["https://rich.example.com/logo.png"]
+        assert item["pdf"] == "JVBERi0xLjQ="
+        assert item["summary"] == "A rich summary."
+        assert item["json"] == {"key": "value"}
+        assert "llm_extraction" not in item
+
+
 class TestBatchScrapeErrorHandling:
     """Individual URL failures are recorded but do not stop the batch."""
 

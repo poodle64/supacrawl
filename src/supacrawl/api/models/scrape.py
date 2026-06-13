@@ -80,7 +80,11 @@ class ScrapeDataResponse(BaseModel):
     images: list[str] | None = None
     pdf: str | None = None
     summary: str | None = None
-    llm_extraction: dict[str, Any] | None = Field(None, serialization_alias="json")
+    llm_extraction: dict[str, Any] | None = Field(
+        None,
+        serialization_alias="json",
+        description="Structured data extracted by the LLM extraction pipeline.",
+    )
     metadata: ScrapeMetadataResponse
     actions: dict[str, Any] | None = None
     branding: dict[str, Any] | None = None

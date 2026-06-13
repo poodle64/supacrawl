@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
@@ -91,10 +90,9 @@ class TestScrapeEndpoint:
         assert body["success"] is False
         assert "error" in body
 
-    def test_images_in_response(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+    def test_images_in_response(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
         """images list is present in the response when the service returns it."""
         mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
-        client = TestClient(app)
         resp = client.post("/scrape", json={"url": "https://example.com"})
         data = resp.json()["data"]
         assert data["images"] == [
@@ -102,26 +100,23 @@ class TestScrapeEndpoint:
             "https://example.com/hero.jpg",
         ]
 
-    def test_pdf_in_response(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+    def test_pdf_in_response(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
         """pdf field is present in the response when the service returns it."""
         mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
-        client = TestClient(app)
         resp = client.post("/scrape", json={"url": "https://example.com"})
         data = resp.json()["data"]
         assert data["pdf"] == "JVBERi0xLjQ="
 
-    def test_summary_in_response(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+    def test_summary_in_response(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
         """summary field is present in the response when the service returns it."""
         mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
-        client = TestClient(app)
         resp = client.post("/scrape", json={"url": "https://example.com"})
         data = resp.json()["data"]
         assert data["summary"] == "A brief summary of the page."
 
-    def test_llm_extraction_serialised_as_json_key(self, app: Any, mock_scrape_service: AsyncMock) -> None:
+    def test_llm_extraction_serialised_as_json_key(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
         """llm_extraction is serialised under the wire key 'json'."""
         mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
-        client = TestClient(app)
         resp = client.post("/scrape", json={"url": "https://example.com"})
         data = resp.json()["data"]
         assert data["json"] == {"name": "Example Corp", "founded": 2001}
