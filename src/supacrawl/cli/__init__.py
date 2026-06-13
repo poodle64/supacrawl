@@ -15,6 +15,7 @@ into modules by functionality:
 # The order doesn't matter - Click handles command registration
 from supacrawl.cli import (
     agent,  # noqa: F401
+    batch,  # noqa: F401
     cache,  # noqa: F401
     crawl,  # noqa: F401
     map,  # noqa: F401

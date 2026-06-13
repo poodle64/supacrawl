@@ -13,7 +13,7 @@ from mcp.types import ToolAnnotations
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.mcp_common.tool_registration import create_tool_wrapper
-from supacrawl.mcp.tools import crawl, diagnose, extract, health, scrape, search, summary
+from supacrawl.mcp.tools import batch, crawl, diagnose, extract, health, scrape, search, summary
 from supacrawl.mcp.tools import map as map_module
 
 # All supacrawl tools are read-only: they fetch external URLs but do not
@@ -57,6 +57,7 @@ def register_all_tools(mcp: FastMCP, api_client: SupacrawlServices) -> None:
     tool_functions: list[tuple[Any, Any, ToolAnnotations]] = [
         # Core scraping tools — open-world reads
         (scrape.supacrawl_scrape, api_client, _READ_ONLY_ANNOTATIONS),
+        (batch.supacrawl_batch, api_client, _READ_ONLY_ANNOTATIONS),
         (map_module.supacrawl_map, api_client, _READ_ONLY_ANNOTATIONS),
         (crawl.supacrawl_crawl, api_client, _READ_ONLY_ANNOTATIONS),
         # Search tool — open-world read

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -64,13 +63,34 @@ def batch_client(batch_app: FastAPI) -> TestClient:
     return TestClient(batch_app)
 
 
-def _wait_for_tasks() -> None:
-    """Run the event loop briefly to let background tasks complete."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-    loop.run_until_complete(asyncio.sleep(0.1))
+def _wait_for_tasks(client: TestClient | None = None, job_id: str | None = None, retries: int = 20) -> None:
+    """Poll until a batch job reaches a terminal state, or sleep briefly.
+
+    When ``client`` and ``job_id`` are provided, polls GET /batch/scrape/{id}
+    until status is not ``"scraping"`` or until ``retries`` attempts are
+    exhausted.  This works regardless of which event-loop backend TestClient
+    uses, because it drives forward via real HTTP round-trips.
+
+    When called without arguments, falls back to a short sleep to give the
+    anyio event loop time to process pending tasks.
+
+    Args:
+        client: Optional TestClient for polling.
+        job_id: Optional job ID to poll.
+        retries: Maximum number of 0.05-second poll cycles (default 20 = 1s).
+    """
+    import time
+
+    if client is not None and job_id is not None:
+        for _ in range(retries):
+            resp = client.get(f"/batch/scrape/{job_id}")
+            if resp.json().get("status") != "scraping":
+                return
+            time.sleep(0.05)
+        return
+
+    # Fallback: give the anyio event loop a moment to drain pending tasks.
+    time.sleep(0.2)
 
 
 class TestBatchScrapeCreate:
@@ -122,7 +142,7 @@ class TestBatchScrapeStatus:
         )
         job_id = post_resp.json()["id"]
 
-        _wait_for_tasks()
+        _wait_for_tasks(batch_client, job_id)
 
         get_resp = batch_client.get(f"/batch/scrape/{job_id}")
         assert get_resp.status_code == 200
@@ -143,7 +163,12 @@ class TestBatchScrapeStatus:
         batch_client: TestClient,
         mock_batch_scrape_service: AsyncMock,
     ) -> None:
-        """Flat scrape options are forwarded to the scrape service."""
+        """The full v2 scrape-option set is forwarded to the scrape service.
+
+        Regression guard: batch must honour the same options as /v1/scrape,
+        including include/exclude tags, actions and waitFor — not just the
+        handful the batch path used to forward.
+        """
         post_resp = batch_client.post(
             "/batch/scrape",
             json={
@@ -151,11 +176,16 @@ class TestBatchScrapeStatus:
                 "formats": ["markdown"],
                 "onlyMainContent": False,
                 "timeout": 60000,
+                "waitFor": 1500,
+                "includeTags": ["article"],
+                "excludeTags": ["nav"],
+                "actions": [{"type": "wait", "milliseconds": 100}],
             },
         )
-        assert post_resp.json()["id"]
+        job_id_opts = post_resp.json()["id"]
+        assert job_id_opts
 
-        _wait_for_tasks()
+        _wait_for_tasks(batch_client, job_id_opts)
 
         # Verify the scrape service was called with translated kwargs
         call_kwargs = mock_batch_scrape_service.scrape.call_args
@@ -163,6 +193,10 @@ class TestBatchScrapeStatus:
         assert call_kwargs.kwargs.get("only_main_content") is False
         assert call_kwargs.kwargs.get("timeout") == 60000
         assert call_kwargs.kwargs.get("formats") == ["markdown"]
+        assert call_kwargs.kwargs.get("wait_for") == 1500
+        assert call_kwargs.kwargs.get("include_tags") == ["article"]
+        assert call_kwargs.kwargs.get("exclude_tags") == ["nav"]
+        assert call_kwargs.kwargs.get("actions") == [{"type": "wait", "milliseconds": 100}]
 
 
 class TestBatchScrapeErrorHandling:
@@ -191,7 +225,7 @@ class TestBatchScrapeErrorHandling:
         )
         job_id = post_resp.json()["id"]
 
-        _wait_for_tasks()
+        _wait_for_tasks(batch_client, job_id)
 
         get_resp = batch_client.get(f"/batch/scrape/{job_id}")
         body = get_resp.json()
