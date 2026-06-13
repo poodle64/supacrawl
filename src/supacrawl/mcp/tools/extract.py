@@ -10,7 +10,7 @@ from typing import Any
 
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
-from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
+from supacrawl.mcp.exceptions import log_tool_exception
 from supacrawl.mcp.mcp_common.correlation import generate_correlation_id, get_correlation_id
 from supacrawl.mcp.validators import validate_prompt, validate_urls
 
@@ -65,7 +65,10 @@ async def supacrawl_extract(
     Returns:
         Extraction-ready result with scraped content:
         {
-            "success": true,
+            "success": true,          # True when at least one URL succeeded
+            "partial": false,         # True when some URLs succeeded and some failed
+            "succeeded_count": 1,     # Number of URLs that returned content
+            "failed_count": 0,        # Number of URLs that failed
             "data": [
                 {
                     "url": "...",
@@ -79,6 +82,14 @@ async def supacrawl_extract(
                 "schema": {...},
                 "instruction": "Extract structured data..."
             }
+        }
+
+        On whole-call failure (validation error or unexpected exception), returns:
+        {
+            "success": false,
+            "error": "...",
+            "error_type": "...",
+            "correlation_id": "..."
         }
 
     Note:
@@ -136,9 +147,15 @@ async def supacrawl_extract(
                     }
                 )
 
+        succeeded_count = sum(1 for r in results if r.get("success", False))
+        failed_count = len(results) - succeeded_count
+
         # Return content ready for the calling LLM to extract
         return {
-            "success": all(r.get("success", False) for r in results),
+            "success": any(r.get("success", False) for r in results),
+            "partial": succeeded_count > 0 and failed_count > 0,
+            "succeeded_count": succeeded_count,
+            "failed_count": failed_count,
             "data": results,
             "extraction_context": {
                 "prompt": validated_prompt,
@@ -152,8 +169,11 @@ async def supacrawl_extract(
             "correlation_id": correlation_id,
         }
 
-    except SupacrawlValidationError:
-        raise
     except Exception as e:
         log_tool_exception("supacrawl_extract", e)
-        raise map_exception(e, endpoint="/extract", correlation_id=correlation_id) from e
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "correlation_id": correlation_id,
+        }

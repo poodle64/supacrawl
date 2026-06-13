@@ -1,5 +1,7 @@
 """Tests for Supacrawl MCP tool execution."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 
@@ -160,6 +162,109 @@ class TestExtractTools:
 
         assert result["success"] is True
         assert result["extraction_context"]["schema"] == schema
+
+    @pytest.mark.asyncio
+    async def test_extract_partial_batch_success(self, mock_api_client):
+        """Extract should surface successful URL data even when one URL fails."""
+        from supacrawl.mcp.tools.extract import supacrawl_extract
+
+        # First URL succeeds (uses default mock), second raises
+        call_count = 0
+
+        async def scrape_side_effect(url, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Return the default successful mock result
+                return MagicMock(
+                    success=True,
+                    data=MagicMock(
+                        markdown="# Test Page\n\nTest content",
+                        metadata=MagicMock(title="Test Page", description="Test description"),
+                    ),
+                    error=None,
+                )
+            # Second URL fails
+            raise RuntimeError("Connection refused")
+
+        mock_api_client.scrape_service.scrape = AsyncMock(side_effect=scrape_side_effect)
+
+        result = await supacrawl_extract(
+            api_client=mock_api_client,
+            urls=["https://example.com/a", "https://example.com/b"],
+            prompt="Extract titles",
+        )
+
+        # Top-level success is True because at least one URL succeeded
+        assert result["success"] is True
+        # Partial flag signals mixed outcome
+        assert result["partial"] is True
+        assert result["succeeded_count"] == 1
+        assert result["failed_count"] == 1
+
+        data = result["data"]
+        assert len(data) == 2
+
+        # Successful entry carries markdown content
+        successful = [r for r in data if r["success"]]
+        assert len(successful) == 1
+        assert successful[0]["url"] == "https://example.com/a"
+        assert "markdown" in successful[0]
+
+        # Failed entry carries an error field
+        failed = [r for r in data if not r["success"]]
+        assert len(failed) == 1
+        assert failed[0]["url"] == "https://example.com/b"
+        assert "error" in failed[0]
+
+    @pytest.mark.asyncio
+    async def test_extract_whole_call_failure_returns_structured_error(self, mock_api_client):
+        """A whole-call failure should return a structured error dict, not raise an opaque exception."""
+        import supacrawl.mcp.tools.extract as extract_module
+        from supacrawl.mcp.tools.extract import supacrawl_extract
+
+        # Force the outer except by patching the validator to raise a non-validation error.
+
+        original_validate = extract_module.validate_urls
+
+        def exploding_validate(urls, *args, **kwargs):
+            raise RuntimeError("Simulated infrastructure failure")
+
+        extract_module.validate_urls = exploding_validate
+        try:
+            result = await supacrawl_extract(
+                api_client=mock_api_client,
+                urls=["https://example.com"],
+                prompt="Extract data",
+            )
+        finally:
+            extract_module.validate_urls = original_validate
+
+        # Must be a structured dict (not a raised/masked exception) with diagnostic fields
+        assert isinstance(result, dict)
+        assert result["success"] is False
+        assert result["error"] == "Simulated infrastructure failure"
+        assert result["error_type"] == "RuntimeError"
+        assert "correlation_id" in result
+
+    @pytest.mark.asyncio
+    async def test_extract_validation_error_returns_structured_error(self, mock_api_client):
+        """SupacrawlValidationError must return a structured dict, not escape to FastMCP masking."""
+        from supacrawl.mcp.tools.extract import supacrawl_extract
+
+        # An empty URL list triggers validate_urls -> SupacrawlValidationError (min_count=1 violated).
+        result = await supacrawl_extract(
+            api_client=mock_api_client,
+            urls=[],
+            prompt="Extract data",
+        )
+
+        # Must never raise; must return a diagnostic dict
+        assert isinstance(result, dict)
+        assert result["success"] is False
+        assert result["error_type"] == "SupacrawlValidationError"
+        assert result.get("error")  # non-empty error message
+        assert "correlation_id" in result
 
 
 class TestSummaryTools:
