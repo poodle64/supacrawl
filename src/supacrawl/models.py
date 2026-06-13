@@ -356,6 +356,19 @@ class ChangeTrackingData(BaseModel):
     content_hash: str | None = None  # SHA256 hash of current markdown content
 
 
+class StructuredData(BaseModel):
+    """Structured data harvested deterministically from a page (no LLM).
+
+    Each field is None when that source is absent, so a populated field always
+    reflects data the site itself published rather than a scrape heuristic.
+    """
+
+    json_ld: list[Any] | None = None  # schema.org application/ld+json objects (@graph flattened)
+    microdata: list[dict[str, Any]] | None = None  # itemscope/itemprop items
+    opengraph: dict[str, str] | None = None  # og:* meta properties
+    next_data: dict[str, Any] | None = None  # Next.js __NEXT_DATA__ hydration payload
+
+
 class ScrapeData(BaseModel):
     """Scraped content from a page."""
 
@@ -365,6 +378,7 @@ class ScrapeData(BaseModel):
     screenshot: str | None = None  # Base64-encoded PNG screenshot
     pdf: str | None = None  # Base64-encoded PDF document
     llm_extraction: dict[str, Any] | None = Field(None, alias="json")  # LLM-extracted structured data
+    structured_data: StructuredData | None = None  # Deterministic embedded structured data (no LLM)
     summary: str | None = None  # LLM-generated summary of page content
     metadata: ScrapeMetadata
     links: list[str] | None = None

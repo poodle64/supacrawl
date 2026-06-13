@@ -112,6 +112,10 @@ def _scrape_result_to_response(result: ScrapeResult) -> ScrapeResponse:
     if data.change_tracking is not None:
         change_tracking_dict = data.change_tracking.model_dump(exclude_none=True)
 
+    structured_data_dict: dict[str, Any] | None = None
+    if data.structured_data is not None:
+        structured_data_dict = data.structured_data.model_dump(exclude_none=True)
+
     data_resp = ScrapeDataResponse(
         markdown=data.markdown,
         html=data.html,
@@ -122,6 +126,7 @@ def _scrape_result_to_response(result: ScrapeResult) -> ScrapeResponse:
         pdf=data.pdf,
         summary=data.summary,
         llm_extraction=data.llm_extraction,
+        structured_data=structured_data_dict,
         metadata=metadata_resp,
         actions=actions_dict,
         branding=branding_dict,

@@ -89,6 +89,11 @@ class ScrapeDataResponse(BaseModel):
         serialization_alias="json",
         description="Structured data extracted by the LLM extraction pipeline.",
     )
+    structured_data: dict[str, Any] | None = Field(
+        None,
+        serialization_alias="structuredData",
+        description="Deterministic embedded structured data (JSON-LD, microdata, OpenGraph, __NEXT_DATA__).",
+    )
     metadata: ScrapeMetadataResponse
     actions: dict[str, Any] | None = None
     branding: dict[str, Any] | None = None

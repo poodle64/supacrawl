@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from supacrawl.models import ScrapeData, ScrapeMetadata, ScrapeResult
+from supacrawl.models import ScrapeData, ScrapeMetadata, ScrapeResult, StructuredData
 
 
 def _make_rich_scrape_result() -> ScrapeResult:
-    """Build a ``ScrapeResult`` that includes images, pdf, summary, and llm_extraction."""
+    """Build a ``ScrapeResult`` with images, pdf, summary, llm_extraction, and structured data."""
     return ScrapeResult(
         success=True,
         data=ScrapeData(
@@ -22,6 +22,10 @@ def _make_rich_scrape_result() -> ScrapeResult:
             pdf="JVBERi0xLjQ=",  # minimal base64 placeholder
             summary="A brief summary of the page.",
             llm_extraction={"name": "Example Corp", "founded": 2001},
+            structured_data=StructuredData(
+                json_ld=[{"@type": "Organization", "name": "Example Corp"}],
+                opengraph={"og:title": "Example"},
+            ),
             metadata=ScrapeMetadata(
                 title="Example Domain",
                 description="Example page",
@@ -122,11 +126,21 @@ class TestScrapeEndpoint:
         assert data["json"] == {"name": "Example Corp", "founded": 2001}
         assert "llm_extraction" not in data
 
+    def test_structured_data_serialised_as_camel_case(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
+        """Embedded structured data is surfaced under the camelCase key 'structuredData'."""
+        mock_scrape_service.scrape.return_value = _make_rich_scrape_result()
+        resp = client.post("/scrape", json={"url": "https://example.com", "formats": ["structuredData"]})
+        data = resp.json()["data"]
+        assert data["structuredData"]["json_ld"] == [{"@type": "Organization", "name": "Example Corp"}]
+        assert data["structuredData"]["opengraph"] == {"og:title": "Example"}
+        assert "structured_data" not in data
+
     def test_absent_fields_are_null(self, client: TestClient) -> None:
-        """images, pdf, summary, and json are null when the service omits them."""
+        """images, pdf, summary, json, and structuredData are null when the service omits them."""
         resp = client.post("/scrape", json={"url": "https://example.com"})
         data = resp.json()["data"]
         assert data["images"] is None
         assert data["pdf"] is None
         assert data["summary"] is None
         assert data["json"] is None
+        assert data["structuredData"] is None

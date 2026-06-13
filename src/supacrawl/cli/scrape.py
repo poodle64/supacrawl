@@ -26,6 +26,7 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
             "pdf",
             "json",
             "branding",
+            "structuredData",
             "summary",
             "changeTracking",
         ],
@@ -546,9 +547,12 @@ def scrape_url(
                 raise SystemExit(1)
         click.echo(f"Wrote {output}")
     else:
-        # Print markdown to stdout
+        # Print markdown to stdout, or the structured-data JSON when that was the
+        # requested output and no markdown was produced.
         if result.data and result.data.markdown:
             click.echo(result.data.markdown)
+        elif result.data and "structuredData" in formats_list and result.data.structured_data is not None:
+            click.echo(json.dumps(result.data.structured_data.model_dump(exclude_none=True), indent=2))
         else:
             click.echo("No markdown content available", err=True)
             raise SystemExit(1)

@@ -27,6 +27,7 @@ async def supacrawl_scrape(
             "json",
             "images",
             "branding",
+            "structuredData",
             "summary",
             "changeTracking",
         ]
@@ -95,6 +96,10 @@ async def supacrawl_scrape(
             - pdf: Base64-encoded PDF document
             - json: LLM-extracted structured data (requires json_schema or json_prompt)
             - branding: Brand identity (colours, fonts, logo)
+            - structuredData: deterministic, no-LLM extraction of the page's own
+              embedded data (schema.org JSON-LD, Next.js __NEXT_DATA__, microdata,
+              OpenGraph) — cheaper and more reliable than json for facts the site
+              already publishes (prices, ratings, authors, dates)
             - summary: LLM-generated 2-3 sentence summary
         only_main_content: Extract only main content, excluding headers/footers/sidebars
         wait_for: Additional wait time in ms after page load (for dynamic content).

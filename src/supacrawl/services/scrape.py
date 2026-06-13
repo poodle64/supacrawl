@@ -40,6 +40,7 @@ from supacrawl.services.detection import detect_bot_protection, estimate_js_requ
 from supacrawl.services.http_fetch import fetch_static
 from supacrawl.services.platform import detect_platform
 from supacrawl.services.remediation import remediation_hint, thin_content_hint
+from supacrawl.services.structured_data import extract_structured_data
 
 LOGGER = logging.getLogger(__name__)
 
@@ -512,6 +513,7 @@ class ScrapeService:
                 "json",
                 "images",
                 "branding",
+                "structuredData",
                 "summary",
                 "changeTracking",
             ]
@@ -1450,6 +1452,7 @@ class ScrapeService:
         links = None
         images = None
         branding = None
+        structured_data = None
         summary = None
         screenshot_b64 = None
         pdf_b64 = None
@@ -1476,6 +1479,10 @@ class ScrapeService:
 
             extractor = BrandingExtractor()
             branding = extractor.extract(page_content.html, url)
+
+        if "structuredData" in formats:
+            # Deterministic, no-LLM extraction of the site's own embedded data.
+            structured_data = extract_structured_data(page_content.html, base_url=url)
 
         if capture_screenshot and page_content.screenshot:
             screenshot_b64 = base64.b64encode(page_content.screenshot).decode("utf-8")
@@ -1539,6 +1546,7 @@ class ScrapeService:
                 screenshot=screenshot_b64,
                 pdf=pdf_b64,
                 llm_extraction=json_data,
+                structured_data=structured_data,
                 summary=summary,
                 metadata=ScrapeMetadata(
                     # Core metadata
