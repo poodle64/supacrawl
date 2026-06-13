@@ -56,6 +56,8 @@ def _build_crawl_kwargs(req: CrawlRequest) -> dict[str, Any]:
         "exclude_patterns": req.exclude_patterns,
         "allow_external_links": req.allow_external_links,
         "concurrency": req.concurrency,
+        "respect_robots": not req.ignore_robots_txt,
+        "request_delay": req.delay,
     }
 
     if req.scrape_options and req.scrape_options.formats:

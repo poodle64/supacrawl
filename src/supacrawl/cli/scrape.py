@@ -229,6 +229,16 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
         "Without supacrawl[readability] this option is accepted but ignored."
     ),
 )
+@click.option(
+    "--http-first/--no-http-first",
+    default=True,
+    show_default=True,
+    help=(
+        "Try a cheap HTTP GET before launching a browser, escalating to the "
+        "browser only when JavaScript or a bot challenge is detected. "
+        "Use --no-http-first to always render in the browser."
+    ),
+)
 def scrape_url(
     url: str | None,
     formats: tuple[str, ...],
@@ -261,6 +271,7 @@ def scrape_url(
     parse_pdf: str,
     content_mode: float,
     query: str | None,
+    http_first: bool,
 ) -> None:
     """Scrape a single URL and extract content.
 
@@ -457,6 +468,7 @@ def scrape_url(
             headers=resolved_headers,
             content_mode=content_mode,
             query=query,
+            http_first=http_first,
         )
         return result
 

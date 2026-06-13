@@ -47,6 +47,8 @@ class CrawlRequest(BaseModel):
     allow_subdomains: bool = False
     concurrency: int = Field(10, alias="maxConcurrency")
     ignore_query_params: bool = Field(False, alias="ignoreQueryParameters")
+    ignore_robots_txt: bool = Field(False, alias="ignoreRobotsTxt")
+    delay: float = 0.0
     scrape_options: CrawlScrapeOptions | None = Field(None, alias="scrapeOptions")
 
 

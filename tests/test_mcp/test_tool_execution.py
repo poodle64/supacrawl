@@ -355,49 +355,49 @@ class TestDiagnoseTools:
     @pytest.mark.asyncio
     async def test_diagnose_detection_functions(self):
         """Test internal detection functions."""
-        from supacrawl.mcp.tools.diagnose import (
-            _detect_bot_protection,
-            _detect_cdn,
-            _detect_js_framework,
-            _detect_login_required,
+        from supacrawl.services.detection import (
+            detect_bot_protection,
+            detect_cdn,
+            detect_js_framework,
+            detect_login_required,
         )
 
         # Test CDN detection
-        assert _detect_cdn({"cf-ray": "abc123"}) == "cloudflare"
-        assert _detect_cdn({"server": "cloudflare"}) == "cloudflare"
-        assert _detect_cdn({"x-akamai-transformed": "1"}) == "akamai"
-        assert _detect_cdn({"x-amz-cf-id": "xyz"}) == "aws_cloudfront"
-        assert _detect_cdn({"content-type": "text/html"}) is None
+        assert detect_cdn({"cf-ray": "abc123"}) == "cloudflare"
+        assert detect_cdn({"server": "cloudflare"}) == "cloudflare"
+        assert detect_cdn({"x-akamai-transformed": "1"}) == "akamai"
+        assert detect_cdn({"x-amz-cf-id": "xyz"}) == "aws_cloudfront"
+        assert detect_cdn({"content-type": "text/html"}) is None
 
         # Test JS framework detection
-        assert _detect_js_framework('<div id="root"></div>') == "react"
-        assert _detect_js_framework("__NEXT_DATA__") == "react"
-        assert _detect_js_framework("__NUXT__") == "vue"
-        assert _detect_js_framework("<app-root></app-root>") == "angular"
-        assert _detect_js_framework("<html><body>Plain</body></html>") is None
+        assert detect_js_framework('<div id="root"></div>') == "react"
+        assert detect_js_framework("__NEXT_DATA__") == "react"
+        assert detect_js_framework("__NUXT__") == "vue"
+        assert detect_js_framework("<app-root></app-root>") == "angular"
+        assert detect_js_framework("<html><body>Plain</body></html>") is None
 
         # Test bot protection detection
-        result = _detect_bot_protection("g-recaptcha")
+        result = detect_bot_protection("g-recaptcha")
         assert result["captcha_present"] is True
 
-        result = _detect_bot_protection("just a moment")
+        result = detect_bot_protection("just a moment")
         assert result["challenge_detected"] is True
 
-        result = _detect_bot_protection("Access Denied")
+        result = detect_bot_protection("Access Denied")
         assert result["access_denied"] is True
 
         # Test login detection
-        assert _detect_login_required('type="password"') is True
-        assert _detect_login_required("Sign in to continue") is True
-        assert _detect_login_required("<html><body>Normal page</body></html>") is False
+        assert detect_login_required('type="password"') is True
+        assert detect_login_required("Sign in to continue") is True
+        assert detect_login_required("<html><body>Normal page</body></html>") is False
 
     @pytest.mark.asyncio
     async def test_diagnose_recommendations(self):
         """Test recommendation generation."""
-        from supacrawl.mcp.tools.diagnose import _generate_recommendations
+        from supacrawl.services.detection import generate_recommendations
 
         # Cloudflare detected
-        recs = _generate_recommendations(
+        recs = generate_recommendations(
             cdn="cloudflare",
             framework=None,
             bot_indicators={"challenge_detected": True},
@@ -408,7 +408,7 @@ class TestDiagnoseTools:
         assert recs.get("wait_for", 0) >= 5000
 
         # React SPA detected
-        recs = _generate_recommendations(
+        recs = generate_recommendations(
             cdn=None,
             framework="react",
             bot_indicators={},
@@ -418,7 +418,7 @@ class TestDiagnoseTools:
         assert recs.get("wait_for", 0) >= 3000
 
         # CAPTCHA detected
-        recs = _generate_recommendations(
+        recs = generate_recommendations(
             cdn=None,
             framework=None,
             bot_indicators={"captcha_present": True},
@@ -428,7 +428,7 @@ class TestDiagnoseTools:
         assert recs.get("captcha_solving") is True
 
         # No issues
-        recs = _generate_recommendations(
+        recs = generate_recommendations(
             cdn=None,
             framework=None,
             bot_indicators={},

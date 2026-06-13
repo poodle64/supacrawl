@@ -28,6 +28,8 @@ async def supacrawl_crawl(
     expand_iframes: str = "same-origin",
     engine: Literal["playwright", "patchright", "camoufox"] | None = None,
     headers: dict[str, str] | None = None,
+    respect_robots: bool = True,
+    request_delay: float = 0.0,
 ) -> dict:
     """
     Crawl a website starting from URL, discovering and scraping pages.
@@ -85,6 +87,12 @@ async def supacrawl_crawl(
             {"Authorization": "Bearer token"}). Dropped for external-origin URLs
             when allow_external_links is True. Only header KEYS are logged;
             values are never persisted or written to logs.
+        respect_robots: Honour each origin's robots.txt (default True). Disallowed
+            URLs are skipped before scraping and a declared Crawl-delay raises the
+            per-host request gap. Set False to crawl without consulting robots.txt.
+        request_delay: Minimum seconds between requests to the same host (default
+            0.0). When respect_robots is True and a site declares a larger
+            Crawl-delay, the larger value wins.
 
     Returns:
         Firecrawl-compatible crawl result:
@@ -164,6 +172,8 @@ async def supacrawl_crawl(
             expand_iframes=expand_iframes,
             engine=engine,
             headers=headers,
+            respect_robots=respect_robots,
+            request_delay=request_delay,
         ):
             if event.type == "page" and event.data:
                 pages.append(event.data.model_dump())

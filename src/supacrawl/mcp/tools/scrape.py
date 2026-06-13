@@ -51,6 +51,7 @@ async def supacrawl_scrape(
     headers: dict[str, str] | None = None,
     content_mode: float = 0.5,
     query: str | None = None,
+    http_first: bool = True,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -150,6 +151,10 @@ async def supacrawl_scrape(
             by BM25 relevance to retain only query-relevant content. Flat pages
             (no headings) are never filtered so no content is lost. Without
             supacrawl[readability] this parameter is accepted but ignored.
+        http_first: Try a cheap HTTP GET before launching a browser (default True).
+            Static pages return faster; pages needing JavaScript or showing a bot
+            challenge transparently escalate to the full browser render. Set False
+            to always render in the browser.
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -244,6 +249,7 @@ async def supacrawl_scrape(
             headers=headers,
             content_mode=content_mode,
             query=query,
+            http_first=http_first,
         )
 
         response = result.model_dump()

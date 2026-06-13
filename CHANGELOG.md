@@ -2,10 +2,20 @@
 
 All notable changes to supacrawl will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to calendar-based versioning (YYYY.MM.x format).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
 ## [Unreleased]
+
+### Added
+
+- **HTTP-first fast path** (Closes #119): `scrape` now tries a cheap HTTP GET before launching a browser, escalating to Playwright only when a render-needed or bot-challenge signal fires (the same heuristics `diagnose` uses). Static pages return several times faster and without browser cost. Enabled by default; disable with `--no-http-first` (CLI), `httpFirst: false` (REST), or `http_first=False` (MCP). Browser-only requests (screenshot, PDF, actions, device emulation, stealth, or a non-default engine) skip the fast path automatically.
+- **robots.txt enforcement during crawl** (Closes #119): `crawl` now honours each origin's `robots.txt`, skipping disallowed URLs before scraping. Disable with `--ignore-robots` (CLI), `ignoreRobotsTxt: true` (REST), or `respect_robots=False` (MCP).
+- **Per-host courtesy throttle for crawl** (Closes #119): a minimum inter-request gap per host, set with `--delay` (CLI), `delay` (REST), or `request_delay` (MCP). A `robots.txt` `Crawl-delay` automatically raises the gap. Prevents a personal IP being rate-limited or banned during a crawl.
+
+### Internal
+
+- **Extracted `services/detection.py`**: the pure page-classification heuristics (CDN/WAF, JS framework, bot protection, login wall, render-needed estimate, recommendation generation) moved out of the `diagnose` MCP tool into a shared module so the scrape fast path, crawl, and diagnose share one implementation. A dead `BOT_DETECTION_PATTERNS` constant in `diagnose.py` was removed.
+- **Extracted `ScrapeService._assemble_result()`**: the output-format assembly and caching tail is now shared by the browser path and the HTTP-first path, eliminating duplication.
 
 ## [2026.5.0] - 2026-05-15
 

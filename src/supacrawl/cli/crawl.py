@@ -149,6 +149,20 @@ from supacrawl.cli._common import app, parse_header_string, parse_headers_env
         "Example: --header 'Authorization: Bearer token'"
     ),
 )
+@click.option(
+    "--respect-robots/--ignore-robots",
+    default=True,
+    show_default=True,
+    help="Honour each origin's robots.txt (skip disallowed URLs, apply Crawl-delay).",
+)
+@click.option(
+    "--delay",
+    "request_delay",
+    type=click.FloatRange(0.0),
+    default=0.0,
+    show_default=True,
+    help="Minimum seconds between requests to the same host. A robots.txt Crawl-delay raises this.",
+)
 def crawl_cmd(
     url: str,
     limit: int,
@@ -172,6 +186,8 @@ def crawl_cmd(
     change_tracking_modes: tuple[str, ...],
     expand_iframes: str,
     headers: tuple[str, ...],
+    respect_robots: bool,
+    request_delay: float,
 ) -> None:
     """Crawl a website and save all pages.
 
@@ -248,6 +264,8 @@ def crawl_cmd(
             change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
             expand_iframes=expand_iframes,
             headers=resolved_headers,
+            respect_robots=respect_robots,
+            request_delay=request_delay,
         ):
             if event.type == "progress":
                 # Show progress bar

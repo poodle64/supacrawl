@@ -34,8 +34,10 @@ from bs4 import BeautifulSoup
 from supacrawl.cache import CacheManager
 from supacrawl.exceptions import ProviderError, generate_correlation_id
 from supacrawl.models import ActionsOutput, ScrapeActionResult, ScrapeData, ScrapeMetadata, ScrapeResult
-from supacrawl.services.browser import BrowserManager
+from supacrawl.services.browser import BrowserManager, PageContent, PageMetadata
 from supacrawl.services.converter import MarkdownConverter
+from supacrawl.services.detection import detect_bot_protection, estimate_js_requirement
+from supacrawl.services.http_fetch import fetch_static
 from supacrawl.services.platform import detect_platform
 
 LOGGER = logging.getLogger(__name__)
@@ -534,6 +536,7 @@ class ScrapeService:
         headers: dict[str, str] | None = None,
         content_mode: float = 0.5,
         query: str | None = None,
+        http_first: bool = True,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -593,6 +596,12 @@ class ScrapeService:
             query: Optional free-text query. When set, the extraction cascade filters
                     sections by relevance to the query using BM25. Flat pages (single
                     section, no headings) are not filtered so no content is lost.
+            http_first: Try a cheap httpx GET before launching a browser (default
+                    True). When the fetched HTML needs no JavaScript and shows no
+                    bot-challenge signal, the result is built from it directly,
+                    skipping Playwright entirely. Any render-needed or bot signal —
+                    or a browser-only request (screenshot/pdf/actions/device/stealth/
+                    non-default engine) — falls through to the full browser path.
 
         Returns:
             ScrapeResult with scraped content
@@ -659,6 +668,34 @@ class ScrapeService:
                     change_tracking_modes=change_tracking_modes,
                 )
 
+        # HTTP-first fast path: try a cheap httpx GET and skip the browser
+        # entirely when the page needs no JavaScript and shows no bot challenge.
+        # Any render-needed/bot signal returns None here and falls through to
+        # the full browser path below.
+        if http_first and self._http_first_eligible(formats, actions, engine, device):
+            fast_result = await self._try_http_first(
+                url=url,
+                formats=formats,
+                timeout=timeout,
+                only_main_content=only_main_content,
+                include_tags=include_tags,
+                exclude_tags=exclude_tags,
+                content_mode=content_mode,
+                query=query,
+                expand_iframes=expand_iframes,
+                headers=headers,
+                proxy=proxy,
+                json_schema=json_schema,
+                json_prompt=json_prompt,
+                wants_change_tracking=wants_change_tracking,
+                previous_entry=previous_entry,
+                change_tracking_modes=change_tracking_modes,
+                max_age=max_age,
+                cache_variant=cache_variant,
+            )
+            if fast_result is not None:
+                return fast_result
+
         try:
             # Determine effective engine and proxy for this request
             effective_engine = engine or self._engine
@@ -718,18 +755,9 @@ class ScrapeService:
                 # Extract metadata
                 metadata = await browser.extract_metadata(page_content.html)
 
-                # Build response based on requested formats
+                # Markdown underpins the bot/quality checks below and the JSON
+                # and summary extraction, so compute it whenever it is needed.
                 markdown = None
-                html = None
-                raw_html = None
-                links = None
-                images = None
-                branding = None
-                summary = None
-                screenshot_b64 = None
-                pdf_b64 = None
-                json_data = None
-
                 if "markdown" in formats or "json" in formats or "summary" in formats:
                     # Always need markdown for JSON extraction and summary generation
                     markdown = self._converter.convert(
@@ -781,6 +809,9 @@ class ScrapeService:
                             headers=headers,
                             content_mode=content_mode,
                             query=query,
+                            # Already committed to the browser; don't re-run the
+                            # HTTP-first probe on the stealth retry.
+                            http_first=False,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint(bot_suspected=True)}")
@@ -844,6 +875,9 @@ class ScrapeService:
                                 headers=headers,
                                 content_mode=content_mode,
                                 query=query,
+                                # Platform tuning requires a real browser render;
+                                # skip the HTTP-first probe on this retry.
+                                http_first=False,
                             )
 
                 # Check for CAPTCHA and solve if enabled
@@ -903,145 +937,29 @@ class ScrapeService:
                         LOGGER.debug("Content quality soft warning for %s: %s", url, soft_msg)
                         content_quality_warnings = [soft_msg]
 
-                if "html" in formats:
-                    # Clean HTML (boilerplate removed)
-                    html = self._get_clean_html(
-                        page_content.html, only_main_content, include_tags=include_tags, exclude_tags=exclude_tags
-                    )
-
-                if "rawHtml" in formats:
-                    raw_html = page_content.html
-
-                if "links" in formats:
-                    links = self._extract_links_from_html(page_content.html, url)
-
-                if "images" in formats:
-                    images = await browser.extract_images(page_content.html, url)
-
-                if "branding" in formats:
-                    # Extract branding information
-                    from supacrawl.services.branding import BrandingExtractor
-
-                    extractor = BrandingExtractor()
-                    branding = extractor.extract(page_content.html, url)
-
-                if capture_screenshot and page_content.screenshot:
-                    screenshot_b64 = base64.b64encode(page_content.screenshot).decode("utf-8")
-
-                if capture_pdf and page_content.pdf:
-                    pdf_b64 = base64.b64encode(page_content.pdf).decode("utf-8")
-
-                if "json" in formats:
-                    # Perform LLM extraction
-                    json_data = await self._extract_json(
-                        markdown or "",
-                        json_schema,
-                        json_prompt,
-                    )
-
-                if "summary" in formats:
-                    # Generate LLM summary of the page content
-                    summary = await self._generate_summary(markdown or "")
-
-                # Compute word count from markdown
-                word_count = len(markdown.split()) if markdown else None
-
-                # Process action results (screenshots and scrapes)
-                actions_output = self._process_action_results(
-                    page_content.action_results,
+                return await self._assemble_result(
+                    url=url,
+                    page_content=page_content,
+                    browser=browser,
+                    formats=formats,
                     only_main_content=only_main_content,
                     include_tags=include_tags,
                     exclude_tags=exclude_tags,
                     content_mode=content_mode,
                     query=query,
+                    markdown=markdown,
+                    metadata=metadata,
+                    json_schema=json_schema,
+                    json_prompt=json_prompt,
+                    capture_screenshot=capture_screenshot,
+                    capture_pdf=capture_pdf,
+                    content_quality_warnings=content_quality_warnings,
+                    wants_change_tracking=wants_change_tracking,
+                    previous_entry=previous_entry,
+                    change_tracking_modes=change_tracking_modes,
+                    max_age=max_age,
+                    cache_variant=cache_variant,
                 )
-
-                # Compute change tracking if requested
-                change_tracking = None
-                current_content_hash = None
-                if wants_change_tracking:
-                    current_content_hash = _compute_content_hash(markdown)
-                    change_tracking = _build_change_tracking(
-                        previous_entry=previous_entry,
-                        current_hash=current_content_hash,
-                        current_markdown=markdown,
-                        change_tracking_modes=change_tracking_modes,
-                    )
-
-                    # JSON comparison mode: extract structured data from both
-                    # versions and compare field-by-field
-                    if (
-                        change_tracking.change_status == "changed"
-                        and change_tracking_modes
-                        and "json" in change_tracking_modes
-                    ):
-                        json_comparison = await self._generate_json_comparison(
-                            previous_entry=previous_entry,
-                            current_markdown=markdown,
-                            current_json=json_data,
-                            json_schema=json_schema,
-                            json_prompt=json_prompt,
-                        )
-                        if json_comparison:
-                            change_tracking.json_changes = json_comparison
-
-                result = ScrapeResult(
-                    success=True,
-                    warnings=content_quality_warnings,
-                    data=ScrapeData(  # type: ignore[call-arg]
-                        markdown=markdown,
-                        html=html,
-                        raw_html=raw_html,
-                        screenshot=screenshot_b64,
-                        pdf=pdf_b64,
-                        llm_extraction=json_data,
-                        summary=summary,
-                        metadata=ScrapeMetadata(
-                            # Core metadata
-                            title=metadata.title,
-                            description=metadata.description,
-                            language=metadata.language,
-                            keywords=metadata.keywords,
-                            robots=metadata.robots,
-                            canonical_url=metadata.canonical_url,
-                            # OpenGraph metadata
-                            og_title=metadata.og_title,
-                            og_description=metadata.og_description,
-                            og_image=metadata.og_image,
-                            og_url=metadata.og_url,
-                            og_site_name=metadata.og_site_name,
-                            # Source information
-                            source_url=url,
-                            status_code=page_content.status_code,
-                            # Detected timezone
-                            timezone=metadata.timezone,
-                            # Content metrics
-                            word_count=word_count,
-                        ),
-                        links=links,
-                        images=images,
-                        branding=branding,
-                        actions=actions_output,
-                        change_tracking=change_tracking,
-                    ),
-                )
-
-                # Store in cache if max_age > 0 and cache is configured
-                # When change tracking is active, auto-enable caching so future
-                # comparisons have a previous version to diff against.
-                effective_max_age = max_age
-                if wants_change_tracking and effective_max_age <= 0:
-                    effective_max_age = 365 * 24 * 3600  # 1 year default for change tracking
-                if effective_max_age > 0 and self._cache:
-                    self._cache.set(
-                        url,
-                        result.model_dump(),
-                        effective_max_age,
-                        variant=cache_variant,
-                        content_hash=current_content_hash,
-                    )
-
-                return result
 
             finally:
                 if owns_browser and browser:
@@ -1099,6 +1017,7 @@ class ScrapeService:
                         device=device,
                         parse_pdf=parse_pdf,
                         headers=headers,
+                        http_first=False,
                     )
 
                 # Stage 2: Camoufox also failed → retry with HTTP/2 disabled.
@@ -1138,6 +1057,7 @@ class ScrapeService:
                         device=device,
                         parse_pdf=parse_pdf,
                         headers=headers,
+                        http_first=False,
                     )
 
             # Add stealth hint for errors, gated on whether a bot challenge was
@@ -1176,6 +1096,346 @@ class ScrapeService:
                 success=False,
                 error=error_msg,
             )
+
+    def _http_first_eligible(
+        self,
+        formats: Sequence[str],
+        actions: list[Any] | None,
+        engine: str | None,
+        device: str | None,
+    ) -> bool:
+        """Whether the HTTP-first fast path may be attempted for this request.
+
+        The fast path is skipped for browser-only work (screenshots, PDF capture,
+        action sequences, device emulation) and whenever stealth or a non-default
+        engine is requested — those callers explicitly want the full browser.
+
+        Args:
+            formats: Requested output formats.
+            actions: Action sequence, if any.
+            engine: Per-request engine override.
+            device: Per-request device emulation name.
+
+        Returns:
+            True when a cheap httpx GET is worth trying first.
+        """
+        if "screenshot" in formats or "pdf" in formats:
+            return False
+        if actions:
+            return False
+        if device is not None:
+            return False
+        if self._stealth:
+            return False
+        effective_engine = engine or self._engine
+        return effective_engine in (None, "playwright")
+
+    async def _try_http_first(
+        self,
+        *,
+        url: str,
+        formats: Sequence[str],
+        timeout: int,
+        only_main_content: bool,
+        include_tags: list[str] | None,
+        exclude_tags: list[str] | None,
+        content_mode: float,
+        query: str | None,
+        expand_iframes: str,
+        headers: dict[str, str] | None,
+        proxy: str | None,
+        json_schema: dict[str, Any] | None,
+        json_prompt: str | None,
+        wants_change_tracking: bool,
+        previous_entry: Any | None,
+        change_tracking_modes: list[str] | None,
+        max_age: int,
+        cache_variant: str | None,
+    ) -> ScrapeResult | None:
+        """Attempt to satisfy a scrape with a single httpx GET, no browser.
+
+        Returns a fully-built ScrapeResult when the fetched HTML is usable as-is,
+        or None to signal that the caller should escalate to the browser path
+        (render-needed, bot challenge, suspect quality, fetch failure, or a page
+        with iframes that need expanding).
+        """
+        accept_language = self._locale_config.get_accept_language_header() if self._locale_config else None
+        fetched = await fetch_static(
+            url,
+            timeout_ms=timeout,
+            headers=headers,
+            accept_language=accept_language,
+            proxy=proxy or self._proxy,
+        )
+        if fetched is None:
+            return None
+
+        html = fetched.html
+
+        # Iframes are expanded only in the browser; if the page has any and the
+        # caller wants them expanded, escalate so no embedded content is lost.
+        if expand_iframes != "none" and "<iframe" in html.lower():
+            LOGGER.debug("HTTP-first escalating %s: iframe expansion requested", url)
+            return None
+
+        # Keyword bot-protection markers (CAPTCHA, "just a moment", access denied)
+        # — the browser and its stealth ladder may help. This needs no word count.
+        bot_indicators = detect_bot_protection(html)
+        if bot_indicators["challenge_detected"] or bot_indicators["captcha_present"] or bot_indicators["access_denied"]:
+            LOGGER.debug("HTTP-first escalating %s: bot-protection markers present", url)
+            return None
+
+        # JavaScript shell — the real content is injected client-side.
+        if estimate_js_requirement(html, len(html)):
+            LOGGER.debug("HTTP-first escalating %s: JavaScript rendering required", url)
+            return None
+
+        # Compute markdown only when a format needs it (mirrors the browser path).
+        markdown = None
+        if "markdown" in formats or "json" in formats or "summary" in formats:
+            markdown = self._converter.convert(
+                html,
+                base_url=url,
+                only_main_content=only_main_content,
+                include_tags=include_tags,
+                exclude_tags=exclude_tags,
+                content_mode=content_mode,
+                query=query,
+            )
+
+        # The density-based bot and quality heuristics need a real word count.
+        # When markdown was not produced for output (e.g. a links-only request),
+        # fall back to the page's visible text — otherwise a count of zero would
+        # misjudge any page merely *mentioning* a bot keyword (the ubiquitous
+        # ``<meta name="robots">`` tag matches the BOT_DETECTION_REGEX) as empty
+        # and defeat the fast path for most real pages.
+        density_text = (
+            markdown if markdown is not None else BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
+        )
+
+        # Bot challenge or block (status codes, near-empty challenge pages).
+        if _looks_like_bot_block(fetched.status_code, html, density_text):
+            LOGGER.debug("HTTP-first escalating %s: bot block suspected (HTTP %d)", url, fetched.status_code)
+            return None
+
+        # Content quality. A binary/garbage body (HARD) escalates so the browser
+        # can try to recover; a low-density (SOFT) *static* page would render
+        # identically in the browser, so it is served but the warning is carried
+        # through for parity with the browser path.
+        content_quality_warnings: list[str] | None = None
+        quality_reason = _assess_content_quality(html, density_text)
+        if quality_reason is not None:
+            if quality_reason.startswith("HARD:"):
+                LOGGER.debug("HTTP-first escalating %s: content quality hard-failed", url)
+                return None
+            content_quality_warnings = [quality_reason[len("SOFT: ") :]]
+
+        LOGGER.debug("HTTP-first served %s without a browser (HTTP %d)", url, fetched.status_code)
+
+        # extract_metadata/extract_images are pure HTML parsers; an unstarted
+        # BrowserManager is enough when no shared browser is injected.
+        extractor = self._browser if self._browser is not None else BrowserManager(locale_config=self._locale_config)
+        metadata = await extractor.extract_metadata(html)
+
+        page_content = PageContent(url=fetched.url, html=html, title=metadata.title, status_code=fetched.status_code)
+
+        return await self._assemble_result(
+            url=url,
+            page_content=page_content,
+            browser=extractor,
+            formats=formats,
+            only_main_content=only_main_content,
+            include_tags=include_tags,
+            exclude_tags=exclude_tags,
+            content_mode=content_mode,
+            query=query,
+            markdown=markdown,
+            metadata=metadata,
+            json_schema=json_schema,
+            json_prompt=json_prompt,
+            capture_screenshot=False,
+            capture_pdf=False,
+            content_quality_warnings=content_quality_warnings,
+            wants_change_tracking=wants_change_tracking,
+            previous_entry=previous_entry,
+            change_tracking_modes=change_tracking_modes,
+            max_age=max_age,
+            cache_variant=cache_variant,
+        )
+
+    async def _assemble_result(
+        self,
+        *,
+        url: str,
+        page_content: PageContent,
+        browser: BrowserManager,
+        formats: Sequence[str],
+        only_main_content: bool,
+        include_tags: list[str] | None,
+        exclude_tags: list[str] | None,
+        content_mode: float,
+        query: str | None,
+        markdown: str | None,
+        metadata: PageMetadata,
+        json_schema: dict[str, Any] | None,
+        json_prompt: str | None,
+        capture_screenshot: bool,
+        capture_pdf: bool,
+        content_quality_warnings: list[str] | None,
+        wants_change_tracking: bool,
+        previous_entry: Any | None,
+        change_tracking_modes: list[str] | None,
+        max_age: int,
+        cache_variant: str | None,
+    ) -> ScrapeResult:
+        """Build a ScrapeResult from fetched page content and cache it.
+
+        Shared by the browser path and the HTTP-first fast path: both produce a
+        PageContent plus pre-computed markdown and metadata, then this method
+        derives the requested output formats, assembles the ScrapeData, computes
+        change tracking, and writes the cache entry.
+        """
+        html = None
+        raw_html = None
+        links = None
+        images = None
+        branding = None
+        summary = None
+        screenshot_b64 = None
+        pdf_b64 = None
+        json_data = None
+
+        if "html" in formats:
+            # Clean HTML (boilerplate removed)
+            html = self._get_clean_html(
+                page_content.html, only_main_content, include_tags=include_tags, exclude_tags=exclude_tags
+            )
+
+        if "rawHtml" in formats:
+            raw_html = page_content.html
+
+        if "links" in formats:
+            links = self._extract_links_from_html(page_content.html, url)
+
+        if "images" in formats:
+            images = await browser.extract_images(page_content.html, url)
+
+        if "branding" in formats:
+            # Extract branding information
+            from supacrawl.services.branding import BrandingExtractor
+
+            extractor = BrandingExtractor()
+            branding = extractor.extract(page_content.html, url)
+
+        if capture_screenshot and page_content.screenshot:
+            screenshot_b64 = base64.b64encode(page_content.screenshot).decode("utf-8")
+
+        if capture_pdf and page_content.pdf:
+            pdf_b64 = base64.b64encode(page_content.pdf).decode("utf-8")
+
+        if "json" in formats:
+            # Perform LLM extraction
+            json_data = await self._extract_json(markdown or "", json_schema, json_prompt)
+
+        if "summary" in formats:
+            # Generate LLM summary of the page content
+            summary = await self._generate_summary(markdown or "")
+
+        # Compute word count from markdown
+        word_count = len(markdown.split()) if markdown else None
+
+        # Process action results (screenshots and scrapes)
+        actions_output = self._process_action_results(
+            page_content.action_results,
+            only_main_content=only_main_content,
+            include_tags=include_tags,
+            exclude_tags=exclude_tags,
+            content_mode=content_mode,
+            query=query,
+        )
+
+        # Compute change tracking if requested
+        change_tracking = None
+        current_content_hash = None
+        if wants_change_tracking:
+            current_content_hash = _compute_content_hash(markdown)
+            change_tracking = _build_change_tracking(
+                previous_entry=previous_entry,
+                current_hash=current_content_hash,
+                current_markdown=markdown,
+                change_tracking_modes=change_tracking_modes,
+            )
+
+            # JSON comparison mode: extract structured data from both
+            # versions and compare field-by-field
+            if change_tracking.change_status == "changed" and change_tracking_modes and "json" in change_tracking_modes:
+                json_comparison = await self._generate_json_comparison(
+                    previous_entry=previous_entry,
+                    current_markdown=markdown,
+                    current_json=json_data,
+                    json_schema=json_schema,
+                    json_prompt=json_prompt,
+                )
+                if json_comparison:
+                    change_tracking.json_changes = json_comparison
+
+        result = ScrapeResult(
+            success=True,
+            warnings=content_quality_warnings,
+            data=ScrapeData(  # type: ignore[call-arg]
+                markdown=markdown,
+                html=html,
+                raw_html=raw_html,
+                screenshot=screenshot_b64,
+                pdf=pdf_b64,
+                llm_extraction=json_data,
+                summary=summary,
+                metadata=ScrapeMetadata(
+                    # Core metadata
+                    title=metadata.title,
+                    description=metadata.description,
+                    language=metadata.language,
+                    keywords=metadata.keywords,
+                    robots=metadata.robots,
+                    canonical_url=metadata.canonical_url,
+                    # OpenGraph metadata
+                    og_title=metadata.og_title,
+                    og_description=metadata.og_description,
+                    og_image=metadata.og_image,
+                    og_url=metadata.og_url,
+                    og_site_name=metadata.og_site_name,
+                    # Source information
+                    source_url=url,
+                    status_code=page_content.status_code,
+                    # Detected timezone
+                    timezone=metadata.timezone,
+                    # Content metrics
+                    word_count=word_count,
+                ),
+                links=links,
+                images=images,
+                branding=branding,
+                actions=actions_output,
+                change_tracking=change_tracking,
+            ),
+        )
+
+        # Store in cache if max_age > 0 and cache is configured
+        # When change tracking is active, auto-enable caching so future
+        # comparisons have a previous version to diff against.
+        effective_max_age = max_age
+        if wants_change_tracking and effective_max_age <= 0:
+            effective_max_age = 365 * 24 * 3600  # 1 year default for change tracking
+        if effective_max_age > 0 and self._cache:
+            self._cache.set(
+                url,
+                result.model_dump(),
+                effective_max_age,
+                variant=cache_variant,
+                content_hash=current_content_hash,
+            )
+
+        return result
 
     async def _scrape_pdf(
         self,

@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import AsyncGenerator, Literal
 from urllib.parse import urlparse
 
+from supacrawl.discovery.robots import RobotsConfig, fetch_robots, is_url_allowed
 from supacrawl.models import CrawlEvent, ScrapeData
 from supacrawl.services.browser import BrowserManager
 from supacrawl.services.map import MapService
 from supacrawl.services.scrape import ScrapeService
+from supacrawl.services.throttle import HostRateLimiter, host_of
 from supacrawl.utils import normalise_url_for_dedupe
 
 
@@ -121,6 +123,8 @@ class CrawlService:
         change_tracking_modes: list[str] | None = None,
         expand_iframes: str = "same-origin",
         headers: dict[str, str] | None = None,
+        respect_robots: bool = True,
+        request_delay: float = 0.0,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -163,6 +167,14 @@ class CrawlService:
                 the start URL's origin; dropped for external-origin URLs when
                 allow_external_links is True. Only header KEYS are logged;
                 values are never written to logs or persisted.
+            respect_robots: Honour each origin's robots.txt (default True).
+                Disallowed URLs are skipped before scraping and a declared
+                Crawl-delay raises the per-host request gap. Set False to crawl
+                without consulting robots.txt.
+            request_delay: Minimum seconds between requests to the same host
+                (default 0.0). When respect_robots is True and a site declares a
+                larger Crawl-delay, the larger value wins. Prevents hammering a
+                single origin from a personal IP.
 
         Yields:
             CrawlEvent for each page and progress update
@@ -201,6 +213,8 @@ class CrawlService:
                     expand_iframes=expand_iframes,
                     engine=engine,
                     headers=headers,
+                    respect_robots=respect_robots,
+                    request_delay=request_delay,
                 ):
                     yield event
             else:
@@ -239,6 +253,8 @@ class CrawlService:
                         change_tracking_modes=change_tracking_modes,
                         expand_iframes=expand_iframes,
                         headers=headers,
+                        respect_robots=respect_robots,
+                        request_delay=request_delay,
                     ):
                         yield event
 
@@ -266,10 +282,30 @@ class CrawlService:
         expand_iframes: str = "same-origin",
         engine: str | None = None,
         headers: dict[str, str] | None = None,
+        respect_robots: bool = True,
+        request_delay: float = 0.0,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Core crawl logic. Assumes _browser, _map_service, _scrape_service are set."""
         assert self._map_service is not None
         assert self._scrape_service is not None
+
+        # Per-host courtesy throttle and per-origin robots.txt cache. robots is
+        # fetched lazily per origin so an external-link crawl honours each site's
+        # rules without a wasted fetch when respect_robots is off.
+        rate_limiter = HostRateLimiter(min_delay=request_delay)
+        robots_cache: dict[str, RobotsConfig] = {}
+
+        async def robots_for(target_url: str) -> RobotsConfig | None:
+            """Return the (cached) robots.txt config for *target_url*'s origin."""
+            if not respect_robots:
+                return None
+            origin = _url_origin(target_url)
+            if origin not in robots_cache:
+                config = await fetch_robots(origin)
+                robots_cache[origin] = config
+                # A declared Crawl-delay raises the per-host minimum gap.
+                rate_limiter.set_host_delay(host_of(target_url), config.crawl_delay)
+            return robots_cache[origin]
 
         # Derive the start-URL origin so we can scope custom headers to same-origin
         # URLs only (prevents leaking auth headers to third-party domains during a
@@ -325,6 +361,7 @@ class CrawlService:
         urls_to_scrape = []
         normalised_urls: set[str] = set()
         dedupe_count = 0
+        robots_skipped = 0
 
         for link in map_result.links:
             if link.url in scraped_urls:
@@ -332,6 +369,13 @@ class CrawlService:
             if include_patterns and not self._matches_patterns(link.url, include_patterns):
                 continue
             if exclude_patterns and self._matches_patterns(link.url, exclude_patterns):
+                continue
+
+            # Honour robots.txt: skip disallowed URLs before scraping.
+            robots = await robots_for(link.url)
+            if robots is not None and not is_url_allowed(link.url, robots):
+                LOGGER.info("Skipping URL (robots.txt disallow): %s", link.url)
+                robots_skipped += 1
                 continue
 
             # Deduplicate similar URLs if enabled
@@ -348,6 +392,8 @@ class CrawlService:
         total = len(urls_to_scrape)
         if dedupe_count > 0:
             LOGGER.info(f"Deduplicated {dedupe_count} similar URLs")
+        if robots_skipped > 0:
+            LOGGER.info("Skipped %d URL(s) disallowed by robots.txt", robots_skipped)
         LOGGER.info(f"Found {total} URLs to scrape")
 
         yield CrawlEvent(
@@ -385,6 +431,11 @@ class CrawlService:
                     target_url=url_to_scrape,
                     start_origin=start_origin,
                 )
+
+                # Courtesy throttle: wait out the per-host minimum gap (raised by
+                # any robots.txt Crawl-delay) before hitting the origin again.
+                await rate_limiter.acquire(url_to_scrape)
+
                 result = await self._scrape_service.scrape(
                     url_to_scrape,
                     formats=scrape_formats,  # type: ignore[arg-type]

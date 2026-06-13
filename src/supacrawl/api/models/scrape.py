@@ -41,6 +41,7 @@ class ScrapeRequest(BaseModel):
     store_in_cache: bool | None = Field(None, alias="storeInCache")
     content_mode: float | None = Field(None, ge=0.0, le=1.0)
     query: str | None = None
+    http_first: bool = True
 
 
 # ---------------------------------------------------------------------------

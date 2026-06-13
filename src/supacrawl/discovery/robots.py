@@ -200,18 +200,24 @@ def is_url_allowed(
     parsed = urlsplit(url)
     path = parsed.path or "/"
 
-    # Check allow patterns first (they take precedence)
-    for pattern in robots.allow_patterns:
-        if _matches_pattern(path, pattern):
-            return True
+    # RFC 9309: the most specific (longest) matching rule wins; on a tie the
+    # Allow rule takes precedence. Checking Allow first and short-circuiting
+    # would let a broad ``Allow: /`` override a narrower ``Disallow: /admin/``.
+    longest_allow = max(
+        (len(pattern) for pattern in robots.allow_patterns if _matches_pattern(path, pattern)),
+        default=-1,
+    )
+    longest_disallow = max(
+        (len(pattern) for pattern in robots.disallow_patterns if _matches_pattern(path, pattern)),
+        default=-1,
+    )
 
-    # Check disallow patterns
-    for pattern in robots.disallow_patterns:
-        if _matches_pattern(path, pattern):
-            return False
+    if longest_disallow == -1:
+        # No disallow rule matches → allowed (whether or not an allow matched).
+        return True
 
-    # Default: allow
-    return True
+    # A disallow matches; allow only if an equally- or more-specific allow does too.
+    return longest_allow >= longest_disallow
 
 
 def _matches_pattern(path: str, pattern: str) -> bool:
