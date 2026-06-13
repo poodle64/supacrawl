@@ -46,7 +46,7 @@ class ProviderHealth:
     last_failure_time: float = 0.0
     last_error: str | None = None
     requests_made: int = 0
-    last_alert_time: float = 0.0
+    last_alert_time: float | None = None  # None = never alerted (monotonic clock makes 0.0 unsafe on fresh hosts)
 
     def record_success(self) -> None:
         """Record a successful request."""
@@ -77,6 +77,8 @@ class ProviderHealth:
 
     def should_alert(self) -> bool:
         """Whether an auth/billing alert should fire now (debounced per ALERT_DEBOUNCE_SECONDS)."""
+        if self.last_alert_time is None:
+            return True  # never alerted — fire on the first auth/billing failure
         return time.monotonic() - self.last_alert_time >= ALERT_DEBOUNCE_SECONDS
 
     def record_alert(self) -> None:

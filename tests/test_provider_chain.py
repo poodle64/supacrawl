@@ -1,5 +1,6 @@
 """Tests for multi-provider search chain with automatic fallback."""
 
+import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -270,7 +271,7 @@ class TestProviderHealthAlertDebouncing:
 
     def test_alert_fires_on_first_call(self):
         health = ProviderHealth()
-        # last_alert_time defaults to 0.0, so monotonic() - 0.0 >> ALERT_DEBOUNCE_SECONDS
+        # last_alert_time defaults to None (never alerted), so should_alert() fires
         assert health.should_alert()
 
     def test_alert_suppressed_immediately_after_record(self):
@@ -280,8 +281,8 @@ class TestProviderHealthAlertDebouncing:
 
     def test_alert_fires_again_after_debounce_window(self):
         health = ProviderHealth()
-        # Backdate the alert time beyond the debounce window
-        health.last_alert_time = 0.0  # effectively very long ago
+        # Backdate the last alert to just beyond the debounce window
+        health.last_alert_time = time.monotonic() - (ALERT_DEBOUNCE_SECONDS + 1)
         assert health.should_alert()
 
     def test_alert_debounce_constant_is_300(self):
