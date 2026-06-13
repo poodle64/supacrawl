@@ -128,6 +128,7 @@ class TestToolExecution:
 
         result = await supacrawl_search(
             api_client=mock_api_client,
+            ctx=MagicMock(),
             query="test query",
             limit=5,
         )

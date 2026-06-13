@@ -19,6 +19,7 @@ def _ddg_service(**kwargs) -> SearchService:
         return SearchService(provider="duckduckgo", **kwargs)
 
 
+@pytest.mark.e2e
 class TestSearchService:
     """Tests for SearchService using DuckDuckGo (network-dependent)."""
 
@@ -375,7 +376,7 @@ class TestDuckDuckGoCaptchaDetection:
         )
         service = _ddg_service()
         try:
-            with patch.object(service, "_get_client") as mock_get:
+            with patch("supacrawl.services.search.duckduckgo.DuckDuckGoProvider._get_client") as mock_get:
                 mock_client = AsyncMock()
                 mock_client.get.return_value = mock_response
                 mock_get.return_value = mock_client

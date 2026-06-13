@@ -45,8 +45,10 @@ class TestSearchTools:
         """Search tool should call service with query."""
         from supacrawl.mcp.tools.search import supacrawl_search
 
+        ctx = MagicMock()
         result = await supacrawl_search(
             api_client=mock_api_client,
+            ctx=ctx,
             query="test query",
             limit=5,
         )
@@ -59,8 +61,12 @@ class TestSearchTools:
         """Search tool should support scraping results."""
         from supacrawl.mcp.tools.search import supacrawl_search
 
+        ctx = MagicMock()
+        ctx.report_progress = AsyncMock()
+        ctx.info = AsyncMock()
         result = await supacrawl_search(
             api_client=mock_api_client,
+            ctx=ctx,
             query="test query",
             scrape_results=True,
             formats=["markdown"],
@@ -83,8 +89,10 @@ class TestSearchTools:
 
         monkeypatch.setattr(search_module, "_fetch_url_metadata", mock_fetch_metadata)
 
+        ctx = MagicMock()
         result = await supacrawl_search(
             api_client=mock_api_client,
+            ctx=ctx,
             query="test query",
             include_metadata=True,
         )
@@ -113,8 +121,12 @@ class TestSearchTools:
 
         monkeypatch.setattr(search_module, "_fetch_url_metadata", mock_fetch_metadata)
 
+        ctx = MagicMock()
+        ctx.report_progress = AsyncMock()
+        ctx.info = AsyncMock()
         await supacrawl_search(
             api_client=mock_api_client,
+            ctx=ctx,
             query="test query",
             include_metadata=True,
             scrape_results=True,  # Scraping takes precedence

@@ -40,7 +40,7 @@ class TestConfiguration:
         assert settings.timeout == 30000
         assert settings.headless is True
         assert settings.wait_until == "domcontentloaded"
-        assert settings.search_provider == "duckduckgo"
+        assert settings.search_provider == "brave"
 
     def test_settings_validates_log_level(self):
         """Settings should validate log level."""

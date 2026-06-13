@@ -13,11 +13,14 @@ class TestValidationErrors:
     @pytest.mark.asyncio
     async def test_search_rejects_empty_query(self, mock_api_client):
         """Search should reject empty query with clear error."""
+        from unittest.mock import MagicMock
+
         from supacrawl.mcp.tools.search import supacrawl_search
 
         with pytest.raises(SupacrawlValidationError) as exc_info:
             await supacrawl_search(
                 api_client=mock_api_client,
+                ctx=MagicMock(),
                 query="",
             )
 
@@ -27,11 +30,14 @@ class TestValidationErrors:
     @pytest.mark.asyncio
     async def test_search_rejects_none_query(self, mock_api_client):
         """Search should reject None query with clear error."""
+        from unittest.mock import MagicMock
+
         from supacrawl.mcp.tools.search import supacrawl_search
 
         with pytest.raises(SupacrawlValidationError) as exc_info:
             await supacrawl_search(
                 api_client=mock_api_client,
+                ctx=MagicMock(),
                 query=None,
             )
 
@@ -144,6 +150,8 @@ class TestServiceErrors:
     @pytest.mark.asyncio
     async def test_search_handles_service_exception(self, mock_api_client):
         """Search should wrap service exceptions."""
+        from unittest.mock import MagicMock
+
         from supacrawl.mcp.exceptions import SupacrawlMCPError
         from supacrawl.mcp.tools.search import supacrawl_search
 
@@ -152,6 +160,7 @@ class TestServiceErrors:
         with pytest.raises(SupacrawlMCPError):
             await supacrawl_search(
                 api_client=mock_api_client,
+                ctx=MagicMock(),
                 query="test query",
             )
 
@@ -162,11 +171,14 @@ class TestExceptionAttributes:
     @pytest.mark.asyncio
     async def test_validation_error_has_field(self, mock_api_client):
         """Validation errors should include field name."""
+        from unittest.mock import MagicMock
+
         from supacrawl.mcp.tools.search import supacrawl_search
 
         with pytest.raises(SupacrawlValidationError) as exc_info:
             await supacrawl_search(
                 api_client=mock_api_client,
+                ctx=MagicMock(),
                 query=None,
             )
 
@@ -175,11 +187,14 @@ class TestExceptionAttributes:
     @pytest.mark.asyncio
     async def test_validation_error_has_value(self, mock_api_client):
         """Validation errors should include invalid value."""
+        from unittest.mock import MagicMock
+
         from supacrawl.mcp.tools.search import supacrawl_search
 
         with pytest.raises(SupacrawlValidationError) as exc_info:
             await supacrawl_search(
                 api_client=mock_api_client,
+                ctx=MagicMock(),
                 query=None,
             )
 
