@@ -206,6 +206,29 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
     show_default=True,
     help="PDF parsing mode. auto=detect .pdf URLs and extract text (OCR fallback if available), fast=text only, ocr=force OCR, off=disable.",
 )
+@click.option(
+    "--content-mode",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.5,
+    show_default=True,
+    help=(
+        "Content extraction precision/recall dial [0.0–1.0]. "
+        "0.0 = recall-biased (include more, prune less); "
+        "1.0 = precision-biased (demand denser output, prune more). "
+        "Without supacrawl[readability] only the CSS-selector heuristic is active; "
+        "the readability and BM25 strategies are silently skipped."
+    ),
+)
+@click.option(
+    "--query",
+    type=str,
+    default=None,
+    help=(
+        "Filter extracted sections by relevance to this query (BM25). "
+        "Flat pages with no headings are never filtered. "
+        "Without supacrawl[readability] this option is accepted but ignored."
+    ),
+)
 def scrape_url(
     url: str | None,
     formats: tuple[str, ...],
@@ -236,6 +259,8 @@ def scrape_url(
     list_devices: bool,
     headers: tuple[str, ...],
     parse_pdf: str,
+    content_mode: float,
+    query: str | None,
 ) -> None:
     """Scrape a single URL and extract content.
 
@@ -430,6 +455,8 @@ def scrape_url(
             device=resolved_device,
             parse_pdf=parse_pdf if parse_pdf != "off" else None,  # type: ignore[arg-type]
             headers=resolved_headers,
+            content_mode=content_mode,
+            query=query,
         )
         return result
 

@@ -68,6 +68,10 @@ api = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.34.0",
 ]
+readability = [
+  "readability-lxml>=0.8",
+  "rank-bm25>=0.2",
+]
 mcp = [
   "anyio>=4.12.1",
   "fastmcp>=3.1.0",
@@ -144,6 +148,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "asyncssh.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "readability.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "rank_bm25.*"
 ignore_missing_imports = true
 
 [tool.uv]

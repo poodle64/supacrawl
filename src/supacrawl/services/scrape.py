@@ -487,6 +487,14 @@ class ScrapeService:
         self._cache = CacheManager(cache_dir) if cache_dir else None
         self._captcha_solver: Any = None  # Lazy-loaded CaptchaSolver
 
+    async def close(self) -> None:
+        """Close the scrape service.
+
+        BrowserManager instances are created and torn down per-request inside
+        scrape(), so there are no held resources to release here. This method
+        exists to satisfy the uniform service lifecycle expected by callers.
+        """
+
     async def scrape(
         self,
         url: str,
@@ -524,6 +532,8 @@ class ScrapeService:
         engine: str | None = None,
         proxy: str | None = None,
         headers: dict[str, str] | None = None,
+        content_mode: float = 0.5,
+        query: str | None = None,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -576,6 +586,13 @@ class ScrapeService:
                     persisted in cache entries. A hash of the headers is included in
                     the cache variant so auth'd and anonymous fetches of the same URL
                     are stored separately.
+            content_mode: Precision/recall dial in [0.0, 1.0] for the content
+                    extraction cascade. Low values favour recall (accept more, prune
+                    less); high values favour precision (demand denser output, prune
+                    more aggressively). Default 0.5.
+            query: Optional free-text query. When set, the extraction cascade filters
+                    sections by relevance to the query using BM25. Flat pages (single
+                    section, no headings) are not filtered so no content is lost.
 
         Returns:
             ScrapeResult with scraped content
@@ -721,6 +738,8 @@ class ScrapeService:
                         only_main_content=only_main_content,
                         include_tags=include_tags,
                         exclude_tags=exclude_tags,
+                        content_mode=content_mode,
+                        query=query,
                     )
 
                 # Check for bot detection and auto-retry with stealth if available
@@ -760,6 +779,8 @@ class ScrapeService:
                             device=device,
                             parse_pdf=parse_pdf,
                             headers=headers,
+                            content_mode=content_mode,
+                            query=query,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint(bot_suspected=True)}")
@@ -821,6 +842,8 @@ class ScrapeService:
                                 parse_pdf=parse_pdf,
                                 engine=platform.engine or engine,
                                 headers=headers,
+                                content_mode=content_mode,
+                                query=query,
                             )
 
                 # Check for CAPTCHA and solve if enabled
@@ -843,6 +866,8 @@ class ScrapeService:
                                 json_prompt=json_prompt,
                                 include_tags=include_tags,
                                 exclude_tags=exclude_tags,
+                                content_mode=content_mode,
+                                query=query,
                             )
                             if solved_result:
                                 return solved_result
@@ -927,6 +952,8 @@ class ScrapeService:
                     only_main_content=only_main_content,
                     include_tags=include_tags,
                     exclude_tags=exclude_tags,
+                    content_mode=content_mode,
+                    query=query,
                 )
 
                 # Compute change tracking if requested
@@ -1532,6 +1559,8 @@ class ScrapeService:
         only_main_content: bool = True,
         include_tags: list[str] | None = None,
         exclude_tags: list[str] | None = None,
+        content_mode: float = 0.5,
+        query: str | None = None,
     ) -> ActionsOutput | None:
         """Process action results to extract screenshots and scrapes.
 
@@ -1540,6 +1569,8 @@ class ScrapeService:
             only_main_content: Whether to extract main content for markdown conversion
             include_tags: CSS selectors for elements to include
             exclude_tags: CSS selectors for elements to exclude
+            content_mode: Precision/recall dial in [0.0, 1.0].
+            query: Optional query string for section-relevance filtering.
 
         Returns:
             ActionsOutput with screenshots and scrapes, or None if no results
@@ -1565,6 +1596,8 @@ class ScrapeService:
                     only_main_content=only_main_content,
                     include_tags=include_tags,
                     exclude_tags=exclude_tags,
+                    content_mode=content_mode,
+                    query=query,
                 )
 
                 scrapes.append(
@@ -1630,6 +1663,8 @@ class ScrapeService:
         json_prompt: str | None,
         include_tags: list[str] | None,
         exclude_tags: list[str] | None,
+        content_mode: float = 0.5,
+        query: str | None = None,
     ) -> ScrapeResult | None:
         """Scrape a URL with CAPTCHA solving enabled.
 
@@ -1648,6 +1683,8 @@ class ScrapeService:
             json_prompt: Prompt for JSON extraction
             include_tags: CSS selectors to include
             exclude_tags: CSS selectors to exclude
+            content_mode: Precision/recall dial in [0.0, 1.0].
+            query: Optional query string for section-relevance filtering.
 
         Returns:
             ScrapeResult if successful, None if CAPTCHA solving failed
@@ -1712,6 +1749,8 @@ class ScrapeService:
                             only_main_content=only_main_content,
                             include_tags=include_tags,
                             exclude_tags=exclude_tags,
+                            content_mode=content_mode,
+                            query=query,
                         )
 
                         metadata = await browser.extract_metadata(html)

@@ -733,6 +733,8 @@ class MarkdownConverter:
         remove_boilerplate: bool = True,
         include_tags: list[str] | None = None,
         exclude_tags: list[str] | None = None,
+        content_mode: float = 0.5,
+        query: str | None = None,
     ) -> str:
         """Convert HTML to markdown.
 
@@ -747,6 +749,11 @@ class MarkdownConverter:
                          When specified, takes precedence over only_main_content.
             exclude_tags: CSS selectors for elements to exclude.
                          Applied before include_tags filtering.
+            content_mode: Precision/recall dial in [0.0, 1.0]. Low = recall-biased
+                         (accept more, prune less); high = precision-biased (demand
+                         denser output, prune more). Default 0.5.
+            query: Optional query string. When set, sections are filtered post-cascade
+                   to retain only query-relevant content. Flat pages are not filtered.
 
         Returns:
             Clean markdown string
@@ -755,7 +762,14 @@ class MarkdownConverter:
             return ""
 
         return self._convert_with_patterns(
-            html, base_url, only_main_content, remove_boilerplate, include_tags, exclude_tags
+            html,
+            base_url,
+            only_main_content,
+            remove_boilerplate,
+            include_tags,
+            exclude_tags,
+            content_mode=content_mode,
+            query=query,
         )
 
     def _convert_with_patterns(
@@ -766,8 +780,10 @@ class MarkdownConverter:
         remove_boilerplate: bool = True,
         include_tags: list[str] | None = None,
         exclude_tags: list[str] | None = None,
+        content_mode: float = 0.5,
+        query: str | None = None,
     ) -> str:
-        """Extract content using pattern-based approach (fallback).
+        """Extract content using pattern-based approach.
 
         Args:
             html: Raw HTML content
@@ -776,6 +792,8 @@ class MarkdownConverter:
             remove_boilerplate: Remove nav, footer, ads, etc.
             include_tags: CSS selectors for elements to include
             exclude_tags: CSS selectors for elements to exclude
+            content_mode: Precision/recall dial in [0.0, 1.0].
+            query: Optional query string for section-relevance filtering.
 
         Returns:
             Markdown string
@@ -795,11 +813,19 @@ class MarkdownConverter:
 
             content_element = None
 
-            # include_tags takes precedence over only_main_content
+            # include_tags takes precedence over only_main_content and the cascade.
             if include_tags:
                 content_element = self._apply_include_tags(soup, include_tags)
             elif only_main_content:
-                content_element = self._find_main_content(soup)
+                from supacrawl.services.content_filter import extract as cf_extract
+
+                content_element = cf_extract(
+                    soup=soup,
+                    html=html,
+                    main_content_selectors=self.MAIN_CONTENT_SELECTORS,
+                    content_mode=content_mode,
+                    query=query,
+                )
 
             if content_element:
                 html_to_convert = str(content_element)
@@ -915,20 +941,6 @@ class MarkdownConverter:
             return any(indicator in combined for indicator in main_indicators)
         except Exception:
             return False
-
-    def _find_main_content(self, soup: BeautifulSoup) -> Tag | None:
-        """Find the main content element."""
-        for selector in self.MAIN_CONTENT_SELECTORS:
-            try:
-                content_element = soup.select_one(selector)
-                if content_element:
-                    LOGGER.debug(f"Found main content using selector: {selector}")
-                    return content_element
-            except Exception:
-                pass
-
-        LOGGER.debug("No main content selector matched, using full body")
-        return None
 
     def _clean_whitespace(self, markdown: str) -> str:
         """Clean up excessive whitespace."""

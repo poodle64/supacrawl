@@ -66,6 +66,12 @@ def _build_service_kwargs(req: ScrapeRequest) -> dict[str, Any]:
     if proxy is not None:
         kwargs["proxy"] = proxy
 
+    if req.content_mode is not None:
+        kwargs["content_mode"] = req.content_mode
+
+    if req.query is not None:
+        kwargs["query"] = req.query
+
     return kwargs
 
 

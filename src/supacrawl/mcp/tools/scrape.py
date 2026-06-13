@@ -49,6 +49,8 @@ async def supacrawl_scrape(
     parse_pdf: str = "auto",
     engine: Literal["playwright", "patchright", "camoufox"] | None = None,
     headers: dict[str, str] | None = None,
+    content_mode: float = 0.5,
+    query: str | None = None,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -138,6 +140,16 @@ async def supacrawl_scrape(
         headers: Custom HTTP headers sent with every request on this page (e.g.
             {"Authorization": "Bearer token", "Cookie": "session=abc"}).
             Only header KEYS are logged; values are never persisted or written to logs.
+        content_mode: Precision/recall dial for content extraction in [0.0, 1.0].
+            Low values favour recall (include more content, prune less);
+            high values favour precision (demand denser output, prune more aggressively).
+            Default 0.5 preserves current behaviour. Without supacrawl[readability]
+            only the CSS-selector heuristic is active; readability and BM25 strategies
+            are silently skipped.
+        query: Optional free-text query. When set, extracted sections are filtered
+            by BM25 relevance to retain only query-relevant content. Flat pages
+            (no headings) are never filtered so no content is lost. Without
+            supacrawl[readability] this parameter is accepted but ignored.
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -230,6 +242,8 @@ async def supacrawl_scrape(
             parse_pdf=resolved_parse_pdf,  # type: ignore[arg-type]
             engine=engine,
             headers=headers,
+            content_mode=content_mode,
+            query=query,
         )
 
         response = result.model_dump()

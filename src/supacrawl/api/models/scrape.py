@@ -39,6 +39,8 @@ class ScrapeRequest(BaseModel):
     max_age: int | None = Field(None, alias="maxAge")
     proxy: str | bool | None = None
     store_in_cache: bool | None = Field(None, alias="storeInCache")
+    content_mode: float | None = Field(None, ge=0.0, le=1.0)
+    query: str | None = None
 
 
 # ---------------------------------------------------------------------------
