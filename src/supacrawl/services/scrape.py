@@ -422,6 +422,7 @@ class ScrapeService:
         device: str | None = None,
         parse_pdf: Literal["fast", "auto", "ocr"] | None = "auto",
         engine: str | None = None,
+        proxy: str | None = None,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -462,6 +463,11 @@ class ScrapeService:
             engine: Browser engine override for this request. When set and different
                     from the service's default engine, a temporary browser is created.
                     Options: "playwright", "patchright", "camoufox".
+            proxy: Proxy URL override for this request (e.g.
+                    "http://user:pass@host:port", "socks5://host:port"). When set and
+                    different from the shared browser's proxy, a temporary browser is
+                    created so the override is honoured without mutating the shared
+                    browser. Overrides the service-level proxy for this request only.
 
         Returns:
             ScrapeResult with scraped content
@@ -524,26 +530,31 @@ class ScrapeService:
                 )
 
         try:
-            # Determine effective engine for this request
+            # Determine effective engine and proxy for this request
             effective_engine = engine or self._engine
+            effective_proxy = proxy or self._proxy
 
-            # Create browser if needed, or use a temporary one for engine override
+            # Create browser if needed, or use a temporary one for an engine/proxy override
             browser = self._browser
             owns_browser = self._owns_browser
 
-            # Per-request engine override: if the caller requested a different engine
-            # than the shared browser, create a temporary browser for this request.
+            # Per-request engine or proxy override: if the caller requested a different
+            # engine or proxy than the shared browser, create a temporary browser for
+            # this request so the override is honoured without mutating the shared one.
             needs_engine_override = (
                 engine is not None and not owns_browser and browser is not None and browser.engine != engine
             )
+            needs_proxy_override = (
+                proxy is not None and not owns_browser and browser is not None and browser.proxy != proxy
+            )
 
-            if owns_browser or needs_engine_override:
+            if owns_browser or needs_engine_override or needs_proxy_override:
                 browser = BrowserManager(
                     headless=self._headless,
                     timeout_ms=timeout,
                     locale_config=self._locale_config,
                     stealth=self._stealth,
-                    proxy=self._proxy,
+                    proxy=effective_proxy,
                     engine=effective_engine,
                     firefox_user_prefs=self._firefox_user_prefs,
                 )

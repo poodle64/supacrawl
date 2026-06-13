@@ -1,9 +1,22 @@
 """Tests for scrape service."""
 
+import inspect
+
 import pytest
 
 from supacrawl.models import ContentStats, ProcessMetadata, ScrapeResult
 from supacrawl.services.scrape import ScrapeService
+
+
+class TestScrapeServiceSignature:
+    """Contract tests for the public ``ScrapeService.scrape()`` signature."""
+
+    def test_scrape_accepts_per_request_proxy(self) -> None:
+        """Regression for #112: the REST API passes ``proxy`` per request, so the
+        method must accept it (a non-autospec mock previously hid its absence)."""
+        params = inspect.signature(ScrapeService.scrape).parameters
+        assert "proxy" in params
+        assert params["proxy"].default is None
 
 
 @pytest.mark.e2e

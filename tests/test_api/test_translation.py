@@ -15,26 +15,33 @@ from supacrawl.api.routers.scrape import _build_service_kwargs, _translate_proxy
 
 
 class TestProxyTranslation:
-    """v2 proxy values map correctly to ScrapeService expectations."""
+    """v2 proxy values resolve to a usable proxy URL or None.
 
-    def test_basic_maps_to_true(self) -> None:
-        assert _translate_proxy("basic") is True
+    A local-first scraper has no managed proxy pool, so the v2 managed-proxy
+    keywords and boolean flag resolve to None; only a concrete URL is applied.
+    """
 
-    def test_enhanced_maps_to_true(self) -> None:
-        assert _translate_proxy("enhanced") is True
+    def test_basic_keyword_resolves_to_none(self) -> None:
+        assert _translate_proxy("basic") is None
 
-    def test_auto_maps_to_true(self) -> None:
-        assert _translate_proxy("auto") is True
+    def test_enhanced_keyword_resolves_to_none(self) -> None:
+        assert _translate_proxy("enhanced") is None
+
+    def test_auto_keyword_resolves_to_none(self) -> None:
+        assert _translate_proxy("auto") is None
 
     def test_url_passes_through(self) -> None:
         assert _translate_proxy("http://proxy:8080") == "http://proxy:8080"
 
-    def test_none_passes_through(self) -> None:
+    def test_socks_url_passes_through(self) -> None:
+        assert _translate_proxy("socks5://user:pass@proxy:1080") == "socks5://user:pass@proxy:1080"
+
+    def test_none_resolves_to_none(self) -> None:
         assert _translate_proxy(None) is None
 
-    def test_bool_passes_through(self) -> None:
-        assert _translate_proxy(True) is True
-        assert _translate_proxy(False) is False
+    def test_bool_managed_proxy_resolves_to_none(self) -> None:
+        assert _translate_proxy(True) is None
+        assert _translate_proxy(False) is None
 
 
 # ---------------------------------------------------------------------------
@@ -145,10 +152,20 @@ class TestServiceKwargsViaClient:
         call_kwargs = mock_scrape_service.scrape.call_args.kwargs
         assert call_kwargs["max_age"] == 120
 
-    def test_proxy_basic_via_client(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
+    def test_proxy_url_passed_through_via_client(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
+        """A concrete proxy URL reaches ScrapeService.scrape() as a string (regression for #112)."""
+        client.post(
+            "/scrape",
+            json={"url": "https://example.com", "proxy": "http://user:pass@proxy-host:8080"},
+        )
+        call_kwargs = mock_scrape_service.scrape.call_args.kwargs
+        assert call_kwargs["proxy"] == "http://user:pass@proxy-host:8080"
+
+    def test_managed_proxy_keyword_dropped_via_client(self, client: TestClient, mock_scrape_service: AsyncMock) -> None:
+        """Unsupported v2 managed-proxy keywords are not forwarded to the service."""
         client.post(
             "/scrape",
             json={"url": "https://example.com", "proxy": "basic"},
         )
         call_kwargs = mock_scrape_service.scrape.call_args.kwargs
-        assert call_kwargs["proxy"] is True
+        assert "proxy" not in call_kwargs

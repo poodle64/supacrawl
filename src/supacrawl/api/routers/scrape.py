@@ -25,15 +25,18 @@ router = APIRouter()
 _PROXY_KEYWORDS = frozenset({"basic", "enhanced", "auto"})
 
 
-def _translate_proxy(value: str | bool | None) -> bool | str | None:
-    """Map v2 proxy strings to ScrapeService expectations.
+def _translate_proxy(value: str | bool | None) -> str | None:
+    """Resolve a v2 proxy field to a usable proxy URL, or ``None``.
 
-    ``"basic"``, ``"enhanced"``, and ``"auto"`` all map to ``True``.
-    A URL string is passed through. Booleans are passed through.
+    A proxy URL string (e.g. ``"http://user:pass@host:port"``,
+    ``"socks5://host:port"``) is used as-is. The v2 managed-proxy keywords
+    (``"basic"``, ``"enhanced"``, ``"auto"``) and the boolean managed-proxy flag
+    request a hosted proxy pool, which a local-first scraper has no equivalent
+    for, so they resolve to ``None`` (no proxy applied) rather than failing.
     """
-    if isinstance(value, str) and value.lower() in _PROXY_KEYWORDS:
-        return True
-    return value
+    if isinstance(value, str) and value.lower() not in _PROXY_KEYWORDS:
+        return value
+    return None
 
 
 def _build_service_kwargs(req: ScrapeRequest) -> dict[str, Any]:
@@ -58,7 +61,7 @@ def _build_service_kwargs(req: ScrapeRequest) -> dict[str, Any]:
 
     proxy = _translate_proxy(req.proxy)
     if proxy is not None:
-        kwargs["proxy"] = proxy  # type: ignore[assignment]
+        kwargs["proxy"] = proxy
 
     return kwargs
 
