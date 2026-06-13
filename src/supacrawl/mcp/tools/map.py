@@ -23,6 +23,7 @@ async def supacrawl_map(
     ignore_query_params: bool = False,
     allow_external_links: bool = False,
     ignore_cache: bool = False,
+    headers: dict[str, str] | None = None,
 ) -> dict:
     """
     Map a website to discover all URLs without scraping content.
@@ -65,6 +66,9 @@ async def supacrawl_map(
             (e.g., treat /page?utm_source=x and /page as the same URL)
         allow_external_links: Follow and include links to external domains
         ignore_cache: Bypass cached results and perform fresh URL discovery
+        headers: Custom HTTP headers sent with every request (e.g.
+            {"Authorization": "Bearer token"}). Only header KEYS are logged;
+            values are never persisted or written to logs.
 
     Returns:
         Firecrawl-compatible map result:
@@ -117,6 +121,7 @@ async def supacrawl_map(
             ignore_query_params=ignore_query_params,
             allow_external_links=allow_external_links,
             ignore_cache=ignore_cache,
+            headers=headers,
         )
 
         response = result.model_dump()

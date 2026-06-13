@@ -4,7 +4,7 @@ from pathlib import Path
 
 import click
 
-from supacrawl.cli._common import app
+from supacrawl.cli._common import app, parse_header_string, parse_headers_env
 
 
 @app.command("crawl", help="Crawl a website from a starting URL.")
@@ -136,6 +136,19 @@ from supacrawl.cli._common import app
     show_default=True,
     help="Iframe expansion mode. none=strip all, same-origin=expand same-origin inline, all=expand all non-blocked.",
 )
+@click.option(
+    "--header",
+    "-H",
+    "headers",
+    multiple=True,
+    metavar="KEY: VALUE",
+    help=(
+        "Custom HTTP header in 'Key: Value' format. Repeatable. "
+        "Only sent to URLs matching the start URL's origin. "
+        "Also reads SUPACRAWL_HEADERS env (comma-separated 'Key: Value' pairs). "
+        "Example: --header 'Authorization: Bearer token'"
+    ),
+)
 def crawl_cmd(
     url: str,
     limit: int,
@@ -158,6 +171,7 @@ def crawl_cmd(
     cache_dir: Path | None,
     change_tracking_modes: tuple[str, ...],
     expand_iframes: str,
+    headers: tuple[str, ...],
 ) -> None:
     """Crawl a website and save all pages.
 
@@ -173,6 +187,15 @@ def crawl_cmd(
     import asyncio
 
     from supacrawl.services.crawl import CrawlService
+
+    # Parse --header flags; overlay with SUPACRAWL_HEADERS env default
+    resolved_headers: dict[str, str] | None = parse_headers_env()
+    if headers:
+        if resolved_headers is None:
+            resolved_headers = {}
+        for raw in headers:
+            name, value = parse_header_string(raw)
+            resolved_headers[name] = value
 
     # Build locale config if any location options specified
     locale_config = None
@@ -224,6 +247,7 @@ def crawl_cmd(
             cache_dir=resolved_cache_dir,
             change_tracking_modes=list(change_tracking_modes) if change_tracking_modes else None,
             expand_iframes=expand_iframes,
+            headers=resolved_headers,
         ):
             if event.type == "progress":
                 # Show progress bar

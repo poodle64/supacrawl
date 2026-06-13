@@ -52,6 +52,7 @@ class MapService:
         wait_until: WaitUntilType | None = None,
         headless: bool | None = None,
         engine: str | None = None,
+        headers: dict[str, str] | None = None,
     ):
         """Initialize map service.
 
@@ -67,6 +68,9 @@ class MapService:
                 instances created internally when no shared browser is provided.
             engine: Browser engine ("playwright", "patchright", "camoufox").
                 Overrides the stealth flag when set.
+            headers: Custom HTTP headers to send with every request (e.g.
+                Authorization, Cookie). Only header KEYS are logged; values are
+                never written to logs.
         """
         self._browser = browser
         self._owns_browser = browser is None
@@ -76,6 +80,7 @@ class MapService:
         self._engine = engine
         self._concurrency = max(1, concurrency)  # Ensure at least 1
         self._wait_until = wait_until
+        self._headers = headers
 
     async def map(
         self,
@@ -88,6 +93,7 @@ class MapService:
         ignore_query_params: bool = False,
         allow_external_links: bool = False,
         ignore_cache: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> AsyncGenerator[MapEvent, None]:
         """Map a website and discover URLs, yielding progress events.
 
@@ -101,6 +107,8 @@ class MapService:
             ignore_query_params: Remove query params from URLs
             allow_external_links: Follow links to external domains
             ignore_cache: When True, bypass cached results and perform fresh discovery
+            headers: Custom HTTP headers for this call; overrides instance headers when
+                provided. Only header KEYS are logged; values are never persisted.
 
         Yields:
             MapEvent for each phase of discovery:
@@ -110,6 +118,7 @@ class MapService:
             - complete: Final event with MapResult
             - error: On failure
         """
+        effective_headers = headers if headers is not None else self._headers
         try:
             # Parse starting URL for domain
             parsed = urlparse(url)
@@ -125,7 +134,7 @@ class MapService:
                     message=f"Fetching sitemap from {url}",
                 )
                 LOGGER.info(f"Fetching sitemap from {url}")
-                sitemap_urls = await self._fetch_sitemap(url)
+                sitemap_urls = await self._fetch_sitemap(url, headers=effective_headers)
                 discovered_urls.update(sitemap_urls)
                 LOGGER.info(f"Found {len(sitemap_urls)} URLs from sitemap")
                 yield MapEvent(
@@ -148,6 +157,7 @@ class MapService:
                     limit=limit,
                     include_subdomains=include_subdomains,
                     allow_external_links=allow_external_links,
+                    headers=effective_headers,
                 ):
                     # Collect URLs from discovery events (message starts with http)
                     if event.message and event.message.startswith("http"):
@@ -191,7 +201,7 @@ class MapService:
 
             async def extract_with_limit(url_str: str) -> MapLink:
                 async with semaphore:
-                    title, description = await self._extract_metadata(url_str)
+                    title, description = await self._extract_metadata(url_str, headers=effective_headers)
                     return MapLink(url=url_str, title=title, description=description)
 
             # Process in batches to yield progress events
@@ -235,6 +245,7 @@ class MapService:
         ignore_query_params: bool = False,
         allow_external_links: bool = False,
         ignore_cache: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> MapResult:
         """Map a website and return the final result (no streaming).
 
@@ -252,6 +263,8 @@ class MapService:
             ignore_query_params: Remove query params from URLs
             allow_external_links: Follow links to external domains
             ignore_cache: When True, bypass cached results and perform fresh discovery
+            headers: Custom HTTP headers for this call; overrides instance headers when
+                provided. Only header KEYS are logged; values are never persisted.
 
         Returns:
             MapResult with discovered URLs
@@ -267,6 +280,7 @@ class MapService:
             ignore_query_params=ignore_query_params,
             allow_external_links=allow_external_links,
             ignore_cache=ignore_cache,
+            headers=headers,
         ):
             if event.type == "complete" and event.result is not None:
                 result = event.result
@@ -274,11 +288,12 @@ class MapService:
                 result = event.result
         return result
 
-    async def _fetch_sitemap(self, base_url: str) -> list[str]:
+    async def _fetch_sitemap(self, base_url: str, headers: dict[str, str] | None = None) -> list[str]:
         """Fetch and parse sitemap.xml.
 
         Args:
             base_url: Base URL of the site
+            headers: Custom HTTP headers; only KEYS are logged.
 
         Returns:
             List of URLs from sitemap
@@ -289,7 +304,15 @@ class MapService:
             urljoin(base_url, "/sitemap_index.xml"),
         ]
 
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        # Pass custom headers to the sitemap HTTP client so auth'd sitemaps
+        # can be fetched.  Only header KEYS are logged; values are not.
+        if headers:
+            LOGGER.debug("Sitemap client using %d custom header(s): %s", len(headers), list(headers.keys()))
+        async with httpx.AsyncClient(
+            timeout=10.0,
+            follow_redirects=True,
+            headers=headers or {},
+        ) as client:
             for sitemap_url in sitemap_candidates:
                 try:
                     LOGGER.debug(f"Trying sitemap: {sitemap_url}")
@@ -347,6 +370,7 @@ class MapService:
         limit: int,
         include_subdomains: bool,
         allow_external_links: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> AsyncGenerator[MapEvent, None]:
         """BFS crawl to discover URLs, yielding progress events.
 
@@ -359,6 +383,7 @@ class MapService:
             limit: Maximum URLs to discover
             include_subdomains: Include subdomains
             allow_external_links: Allow URLs from external domains
+            headers: Custom HTTP headers; only KEYS are logged.
 
         Yields:
             MapEvent with discovery progress
@@ -388,7 +413,11 @@ class MapService:
             """Extract links from a URL with concurrency limit."""
             async with semaphore:
                 try:
-                    links = await browser.extract_links(url, wait_until=self._wait_until)
+                    links = await browser.extract_links(
+                        url,
+                        wait_until=self._wait_until,
+                        extra_headers=headers,
+                    )
                     return (url, links)
                 except Exception as e:
                     LOGGER.warning(f"Failed to extract links from {url}: {e}")
@@ -469,11 +498,12 @@ class MapService:
             if close_browser and browser._browser is not None:
                 await browser.__aexit__(None, None, None)
 
-    async def _extract_metadata(self, url: str) -> tuple[str | None, str | None]:
+    async def _extract_metadata(self, url: str, headers: dict[str, str] | None = None) -> tuple[str | None, str | None]:
         """Extract title and description from a URL.
 
         Args:
             url: URL to extract metadata from
+            headers: Custom HTTP headers; only KEYS are logged.
 
         Returns:
             Tuple of (title, description)
@@ -493,7 +523,12 @@ class MapService:
                 await browser.__aenter__()
 
             # Fetch page content
-            content = await browser.fetch_page(url, wait_for_spa=False, wait_until=self._wait_until)
+            content = await browser.fetch_page(
+                url,
+                wait_for_spa=False,
+                wait_until=self._wait_until,
+                extra_headers=headers,
+            )
 
             # Extract metadata
             metadata = await browser.extract_metadata(content.html)

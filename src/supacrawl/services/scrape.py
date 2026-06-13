@@ -262,6 +262,25 @@ def _captcha_hint() -> str:
         )
 
 
+def _compute_headers_hash(headers: dict[str, str]) -> str:
+    """Compute a short SHA-256 hash of a headers dict for cache variant discrimination.
+
+    The hash is over the sorted (key, value) pairs so that header order does not
+    affect the variant key.  Only the hash is used externally — raw values are never
+    persisted or logged.
+
+    Args:
+        headers: Dict of header names to values.
+
+    Returns:
+        12-character hex prefix of the SHA-256 digest.
+    """
+    import hashlib
+
+    payload = "&".join(f"{k}={v}" for k, v in sorted(headers.items()))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
 def _compute_content_hash(markdown: str | None) -> str:
     """Compute SHA256 hash of markdown content for change tracking.
 
@@ -504,6 +523,7 @@ class ScrapeService:
         parse_pdf: Literal["fast", "auto", "ocr"] | None = "auto",
         engine: str | None = None,
         proxy: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -549,6 +569,13 @@ class ScrapeService:
                     different from the shared browser's proxy, a temporary browser is
                     created so the override is honoured without mutating the shared
                     browser. Overrides the service-level proxy for this request only.
+            headers: Custom HTTP headers to send with every request (e.g.
+                    Authorization, Cookie, X-Api-Key). These are sent by the browser
+                    context for all requests on the page including sub-resources.
+                    Only header KEYS are logged; values are never written to logs or
+                    persisted in cache entries. A hash of the headers is included in
+                    the cache variant so auth'd and anonymous fetches of the same URL
+                    are stored separately.
 
         Returns:
             ScrapeResult with scraped content
@@ -568,6 +595,11 @@ class ScrapeService:
             variant_parts.append(f"device={device}")
         if "screenshot" in formats and not screenshot_full_page:
             variant_parts.append("screenshot_full_page=False")
+        # Include a hash of custom headers so authenticated and anonymous fetches
+        # of the same URL are stored in separate cache entries.  Only the hash is
+        # stored — raw header values are never persisted.
+        if headers:
+            variant_parts.append(f"headers={_compute_headers_hash(headers)}")
         cache_variant: str | None = "|".join(variant_parts) if variant_parts else None
 
         # Get previous cached entry for change tracking comparison (ignores expiry)
@@ -663,6 +695,7 @@ class ScrapeService:
                     wait_until=wait_until,
                     expand_iframes=expand_iframes,
                     device=device,
+                    extra_headers=headers,
                 )
 
                 # Extract metadata
@@ -726,6 +759,7 @@ class ScrapeService:
                             expand_iframes=expand_iframes,
                             device=device,
                             parse_pdf=parse_pdf,
+                            headers=headers,
                         )
                     else:
                         LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint(bot_suspected=True)}")
@@ -786,6 +820,7 @@ class ScrapeService:
                                 device=device,
                                 parse_pdf=parse_pdf,
                                 engine=platform.engine or engine,
+                                headers=headers,
                             )
 
                 # Check for CAPTCHA and solve if enabled
@@ -1036,6 +1071,7 @@ class ScrapeService:
                         expand_iframes=expand_iframes,
                         device=device,
                         parse_pdf=parse_pdf,
+                        headers=headers,
                     )
 
                 # Stage 2: Camoufox also failed → retry with HTTP/2 disabled.
@@ -1074,6 +1110,7 @@ class ScrapeService:
                         expand_iframes=expand_iframes,
                         device=device,
                         parse_pdf=parse_pdf,
+                        headers=headers,
                     )
 
             # Add stealth hint for errors, gated on whether a bot challenge was

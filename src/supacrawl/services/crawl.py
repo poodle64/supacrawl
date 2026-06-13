@@ -13,6 +13,51 @@ from supacrawl.services.map import MapService
 from supacrawl.services.scrape import ScrapeService
 from supacrawl.utils import normalise_url_for_dedupe
 
+
+def _url_origin(url: str) -> str:
+    """Return the scheme+host+port origin of a URL.
+
+    Args:
+        url: URL string.
+
+    Returns:
+        Origin string such as ``"https://example.com"``.
+    """
+    parsed = urlparse(url)
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{parsed.netloc.split(':')[0]}{port}"
+
+
+def _scope_headers_to_origin(
+    headers: dict[str, str] | None,
+    target_url: str,
+    start_origin: str,
+) -> dict[str, str] | None:
+    """Return headers only if target_url shares the crawl's start origin.
+
+    Prevents custom auth headers (e.g. Authorization, Cookie) from being sent
+    to third-party domains when allow_external_links is True.
+
+    Args:
+        headers: Caller-supplied headers dict, or None.
+        target_url: URL about to be scraped.
+        start_origin: Origin of the crawl's starting URL.
+
+    Returns:
+        The headers dict when origins match, None otherwise.
+    """
+    if not headers:
+        return None
+    if _url_origin(target_url) == start_origin:
+        return headers
+    LOGGER.debug(
+        "Dropping custom headers for external-origin URL %s (start origin: %s)",
+        target_url,
+        start_origin,
+    )
+    return None
+
+
 LOGGER = logging.getLogger(__name__)
 
 # Type alias for wait_until options
@@ -75,6 +120,7 @@ class CrawlService:
         cache_dir: Path | None = None,
         change_tracking_modes: list[str] | None = None,
         expand_iframes: str = "same-origin",
+        headers: dict[str, str] | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
 
@@ -112,6 +158,11 @@ class CrawlService:
             expand_iframes: Iframe expansion mode. "none" strips all (legacy),
                 "same-origin" expands same-origin iframes (default),
                 "all" expands all non-blocked iframes.
+            headers: Custom HTTP headers to send with every request (e.g.
+                Authorization, Cookie). Only sent to URLs whose origin matches
+                the start URL's origin; dropped for external-origin URLs when
+                allow_external_links is True. Only header KEYS are logged;
+                values are never written to logs or persisted.
 
         Yields:
             CrawlEvent for each page and progress update
@@ -127,6 +178,7 @@ class CrawlService:
                     browser=self._browser,
                     concurrency=concurrency,
                     wait_until=wait_until,
+                    headers=headers,
                 )
                 self._scrape_service = self._injected_scrape_service or ScrapeService(
                     browser=self._browser,
@@ -148,6 +200,7 @@ class CrawlService:
                     change_tracking_modes=change_tracking_modes,
                     expand_iframes=expand_iframes,
                     engine=engine,
+                    headers=headers,
                 ):
                     yield event
             else:
@@ -164,6 +217,7 @@ class CrawlService:
                         browser=browser,
                         concurrency=concurrency,
                         wait_until=wait_until,
+                        headers=headers,
                     )
                     self._scrape_service = ScrapeService(
                         browser=browser,
@@ -184,6 +238,7 @@ class CrawlService:
                         wait_until=wait_until,
                         change_tracking_modes=change_tracking_modes,
                         expand_iframes=expand_iframes,
+                        headers=headers,
                     ):
                         yield event
 
@@ -210,10 +265,16 @@ class CrawlService:
         change_tracking_modes: list[str] | None = None,
         expand_iframes: str = "same-origin",
         engine: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Core crawl logic. Assumes _browser, _map_service, _scrape_service are set."""
         assert self._map_service is not None
         assert self._scrape_service is not None
+
+        # Derive the start-URL origin so we can scope custom headers to same-origin
+        # URLs only (prevents leaking auth headers to third-party domains during a
+        # crawl with allow_external_links=True).
+        start_origin = _url_origin(url)
 
         # Load resume state
         scraped_urls: set[str] = set()
@@ -316,12 +377,21 @@ class CrawlService:
                 if not scrape_formats:
                     scrape_formats = ["markdown"]
 
+                # Apply same-origin scoping: only send custom headers to URLs
+                # whose origin matches the crawl's start URL.  External-origin
+                # URLs receive no custom headers to prevent auth header leakage.
+                scoped_headers = _scope_headers_to_origin(
+                    headers=headers,
+                    target_url=url_to_scrape,
+                    start_origin=start_origin,
+                )
                 result = await self._scrape_service.scrape(
                     url_to_scrape,
                     formats=scrape_formats,  # type: ignore[arg-type]
                     change_tracking_modes=change_tracking_modes,
                     expand_iframes=expand_iframes,  # type: ignore[arg-type]
                     engine=engine,
+                    headers=scoped_headers,
                 )
 
                 if result.success and result.data:

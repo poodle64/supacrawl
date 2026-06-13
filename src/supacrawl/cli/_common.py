@@ -11,6 +11,7 @@ from rich.logging import RichHandler
 
 console = Console(stderr=True)
 _configured = False
+LOGGER = logging.getLogger(__name__)
 
 
 def _load_env_file(env_path: Path | None = None) -> None:
@@ -72,6 +73,61 @@ def configure_logging(*, verbose: bool = False) -> None:
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
     _configured = True
+
+
+def parse_header_string(raw: str) -> tuple[str, str]:
+    """Parse a single ``Key: Value`` header string into a (name, value) tuple.
+
+    Splits on the first colon only, so values that contain colons (e.g.
+    URLs) are preserved intact.
+
+    Args:
+        raw: Header string in ``Key: Value`` format.
+
+    Returns:
+        Tuple of (header_name, header_value) with leading/trailing whitespace stripped.
+
+    Raises:
+        click.BadParameter: If the string does not contain a colon.
+    """
+    if ":" not in raw:
+        raise click.BadParameter(
+            f"Expected 'Key: Value' format but got: {raw!r}. Example: --header 'Authorization: Bearer mytoken'",
+            param_hint="'--header'",
+        )
+    name, _, value = raw.partition(":")
+    return name.strip(), value.strip()
+
+
+def parse_headers_env() -> dict[str, str] | None:
+    """Parse ``SUPACRAWL_HEADERS`` environment variable into a headers dict.
+
+    The environment variable is a comma-separated list of ``Key: Value`` pairs.
+    Example: ``Authorization: Bearer abc, X-Api-Key: secret``
+
+    Returns:
+        Dict of header names to values, or None if the variable is not set or empty.
+        Header values that contain colons are preserved intact.
+    """
+    raw = os.environ.get("SUPACRAWL_HEADERS", "").strip()
+    if not raw:
+        return None
+
+    headers: dict[str, str] = {}
+    # Split on commas that are followed by a key (word chars then colon).
+    # A simple split on "," works for the common case; values that legitimately
+    # contain commas (rare in HTTP headers) are an edge case not addressed here.
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ":" not in entry:
+            LOGGER.debug("Ignoring malformed SUPACRAWL_HEADERS entry (no colon): %r", entry)
+            continue
+        name, _, value = entry.partition(":")
+        headers[name.strip()] = value.strip()
+
+    return headers or None
 
 
 @click.group(help="Generic website ingestion pipeline.")

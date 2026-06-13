@@ -27,6 +27,7 @@ async def supacrawl_crawl(
     change_tracking_modes: list[str] | None = None,
     expand_iframes: str = "same-origin",
     engine: Literal["playwright", "patchright", "camoufox"] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict:
     """
     Crawl a website starting from URL, discovering and scraping pages.
@@ -80,6 +81,10 @@ async def supacrawl_crawl(
             iframes inline, "all" expands all non-blocked iframes.
         engine: Browser engine to use for this crawl. Overrides server default.
             Options: "playwright", "patchright", "camoufox".
+        headers: Custom HTTP headers sent with every same-origin request (e.g.
+            {"Authorization": "Bearer token"}). Dropped for external-origin URLs
+            when allow_external_links is True. Only header KEYS are logged;
+            values are never persisted or written to logs.
 
     Returns:
         Firecrawl-compatible crawl result:
@@ -158,6 +163,7 @@ async def supacrawl_crawl(
             change_tracking_modes=change_tracking_modes,
             expand_iframes=expand_iframes,
             engine=engine,
+            headers=headers,
         ):
             if event.type == "page" and event.data:
                 pages.append(event.data.model_dump())

@@ -48,6 +48,7 @@ async def supacrawl_scrape(
     device: str | None = None,
     parse_pdf: str = "auto",
     engine: Literal["playwright", "patchright", "camoufox"] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -134,6 +135,9 @@ async def supacrawl_scrape(
             - "patchright": Patched Chromium for better anti-detection
             - "camoufox": Patched Firefox for bypassing Akamai/Cloudflare
             When not set, uses SUPACRAWL_ENGINE or auto-selects based on stealth config.
+        headers: Custom HTTP headers sent with every request on this page (e.g.
+            {"Authorization": "Bearer token", "Cookie": "session=abc"}).
+            Only header KEYS are logged; values are never persisted or written to logs.
 
     Returns:
         Firecrawl-compatible scrape result:
@@ -225,6 +229,7 @@ async def supacrawl_scrape(
             device=resolved_device,
             parse_pdf=resolved_parse_pdf,  # type: ignore[arg-type]
             engine=engine,
+            headers=headers,
         )
 
         response = result.model_dump()

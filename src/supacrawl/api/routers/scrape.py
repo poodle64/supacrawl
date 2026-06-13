@@ -51,6 +51,9 @@ def _build_service_kwargs(req: ScrapeRequest) -> dict[str, Any]:
         "actions": req.actions,
     }
 
+    if req.headers:
+        kwargs["headers"] = req.headers
+
     # maxAge: v2 sends milliseconds; service expects seconds.
     if req.max_age is not None:
         kwargs["max_age"] = req.max_age // 1000

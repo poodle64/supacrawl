@@ -4,7 +4,7 @@ from pathlib import Path
 
 import click
 
-from supacrawl.cli._common import app
+from supacrawl.cli._common import app, parse_header_string, parse_headers_env
 
 
 @app.command("map", help="Discover URLs from a website.")
@@ -100,6 +100,18 @@ from supacrawl.cli._common import app
     default=False,
     help="Bypass cached results and perform fresh URL discovery.",
 )
+@click.option(
+    "--header",
+    "-H",
+    "headers",
+    multiple=True,
+    metavar="KEY: VALUE",
+    help=(
+        "Custom HTTP header in 'Key: Value' format. Repeatable. "
+        "Also reads SUPACRAWL_HEADERS env (comma-separated 'Key: Value' pairs). "
+        "Example: --header 'Authorization: Bearer token'"
+    ),
+)
 def map_cmd(
     url: str,
     limit: int,
@@ -116,6 +128,7 @@ def map_cmd(
     wait_until: str | None,
     engine: str | None,
     ignore_cache: bool,
+    headers: tuple[str, ...],
 ) -> None:
     """Map a website to discover all URLs.
 
@@ -130,6 +143,15 @@ def map_cmd(
 
     from supacrawl.services.map import MapService
 
+    # Parse --header flags; overlay with SUPACRAWL_HEADERS env default
+    resolved_headers: dict[str, str] | None = parse_headers_env()
+    if headers:
+        if resolved_headers is None:
+            resolved_headers = {}
+        for raw in headers:
+            name, value = parse_header_string(raw)
+            resolved_headers[name] = value
+
     async def run():
         service = MapService(
             stealth=stealth,
@@ -137,6 +159,7 @@ def map_cmd(
             concurrency=concurrency,
             wait_until=wait_until,  # type: ignore[arg-type]
             engine=engine,
+            headers=resolved_headers,
         )
         result = None
         last_progress = ""

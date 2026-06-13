@@ -4,7 +4,7 @@ from pathlib import Path
 
 import click
 
-from supacrawl.cli._common import app
+from supacrawl.cli._common import app, parse_header_string, parse_headers_env
 from supacrawl.models import DEFAULT_MOBILE_DEVICE
 
 
@@ -188,6 +188,18 @@ from supacrawl.models import DEFAULT_MOBILE_DEVICE
     help="List available device presets and exit.",
 )
 @click.option(
+    "--header",
+    "-H",
+    "headers",
+    multiple=True,
+    metavar="KEY: VALUE",
+    help=(
+        "Custom HTTP header in 'Key: Value' format. Repeatable. "
+        "Also reads SUPACRAWL_HEADERS env (comma-separated 'Key: Value' pairs). "
+        "Example: --header 'Authorization: Bearer token'"
+    ),
+)
+@click.option(
     "--parse-pdf",
     type=click.Choice(["fast", "auto", "ocr", "off"], case_sensitive=False),
     default="auto",
@@ -222,6 +234,7 @@ def scrape_url(
     mobile: bool,
     device: str | None,
     list_devices: bool,
+    headers: tuple[str, ...],
     parse_pdf: str,
 ) -> None:
     """Scrape a single URL and extract content.
@@ -380,6 +393,15 @@ def scrape_url(
             err=True,
         )
 
+    # Parse --header flags into a dict; overlay with SUPACRAWL_HEADERS env default
+    resolved_headers: dict[str, str] | None = parse_headers_env()
+    if headers:
+        if resolved_headers is None:
+            resolved_headers = {}
+        for raw in headers:
+            name, value = parse_header_string(raw)
+            resolved_headers[name] = value
+
     async def run():
         service = ScrapeService(
             locale_config=locale_config,
@@ -407,6 +429,7 @@ def scrape_url(
             expand_iframes=expand_iframes,  # type: ignore[arg-type]
             device=resolved_device,
             parse_pdf=parse_pdf if parse_pdf != "off" else None,  # type: ignore[arg-type]
+            headers=resolved_headers,
         )
         return result
 

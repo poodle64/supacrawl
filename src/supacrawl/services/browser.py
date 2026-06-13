@@ -521,7 +521,11 @@ class BrowserManager:
             raise RuntimeError("Playwright not started. Call start() first.")
         return sorted(self._playwright.devices.keys())
 
-    def _build_context_options(self, device: str | None = None) -> dict[str, Any]:
+    def _build_context_options(
+        self,
+        device: str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Build browser context options including locale and device settings.
 
         When no explicit configuration is provided, returns minimal options
@@ -531,6 +535,9 @@ class BrowserManager:
         Args:
             device: Optional Playwright device name for mobile emulation
                 (e.g. "iPhone 14", "Pixel 7").
+            extra_headers: Optional caller-supplied HTTP headers to send with
+                every request in this context. Values win over any locale-derived
+                Accept-Language header when keys collide.
 
         Returns:
             Dictionary of options for browser.new_context()
@@ -549,6 +556,10 @@ class BrowserManager:
         if self.user_agent:
             options["user_agent"] = self.user_agent
 
+        # Build extra_http_headers: start from locale defaults, then overlay caller headers.
+        # Caller values win so that e.g. an explicit Accept-Language overrides the locale.
+        merged_headers: dict[str, str] = {}
+
         # Apply locale config if explicitly provided
         if self.locale_config is not None:
             locale = self.locale_config.get_language()
@@ -557,9 +568,7 @@ class BrowserManager:
 
             options["locale"] = locale
             options["timezone_id"] = timezone
-            options["extra_http_headers"] = {
-                "Accept-Language": accept_lang,
-            }
+            merged_headers["Accept-Language"] = accept_lang
             LOGGER.debug(
                 "Using locale config: language=%s, timezone=%s",
                 locale,
@@ -575,6 +584,15 @@ class BrowserManager:
                 options["locale"] = locale_env
             if timezone_env:
                 options["timezone_id"] = timezone_env
+
+        # Overlay caller-supplied headers — their values take precedence.
+        # Only header KEYS are logged; values are never emitted to logs.
+        if extra_headers:
+            merged_headers.update(extra_headers)
+            LOGGER.debug("Applying %d custom request header(s): %s", len(extra_headers), list(extra_headers.keys()))
+
+        if merged_headers:
+            options["extra_http_headers"] = merged_headers
 
         return options
 
@@ -745,6 +763,7 @@ class BrowserManager:
         wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] | None = None,
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
         device: str | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> PageContent:
         """Fetch a page with browser rendering.
 
@@ -764,6 +783,9 @@ class BrowserManager:
             device: Playwright device name for mobile emulation (e.g. "iPhone 14",
                 "Pixel 7"). Sets viewport, user agent, device scale factor, and
                 touch support. Not supported with the Camoufox engine.
+            extra_headers: Custom HTTP headers to send with every request in this
+                context (e.g. Authorization, Cookie, X-Api-Key). Only header KEYS
+                are logged; values are never written to logs.
 
         Returns:
             PageContent with HTML, metadata, and optional screenshot/PDF
@@ -790,7 +812,7 @@ class BrowserManager:
         try:
             if owns_context:
                 # Playwright/Patchright: create fresh context for isolation
-                context_options = self._build_context_options(device=device)
+                context_options = self._build_context_options(device=device, extra_headers=extra_headers)
                 context = await cast("Browser", self._browser).new_context(**context_options)
 
                 # Inject stealth scripts at context level so all pages inherit them.
@@ -977,6 +999,7 @@ class BrowserManager:
         self,
         url: str,
         wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> list[str]:
         """Extract all links from a rendered page.
 
@@ -984,6 +1007,8 @@ class BrowserManager:
             url: URL to fetch and extract links from
             wait_until: Page load strategy. Options: commit, domcontentloaded (default),
                 load, networkidle. Falls back to SUPACRAWL_WAIT_UNTIL env var if None.
+            extra_headers: Custom HTTP headers to send with every request in this
+                context. Only header KEYS are logged; values are never written to logs.
 
         Returns:
             List of absolute URLs found on the page
@@ -1000,7 +1025,7 @@ class BrowserManager:
 
         try:
             if owns_context:
-                context_options = self._build_context_options()
+                context_options = self._build_context_options(extra_headers=extra_headers)
                 context = await cast("Browser", self._browser).new_context(**context_options)
 
                 if self.engine == "playwright":
