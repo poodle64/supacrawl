@@ -221,9 +221,9 @@ class TestScrapeServiceCacheVariant:
         from supacrawl.cache import CacheManager
 
         cm = CacheManager.__new__(CacheManager)
-        cm.cache_dir = None
-        cm.pages_dir = None
-        cm.index_path = None
+        cm.cache_dir = None  # type: ignore[assignment]  # intentional: bypasses __init__ for cache-key unit test
+        cm.pages_dir = None  # type: ignore[assignment]  # intentional: bypasses __init__ for cache-key unit test
+        cm.index_path = None  # type: ignore[assignment]  # intentional: bypasses __init__ for cache-key unit test
 
         # Same URL, different variants should produce different keys
         key_desktop = cm._cache_key("https://example.com")
@@ -240,9 +240,9 @@ class TestScrapeServiceCacheVariant:
         from supacrawl.cache import CacheManager
 
         cm = CacheManager.__new__(CacheManager)
-        cm.cache_dir = None
-        cm.pages_dir = None
-        cm.index_path = None
+        cm.cache_dir = None  # type: ignore[assignment]  # intentional: bypasses __init__ for cache-key unit test
+        cm.pages_dir = None  # type: ignore[assignment]  # intentional: bypasses __init__ for cache-key unit test
+        cm.index_path = None  # type: ignore[assignment]  # intentional: bypasses __init__ for cache-key unit test
 
         key_combined = cm._cache_key(
             "https://example.com",

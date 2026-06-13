@@ -121,6 +121,7 @@ ignore = [
 [tool.mypy]
 python_version = "3.14"
 plugins = ["pydantic.mypy"]
+check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = "fpdf.*"

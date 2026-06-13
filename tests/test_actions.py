@@ -1,5 +1,6 @@
 """Tests for page actions service."""
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -123,7 +124,9 @@ class TestActionRunner:
         results = await runner.run(mock_page, actions)
 
         assert len(results) == 2
+        assert results[0].scrape is not None
         assert results[0].scrape.html == "<html><body>Content 1</body></html>"
+        assert results[1].scrape is not None
         assert results[1].scrape.html == "<html><body>Content 2</body></html>"
 
     @pytest.mark.asyncio
@@ -147,10 +150,12 @@ class TestActionRunner:
 
         assert len(results) == 3
         assert results[0].action_type == "scrape"
+        assert results[0].scrape is not None
         assert results[0].scrape.html == "<html><body>Before scroll</body></html>"
         assert results[1].action_type == "scroll"
         assert results[1].success
         assert results[2].action_type == "scrape"
+        assert results[2].scrape is not None
         assert results[2].scrape.html == "<html><body>After scroll</body></html>"
 
     @pytest.mark.asyncio
@@ -166,6 +171,7 @@ class TestActionRunner:
         assert len(results) == 1
         assert not results[0].success
         assert results[0].action_type == "scrape"
+        assert results[0].error is not None
         assert "Scrape failed" in results[0].error
 
     @pytest.mark.asyncio
@@ -220,7 +226,7 @@ class TestParseActions:
 
     def test_parse_multiple_actions_with_scrape(self):
         """Test parsing multiple actions including scrape."""
-        actions_json = [
+        actions_json: list[dict[str, Any]] = [
             {"type": "scroll", "direction": "down"},
             {"type": "wait", "milliseconds": 2000},
             {"type": "scrape"},

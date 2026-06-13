@@ -476,8 +476,8 @@ class TestProviderChain:
     async def test_close_closes_all_providers(self):
         p1 = MockProvider("brave")
         p2 = MockProvider("tavily")
-        p1.close = AsyncMock()
-        p2.close = AsyncMock()
+        p1.close = AsyncMock()  # type: ignore[method-assign]  # intentional: mock
+        p2.close = AsyncMock()  # type: ignore[method-assign]  # intentional: mock
         chain = ProviderChain(providers=[p1, p2])
 
         await chain.close()
@@ -567,7 +567,7 @@ class TestSearchServiceMultiProvider:
         mock_results = [
             SearchResultItem(url="https://tavily.com/1", title="Fallback result", source_type=SearchSourceType.WEB)
         ]
-        service._chain.search = AsyncMock(return_value=mock_results)
+        service._chain.search = AsyncMock(return_value=mock_results)  # type: ignore[method-assign]  # intentional: mock
 
         result = await service.search("test query", limit=5)
         assert result.success

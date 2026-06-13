@@ -252,7 +252,7 @@ class TestTableToMarkdown:
     """Test pdfplumber table conversion to markdown."""
 
     def test_simple_table(self):
-        table = [
+        table: list[list[str | None]] = [
             ["Name", "Age", "City"],
             ["Alice", "30", "Sydney"],
             ["Bob", "25", "Melbourne"],
@@ -274,7 +274,7 @@ class TestTableToMarkdown:
         assert "|  | Value |" in result
 
     def test_table_with_pipe_in_cell(self):
-        table = [
+        table: list[list[str | None]] = [
             ["Name", "Description"],
             ["Test", "Has | pipe"],
         ]
@@ -597,6 +597,7 @@ class TestScrapeServicePdfRouting:
             )
 
             assert result.success is True
+            assert result.data is not None
             assert result.data.metadata.title == "Test Document"
             assert result.data.metadata.pdf_author == "Test Author"
             assert result.data.metadata.pdf_page_count == 3
@@ -679,4 +680,5 @@ class TestPdfCacheVariant:
                 )
 
                 assert result2.success is True
+                assert result2.data is not None
                 assert result2.data.metadata.cache_hit is True

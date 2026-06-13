@@ -242,7 +242,7 @@ class TestExtractTools:
         def exploding_validate(urls, *args, **kwargs):
             raise RuntimeError("Simulated infrastructure failure")
 
-        extract_module.validate_urls = exploding_validate
+        extract_module.validate_urls = exploding_validate  # type: ignore[assignment]  # intentional: mock
         try:
             result = await supacrawl_extract(
                 api_client=mock_api_client,

@@ -75,7 +75,7 @@ class TestToolDiscovery:
         server = SupacrawlServer()
 
         with pytest.raises(RuntimeError, match="API client must be initialized"):
-            register_all_tools(server.mcp, None)
+            register_all_tools(server.mcp, None)  # type: ignore[arg-type]  # intentional: testing None rejection
 
     def test_resources_registered(self, mock_api_client):
         """Resources should be registered successfully."""

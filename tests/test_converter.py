@@ -1,6 +1,6 @@
 """Tests for markdown converter."""
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from supacrawl.services.converter import (
     SITE_PREPROCESSORS,
@@ -424,8 +424,12 @@ class TestMkDocsMaterialPreprocessing:
         # Headerlinks should be removed
         assert soup.select("a.headerlink") == []
         # But headings should remain
-        assert soup.find("h1").get_text(strip=True) == "Title"
-        assert soup.find("h2").get_text(strip=True) == "Section"
+        h1 = soup.find("h1")
+        h2 = soup.find("h2")
+        assert h1 is not None
+        assert h2 is not None
+        assert h1.get_text(strip=True) == "Title"
+        assert h2.get_text(strip=True) == "Section"
 
     def test_converts_highlighttable_to_code_block(self):
         """Test that line-numbered code tables are converted to proper code blocks."""
@@ -797,8 +801,9 @@ class TestCssCounterListsPreprocessing:
         assert lis[0].find("strong") is not None
         assert "bold" in lis[0].get_text()
         # Should preserve anchor tag
-        assert lis[1].find("a") is not None
-        assert lis[1].find("a").get("href") == "/link"
+        anchor = lis[1].find("a")
+        assert anchor is not None
+        assert anchor.get("href") == "/link"
 
     def test_handles_empty_list_items(self):
         """Test that empty list items are handled gracefully."""
@@ -1160,6 +1165,7 @@ class TestWordPressPreprocessor:
 
         # Should be the first element in main
         first_child = list(main.children)[0]
+        assert isinstance(first_child, Tag)
         assert first_child.name == "h1"
 
     def test_preprocess_wordpress_removes_rating_forms(self):
@@ -1204,11 +1210,11 @@ class TestWordPressPreprocessor:
         _preprocess_wordpress(soup)
 
         # SVG placeholder should be removed
-        svg_imgs = [img for img in soup.find_all("img") if img.get("src", "").startswith("data:image/svg")]
+        svg_imgs = [img for img in soup.find_all("img") if str(img.get("src", "")).startswith("data:image/svg")]
         assert len(svg_imgs) == 0
 
         # Real image should remain
-        real_imgs = [img for img in soup.find_all("img") if "example.com" in img.get("src", "")]
+        real_imgs = [img for img in soup.find_all("img") if "example.com" in str(img.get("src", ""))]
         assert len(real_imgs) == 1
 
         # Main content should remain

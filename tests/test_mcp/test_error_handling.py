@@ -38,7 +38,7 @@ class TestValidationErrors:
             await supacrawl_search(
                 api_client=mock_api_client,
                 ctx=MagicMock(),
-                query=None,
+                query=None,  # type: ignore[arg-type]  # intentional: testing None rejection
             )
 
         assert "query" in str(exc_info.value).lower()
@@ -179,7 +179,7 @@ class TestExceptionAttributes:
             await supacrawl_search(
                 api_client=mock_api_client,
                 ctx=MagicMock(),
-                query=None,
+                query=None,  # type: ignore[arg-type]  # intentional: testing None rejection
             )
 
         assert exc_info.value.field == "query"
@@ -195,7 +195,7 @@ class TestExceptionAttributes:
             await supacrawl_search(
                 api_client=mock_api_client,
                 ctx=MagicMock(),
-                query=None,
+                query=None,  # type: ignore[arg-type]  # intentional: testing None rejection
             )
 
         assert exc_info.value.value is None
