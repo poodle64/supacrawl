@@ -1,9 +1,6 @@
 <div align="center">
 
-[![Python](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)](https://python.org)
-[![Playwright](https://img.shields.io/badge/Playwright-2ea44f?logo=playwright&logoColor=white)](https://playwright.dev)
-[![MCP](https://img.shields.io/badge/MCP-Compatible-8A2BE2)](https://modelcontextprotocol.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.14+-3776ab?logo=python&logoColor=white)](https://python.org) [![Playwright](https://img.shields.io/badge/Playwright-2ea44f?logo=playwright&logoColor=white)](https://playwright.dev) [![MCP](https://img.shields.io/badge/MCP-Compatible-8A2BE2)](https://modelcontextprotocol.io) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <h1>Supacrawl</h1>
 
@@ -105,7 +102,7 @@ playwright install chromium
 | `supacrawl_diagnose` | Diagnose scraping issues (CDN, bot detection, etc.) |
 | `supacrawl_health`   | Server health check and capability report           |
 
-The CLI's `agent` command is intentionally omitted. When used via MCP, your LLM orchestrates the primitives directly; it *is* the agent. For standalone agentic workflows, use `supacrawl agent` from the CLI.
+The CLI's `agent` command is intentionally omitted. When used via MCP, your LLM orchestrates the primitives directly; it _is_ the agent. For standalone agentic workflows, use `supacrawl agent` from the CLI.
 
 The server also exposes MCP **resources** (format references, search providers, capabilities) and **prompts** (workflow guides for scraping, extraction, research, and error handling).
 
@@ -166,18 +163,18 @@ curl -X POST http://localhost:8308/scrape \
 
 ### Endpoints
 
-| Endpoint | Method | Description |
-| --- | --- | --- |
-| `/scrape` | POST | Scrape a single URL (synchronous) |
-| `/crawl` | POST | Start a crawl job (async, returns job ID) |
-| `/crawl/{id}` | GET | Poll crawl job status and results |
-| `/map` | POST | Discover URLs on a site (synchronous) |
-| `/search` | POST | Web search (synchronous) |
-| `/extract` | POST | LLM extraction (async, returns job ID) |
-| `/batch/scrape` | POST | Batch scrape multiple URLs (async) |
-| `/supacrawl/health` | GET | Server health and version |
-| `/supacrawl/diagnose` | POST | Pre-scrape diagnostics |
-| `/supacrawl/summary` | POST | Summarise a page |
+| Endpoint              | Method | Description                               |
+| --------------------- | ------ | ----------------------------------------- |
+| `/scrape`             | POST   | Scrape a single URL (synchronous)         |
+| `/crawl`              | POST   | Start a crawl job (async, returns job ID) |
+| `/crawl/{id}`         | GET    | Poll crawl job status and results         |
+| `/map`                | POST   | Discover URLs on a site (synchronous)     |
+| `/search`             | POST   | Web search (synchronous)                  |
+| `/extract`            | POST   | LLM extraction (async, returns job ID)    |
+| `/batch/scrape`       | POST   | Batch scrape multiple URLs (async)        |
+| `/supacrawl/health`   | GET    | Server health and version                 |
+| `/supacrawl/diagnose` | POST   | Pre-scrape diagnostics                    |
+| `/supacrawl/summary`  | POST   | Summarise a page                          |
 
 Authentication is optional. Set `SUPACRAWL_API_KEY` to require a Bearer token; leave it unset for open access.
 
@@ -185,16 +182,16 @@ See [docs/api-reference.md](docs/api-reference.md) for full endpoint documentati
 
 ## Commands
 
-| Command             | Description                                     |
-| ------------------- | ----------------------------------------------- |
-| `scrape <url>`      | Scrape single page to markdown                  |
-| `crawl <url>`       | Crawl website, save to directory                |
-| `map <url>`         | Discover URLs from sitemap/links                |
-| `search <query>`    | Web search with multi-provider fallback         |
-| `llm-extract <url>` | Extract structured data with LLM                |
-| `agent <prompt>`    | Autonomous agent for complex tasks              |
-| `serve`             | Start the REST API server                       |
-| `cache`             | Cache management (clear, stats, prune)          |
+| Command             | Description                             |
+| ------------------- | --------------------------------------- |
+| `scrape <url>`      | Scrape single page to markdown          |
+| `crawl <url>`       | Crawl website, save to directory        |
+| `map <url>`         | Discover URLs from sitemap/links        |
+| `search <query>`    | Web search with multi-provider fallback |
+| `llm-extract <url>` | Extract structured data with LLM        |
+| `agent <prompt>`    | Autonomous agent for complex tasks      |
+| `serve`             | Start the REST API server               |
+| `cache`             | Cache management (clear, stats, prune)  |
 
 Run `supacrawl <command> --help` for options.
 
@@ -239,15 +236,15 @@ Required for `llm-extract`, `agent`, and `--summarize`:
 
 Supacrawl supports multiple search providers with automatic fallback. If the primary provider hits a rate limit or quota, the next provider in the chain is tried automatically.
 
-| Variable                       | Default | Description                                                                                      |
-| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------ |
-| `BRAVE_API_KEY`                | -       | Brave Search API key (recommended). Free tier: ~1,000 searches/month. Get one at [brave.com/search/api](https://brave.com/search/api/) |
-| `TAVILY_API_KEY`               | -       | [Tavily](https://tavily.com/) API key. Supports web and news search                             |
-| `SERPER_API_KEY`               | -       | [Serper.dev](https://serper.dev/) API key. Google Search results                                 |
-| `SERPAPI_API_KEY`              | -       | [SerpAPI](https://serpapi.com/) API key. Google Search results                                   |
-| `EXA_API_KEY`                  | -       | [Exa.ai](https://exa.ai/) API key. Neural search for web and news                               |
-| `SUPACRAWL_SEARCH_PROVIDERS`   | `brave` | Comma-separated provider chain with fallback order (e.g., `brave,tavily,serper`)                 |
-| `SUPACRAWL_SEARCH_RATE_LIMIT`  | -       | Override default rate limit (requests/second). Provider defaults: Brave 1/s, DuckDuckGo 0.5/s   |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `BRAVE_API_KEY` | - | Brave Search API key (recommended). Free tier: ~1,000 searches/month. Get one at [brave.com/search/api](https://brave.com/search/api/) |
+| `TAVILY_API_KEY` | - | [Tavily](https://tavily.com/) API key. Supports web and news search |
+| `SERPER_API_KEY` | - | [Serper.dev](https://serper.dev/) API key. Google Search results |
+| `SERPAPI_API_KEY` | - | [SerpAPI](https://serpapi.com/) API key. Google Search results |
+| `EXA_API_KEY` | - | [Exa.ai](https://exa.ai/) API key. Neural search for web and news |
+| `SUPACRAWL_SEARCH_PROVIDERS` | `brave` | Comma-separated provider chain with fallback order (e.g., `brave,tavily,serper`) |
+| `SUPACRAWL_SEARCH_RATE_LIMIT` | - | Override default rate limit (requests/second). Provider defaults: Brave 1/s, DuckDuckGo 0.5/s |
 
 Providers are tried in order. Set API keys for each provider you want to use; providers without keys are skipped. If no keys are configured, DuckDuckGo is used as a last-resort fallback.
 
@@ -307,9 +304,8 @@ Skip `playwright install`; your system already provides the binaries.
 ## Development
 
 ```bash
-# From source
-micromamba env create -f environment.yaml && micromamba activate supacrawl
-pip install -e .[dev]
+# From source (direnv runs `uv sync --all-extras` automatically on cd)
+uv sync --all-extras
 playwright install chromium
 
 # Quality checks
@@ -341,19 +337,19 @@ Supacrawl does one thing well: get clean markdown from the web.
 
 ## Comparison
 
-|                          | Supacrawl                           | crawl4ai                 | Firecrawl (self-hosted)        | Firecrawl (cloud) |
-| ------------------------ | ----------------------------------- | ------------------------ | ------------------------------ | ----------------- |
-| **Infrastructure**       | `pip install`                       | `pip install`            | Docker + PostgreSQL + Redis    | Hosted API        |
-| **MCP Server**           | Built-in (`[mcp]` extra)            | Not included             | Not included                   | Yes               |
-| **Web Search**           | Built-in (6 providers with fallback)| Not included             | Via SearXNG                    | Yes               |
-| **LLM Providers**        | Ollama, OpenAI, Anthropic           | Any via LiteLLM          | OpenAI (Ollama experimental)   | OpenAI            |
-| **Intelligent Crawling** | Yes (agent command)                 | Yes (adaptive crawling)  | No                             | Yes (/agent)      |
-| **Stealth/Anti-bot**     | Yes (3-tier: Patchright + Camoufox) | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
-| **PDF Parsing**          | Yes (text + OCR)                    | No                       | No                             | No                |
-| **CAPTCHA Solving**      | Yes (2Captcha)                      | Optional (CapSolver)     | No                             | No                |
-| **Caching**              | Local files                         | Built-in                 | PostgreSQL                     | Managed           |
-| **Licence**              | MIT                                 | Apache-2.0               | AGPL-3.0                       | AGPL-3.0          |
-| **Cost**                 | Free                                | Free                     | Free                           | Pay-per-use       |
+|  | Supacrawl | crawl4ai | Firecrawl (self-hosted) | Firecrawl (cloud) |
+| --- | --- | --- | --- | --- |
+| **Infrastructure** | `pip install` | `pip install` | Docker + PostgreSQL + Redis | Hosted API |
+| **MCP Server** | Built-in (`[mcp]` extra) | Not included | Not included | Yes |
+| **Web Search** | Built-in (6 providers with fallback) | Not included | Via SearXNG | Yes |
+| **LLM Providers** | Ollama, OpenAI, Anthropic | Any via LiteLLM | OpenAI (Ollama experimental) | OpenAI |
+| **Intelligent Crawling** | Yes (agent command) | Yes (adaptive crawling) | No | Yes (/agent) |
+| **Stealth/Anti-bot** | Yes (3-tier: Patchright + Camoufox) | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
+| **PDF Parsing** | Yes (text + OCR) | No | No | No |
+| **CAPTCHA Solving** | Yes (2Captcha) | Optional (CapSolver) | No | No |
+| **Caching** | Local files | Built-in | PostgreSQL | Managed |
+| **Licence** | MIT | Apache-2.0 | AGPL-3.0 | AGPL-3.0 |
+| **Cost** | Free | Free | Free | Pay-per-use |
 
 **Supacrawl** is minimal and focused. **crawl4ai** is a feature-rich framework with adaptive crawling and chunking. **Firecrawl** is an API server for applications needing a scraping backend.
 

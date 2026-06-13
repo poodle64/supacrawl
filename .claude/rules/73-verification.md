@@ -1,5 +1,5 @@
 ---
-paths: "**/*"
+paths: '**/*'
 ---
 
 # Verification
@@ -37,7 +37,7 @@ Before considering supacrawl changes complete:
 - Verify Playwright browsers are installed (`playwright-setup`)
 - Verify required environment variables are documented
 - Verify optional environment variables have defaults
-- Test scraper initialization with dependency injection (for testing)
+- Test scraper initialisation with dependency injection (for testing)
 
 ## LLM Provider Verification
 
@@ -91,7 +91,7 @@ Before considering supacrawl changes complete:
 
 Supacrawl verification typically includes:
 
-- **Runbook**: Provide copy-paste commands for conda activation, installing dependencies, running quality checks, testing providers
+- **Runbook**: Provide copy-paste commands for entering the direnv-managed uv environment, installing dependencies, running quality checks, testing providers
 - **Scraper testing**: Verify Playwright scraper executes correctly
 - **LLM testing**: Verify LLM providers connect and extract correctly
 - **Cache testing**: Verify cache operations work correctly
@@ -105,7 +105,7 @@ Supacrawl verification typically includes:
 
 - Verify Playwright installation (`playwright-doctor`)
 - Verify Playwright browsers are installed (`playwright-setup`)
-- Verify scraper initializes correctly
+- Verify scraper initialises correctly
 - Check scraper logs for correlation IDs
 
 ### LLM Provider Issues
@@ -124,6 +124,6 @@ Supacrawl verification typically includes:
 ## References
 
 - `.claude/rules/master/73-verification.md` - Universal verification principles
-- `.claude/rules/20-development-environment.md` - Conda environment and setup
+- `.claude/rules/20-development-environment.md` - uv environment and setup
 - `.claude/rules/50-scraper-provider-patterns.md` - Playwright scraper patterns to verify
 - `.claude/rules/71-testing-patterns.md` - Testing tools and patterns

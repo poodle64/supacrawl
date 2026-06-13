@@ -1,5 +1,5 @@
 ---
-paths: "**/*"
+paths: '**/*'
 ---
 
 # Supacrawl Project Foundations
@@ -33,7 +33,7 @@ This rule documents project-specific practice and relies on master rules for req
 
 ### Technology Stack
 
-- **Language**: Python 3.12+
+- **Language**: Python 3.14+
 - **CLI Framework**: Click
 - **Data Validation**: Pydantic v2 only
 - **Dependencies**: `pyproject.toml` (PEP 621) - NOT requirements.txt
@@ -71,7 +71,7 @@ Supacrawl is designed around **zero-infrastructure local execution**.
 
 ### Technology Constraints
 
-- Python 3.12+
+- Python 3.14+
 - Click for CLI
 - Pydantic v2 only
 - `pyproject.toml` for dependencies (NOT requirements.txt)

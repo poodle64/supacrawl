@@ -1,17 +1,17 @@
 ---
-paths: "**/*"
+paths: '**/*'
 ---
 
 # Development Environment
 
-This rule extends `.claude/rules/master/20-development-environment.md` with supacrawl-specific patterns. Universal micromamba environment and environment variable patterns are covered in the master rule.
+This rule extends `rules-library/python/20-python-development-environment.md` with supacrawl-specific patterns. Universal uv environment and environment variable patterns are covered in the master rule.
 
-## Micromamba Environment
+## uv Environment
 
-- Use `supacrawl` micromamba environment (see `.claude/rules/master/20-development-environment.md` for activation requirements)
-- Activate micromamba environment before running CLI commands, tests, or installing packages
-- Install all dependencies using `micromamba env create -f environment.yaml` (includes dev, stealth, captcha extras)
-- Use micromamba environment for all development work (ruff, mypy, pytest)
+- Use the direnv-managed uv `.venv` at the project root (Python 3.14)
+- Run `uv sync --all-extras` to install all dependencies including stealth and captcha extras; direnv runs this automatically on `cd`
+- Use `uv run` or the activated `.venv` for ruff, mypy, and pytest; never use micromamba, conda, or bare pip directly
+- Add or remove dependencies with `uv add` / `uv remove` (edits `pyproject.toml` and re-locks); dev-only packages go in the `dev` dependency group
 
 ## Directory Structure
 
@@ -36,5 +36,5 @@ This rule extends `.claude/rules/master/20-development-environment.md` with supa
 
 ## References
 
-- `.claude/rules/master/20-development-environment.md` - Universal development environment mechanics
+- `rules-library/python/20-python-development-environment.md` - Universal uv environment mechanics
 - `.claude/rules/50-scraper-provider-patterns.md` - Playwright scraper patterns

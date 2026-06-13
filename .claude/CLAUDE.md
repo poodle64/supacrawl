@@ -4,13 +4,12 @@ Zero-infrastructure CLI web scraper with LLM extraction.
 
 ## Dev Environment
 
-- Environment: `supacrawl` (micromamba)
+- Environment: uv-managed `.venv` (Python 3.14), activated via direnv; manual sync: `uv sync --all-extras`
 - CLI tool: `supacrawl` command
-- Python: 3.12
 
 ## Stack
 
-- **Backend**: Python 3.12, Click (CLI), Pydantic, asyncio
+- **Backend**: Python 3.14, Click (CLI), Pydantic, asyncio
 - **REST API**: FastAPI + uvicorn (optional, `supacrawl[api]`), port 8308
 - **Scraping**: Playwright, httpx, BeautifulSoup, markdownify
 - **LLM**: Ollama, OpenAI, Anthropic (configurable providers)
