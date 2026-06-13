@@ -29,6 +29,7 @@ class TestCompletePipeline:
             scrape_result = await scrape_service.scrape(url)
 
             assert scrape_result.success
+            assert scrape_result.data is not None
             assert scrape_result.data.markdown
 
     @pytest.mark.asyncio
@@ -57,6 +58,7 @@ class TestCompletePipeline:
             result = await service.scrape("https://example.com", formats=["markdown", "html", "rawHtml"])
 
         assert result.success
+        assert result.data is not None
         assert result.data.markdown is not None
         assert result.data.html is not None
         assert result.data.raw_html is not None
@@ -94,7 +96,7 @@ class TestCompletePipeline:
             limit=2,
         ):
             if event.type == "page":
-                pages.append(event.page)
+                pages.append(event.data)
 
         # Should have crawled some pages
         # May be 0 if implementation doesn't emit page events

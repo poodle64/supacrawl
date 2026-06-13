@@ -76,9 +76,9 @@ repos:
     hooks:
       - id: mypy
         name: '🐍 python · Type check with mypy'
-        additional_dependencies: [types-pytz, types-aiofiles, types-PyYAML]
+        additional_dependencies: [types-pytz, types-aiofiles, types-PyYAML, 'pydantic>=2.12.5,<3']
         files: ^.*\.py$
-        exclude: ^(tests/|.*/tests/|.*/migrations/|.*/__pycache__/|.*/cache/)
+        exclude: ^(.*/migrations/|.*/__pycache__/|.*/cache/)
 
   # ---------------------------------------------------------------------------- #
   #                              📦 uv Lockfile                                  #

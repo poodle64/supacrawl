@@ -23,6 +23,7 @@ class TestOutputFormat:
         assert hasattr(result, "data")
 
         if result.success:
+            assert result.data is not None
             assert hasattr(result.data, "markdown")
             assert hasattr(result.data, "metadata")
             assert hasattr(result.data.metadata, "title")
@@ -33,7 +34,7 @@ class TestOutputFormat:
         """Test MapResult has expected structure."""
         async with BrowserManager() as browser:
             service = MapService(browser=browser)
-            result = await service.map("https://example.com", limit=5)
+            result = await service.map_all("https://example.com", limit=5)
 
         # Expected structure
         assert hasattr(result, "success")
@@ -53,6 +54,8 @@ class TestOutputFormat:
             result = await service.scrape("https://example.com")
 
         assert result.success
+        assert result.data is not None
+        assert result.data.markdown is not None
         markdown = result.data.markdown
 
         # Basic quality checks
@@ -70,6 +73,7 @@ class TestOutputFormat:
             result = await service.scrape("https://example.com")
 
         assert result.success
+        assert result.data is not None
         metadata = result.data.metadata
 
         # Metadata fields
@@ -88,6 +92,7 @@ class TestOutputFormat:
             result = await service.scrape("https://example.com", formats=["html", "markdown"])
 
         assert result.success
+        assert result.data is not None
         assert result.data.markdown is not None
         assert result.data.html is not None
         assert len(result.data.html) > 0
@@ -100,6 +105,7 @@ class TestOutputFormat:
             result = await service.scrape("https://example.com", formats=["rawHtml"])
 
         assert result.success
+        assert result.data is not None
         assert result.data.raw_html is not None
         assert len(result.data.raw_html) > 0
         # Raw HTML should have HTML structure
@@ -113,6 +119,7 @@ class TestOutputFormat:
             result = await service.scrape("https://example.com", formats=["links"])
 
         assert result.success
+        assert result.data is not None
         # Links may or may not be present
         if result.data.links is not None:
             assert isinstance(result.data.links, list)

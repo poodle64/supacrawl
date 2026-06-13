@@ -80,6 +80,7 @@ class TestErrorHandling:
         assert hasattr(result, "success")
         # If it succeeds, it should have some content
         if result.success:
+            assert result.data is not None
             assert result.data.markdown is not None
         else:
             assert result.error is not None

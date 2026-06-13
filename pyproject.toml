@@ -116,6 +116,11 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.14"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "fpdf.*"
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "twocaptcha.*"

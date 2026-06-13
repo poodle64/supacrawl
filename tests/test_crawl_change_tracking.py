@@ -1,5 +1,6 @@
 """Tests for crawl service change tracking integration."""
 
+from typing import Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -17,7 +18,9 @@ from supacrawl.models import (
 from supacrawl.services.crawl import CrawlService
 
 
-def _make_scrape_result(url: str, change_status: str | None = None) -> ScrapeResult:
+def _make_scrape_result(
+    url: str, change_status: Literal["new", "same", "changed", "removed"] | None = None
+) -> ScrapeResult:
     """Helper to build a ScrapeResult with optional change tracking."""
     change_tracking = None
     if change_status:
@@ -69,10 +72,10 @@ class TestCrawlChangeTracking:
         mock_map.map = fake_map
 
         # Scrape service returns pages with different change statuses
-        statuses = ["new", "changed", "same"]
+        statuses: list[Literal["new", "same", "changed", "removed"]] = ["new", "changed", "same"]
         call_count = 0
 
-        async def fake_scrape(url, **kwargs):
+        async def fake_scrape(url: str, **kwargs: object) -> ScrapeResult:
             nonlocal call_count
             result = _make_scrape_result(url, statuses[call_count])
             call_count += 1
@@ -236,9 +239,9 @@ class TestCrawlChangeTracking:
 
         call_count = 0
 
-        async def fake_scrape(url, **kwargs):
+        async def fake_scrape(url: str, **kwargs: object) -> ScrapeResult:
             nonlocal call_count
-            status = "changed" if call_count == 0 else "changed"
+            status: Literal["new", "same", "changed", "removed"] = "changed"
             call_count += 1
             return _make_scrape_result(url, status)
 
