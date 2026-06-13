@@ -43,7 +43,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
@@ -465,7 +465,7 @@ class BrowserManager:
         self.locale_config = locale_config
         self.proxy = proxy or os.getenv("SUPACRAWL_PROXY")
         self.firefox_user_prefs = firefox_user_prefs
-        self._browser: Browser | None = None
+        self._browser: Browser | BrowserContext | None = None
         self._playwright: Any = None
 
     @staticmethod
@@ -791,7 +791,7 @@ class BrowserManager:
             if owns_context:
                 # Playwright/Patchright: create fresh context for isolation
                 context_options = self._build_context_options(device=device)
-                context = await self._browser.new_context(**context_options)
+                context = await cast("Browser", self._browser).new_context(**context_options)
 
                 # Inject stealth scripts at context level so all pages inherit them.
                 # Patchright and Camoufox handle anti-detection at the engine level.
@@ -1001,7 +1001,7 @@ class BrowserManager:
         try:
             if owns_context:
                 context_options = self._build_context_options()
-                context = await self._browser.new_context(**context_options)
+                context = await cast("Browser", self._browser).new_context(**context_options)
 
                 if self.engine == "playwright":
                     for script in STEALTH_SCRIPTS:
@@ -1259,12 +1259,12 @@ class BrowserManager:
                 tz = _extract_timezone_from_jsonld(data, iana_tz_pattern)
                 if tz:
                     return tz
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 continue
 
         # 2. Check meta tags for timezone info
         for tag in soup.find_all("meta"):
-            name = (tag.get("name") or tag.get("property") or "").lower()
+            name = str(tag.get("name") or tag.get("property") or "").lower()
             content = tag.get("content", "")
             if isinstance(content, list):
                 content = content[0] if content else ""

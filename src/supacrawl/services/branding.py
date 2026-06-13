@@ -301,7 +301,7 @@ class BrandingExtractor:
 
         # Framer: data-framer-name="Logo" or data-framer-component-type="Logo"
         for attr in ("data-framer-name", "data-framer-component-type"):
-            logo_el = soup.find(attrs={attr: re.compile(r"logo", re.IGNORECASE)})
+            logo_el = soup.find(None, attrs={attr: re.compile(r"logo", re.IGNORECASE)})
             if logo_el:
                 img = logo_el.find("img")
                 if img:
@@ -364,7 +364,7 @@ class BrandingExtractor:
                 try:
                     if int(str(width).rstrip("px")) > 600:
                         continue
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     pass
 
             return urljoin(base_url, src)

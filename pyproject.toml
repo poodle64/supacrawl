@@ -137,6 +137,10 @@ ignore_missing_imports = true
 module = "pdf2image.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "asyncssh.*"
+ignore_missing_imports = true
+
 [tool.uv]
 environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
 

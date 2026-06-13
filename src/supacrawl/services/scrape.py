@@ -24,7 +24,10 @@ import logging
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser
 
 from bs4 import BeautifulSoup
 
@@ -265,7 +268,7 @@ def _generate_unified_diff(
     try:
         prev_data = previous_entry.response.get("data", {})
         prev_markdown = prev_data.get("markdown") or ""
-    except (AttributeError, TypeError):
+    except AttributeError, TypeError:
         return None
 
     curr_markdown = current_markdown or ""
@@ -1332,7 +1335,7 @@ class ScrapeService:
         try:
             prev_data = previous_entry.response.get("data", {})
             prev_markdown = prev_data.get("markdown") or ""
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             LOGGER.warning("Cannot extract previous markdown for JSON comparison")
             return None
 
@@ -1520,7 +1523,7 @@ class ScrapeService:
                 context = None
                 page = await browser._browser.new_page()
             else:
-                context = await browser._browser.new_context(**browser._build_context_options())
+                context = await cast("Browser", browser._browser).new_context(**browser._build_context_options())
                 page = await context.new_page()
 
             try:

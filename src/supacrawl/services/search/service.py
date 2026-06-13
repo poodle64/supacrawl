@@ -15,8 +15,8 @@ import logging
 import os
 import time
 import warnings
-from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import httpx
@@ -334,7 +334,9 @@ class SearchService:
                 web_results = [r for r in all_results if r.source_type == SearchSourceType.WEB]
                 other_results = [r for r in all_results if r.source_type != SearchSourceType.WEB]
                 if web_results:
-                    web_results = await self._scrape_results(web_results, scrape_options, correlation_id, progress_callback)
+                    web_results = await self._scrape_results(
+                        web_results, scrape_options, correlation_id, progress_callback
+                    )
                 all_results = web_results + other_results
 
             log_with_correlation(

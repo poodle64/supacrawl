@@ -157,9 +157,9 @@ def _get_list_level(item: Tag, default: int = 1) -> int:
         Integer level value, or default if invalid
     """
     try:
-        level_str = item.get("data-list-level", str(default))
+        level_str = str(item.get("data-list-level") or str(default))
         return int(level_str)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
 
@@ -262,7 +262,7 @@ def _detect_wordpress(soup: BeautifulSoup) -> bool:
 
     # Check for WordPress meta generator
     meta_gen = soup.find("meta", attrs={"name": "generator"})
-    if meta_gen and "wordpress" in meta_gen.get("content", "").lower():
+    if meta_gen and "wordpress" in str(meta_gen.get("content") or "").lower():
         return True
 
     return False
@@ -362,7 +362,7 @@ def _preprocess_mkdocs_material(soup: BeautifulSoup) -> None:
                 lang = ""
                 highlight_div = table.find_parent("div", class_="highlight")
                 if highlight_div:
-                    for cls in highlight_div.get("class", []):
+                    for cls in highlight_div.get("class") or []:
                         # Classes like "language-python" or just language names
                         if cls.startswith("language-"):
                             lang = cls.replace("language-", "")
@@ -372,7 +372,7 @@ def _preprocess_mkdocs_material(soup: BeautifulSoup) -> None:
                 new_pre = soup.new_tag("pre")
                 new_code = soup.new_tag("code")
                 if lang:
-                    new_code["class"] = [f"language-{lang}"]
+                    new_code["class"] = f"language-{lang}"
                 new_code.string = code_text
                 new_pre.append(new_code)
 
@@ -383,7 +383,7 @@ def _preprocess_mkdocs_material(soup: BeautifulSoup) -> None:
     for admonition in soup.select("div.admonition"):
         # Get the type (note, warning, tip, example, etc.)
         admon_type = "Note"
-        for cls in admonition.get("class", []):
+        for cls in admonition.get("class") or []:
             if cls != "admonition":
                 admon_type = cls.capitalize()
                 break
@@ -905,9 +905,9 @@ class MarkdownConverter:
             return False
 
         try:
-            el_id = (element.get("id") or "").lower()
+            el_id = str(element.get("id") or "").lower()
             el_class = " ".join(element.get("class") or []).lower()
-            el_role = (element.get("role") or "").lower()
+            el_role = str(element.get("role") or "").lower()
 
             main_indicators = ["main", "content", "article", "post", "entry"]
             combined = f"{el_id} {el_class} {el_role}"

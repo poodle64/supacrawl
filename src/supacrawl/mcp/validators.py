@@ -570,7 +570,7 @@ def validate_max_steps(
 
     try:
         steps = int(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return default
 
     # Clamp to valid range

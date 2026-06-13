@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from pydantic import ConfigDict, Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import supacrawl
 from supacrawl.mcp.mcp_common.config import parse_comma_separated
@@ -22,7 +22,7 @@ load_dotenv()
 class SupacrawlSettings(BaseSettings):
     """Supacrawl MCP server settings."""
 
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         env_prefix="SUPACRAWL_",
         env_file=".env",
         env_file_encoding="utf-8",

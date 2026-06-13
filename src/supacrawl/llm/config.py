@@ -127,5 +127,5 @@ def is_llm_configured() -> bool:
     try:
         load_llm_config()
         return True
-    except (LLMNotConfiguredError, ConfigurationError):
+    except LLMNotConfiguredError, ConfigurationError:
         return False

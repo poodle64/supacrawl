@@ -279,6 +279,7 @@ async def supacrawl_diagnose(
     """
     # Validate URL
     validated_url = validate_url(url)
+    assert validated_url is not None
 
     diagnosis: dict[str, Any] = {
         "url": validated_url,

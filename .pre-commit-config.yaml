@@ -60,7 +60,7 @@ repos:
 
   # Code formatting and linting (Ruff replaces black, isort, flake8, etc.)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.8
+    rev: v0.15.16
     hooks:
       - id: ruff-format
         name: '🐍 python · Format with Ruff'
@@ -72,12 +72,11 @@ repos:
 
   # Type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.19.0
+    rev: v2.1.0
     hooks:
       - id: mypy
         name: '🐍 python · Type check with mypy'
         additional_dependencies: [types-pytz, types-aiofiles, types-PyYAML]
-        args: ['--ignore-missing-imports']
         files: ^.*\.py$
         exclude: ^(tests/|.*/tests/|.*/migrations/|.*/__pycache__/|.*/cache/)
 

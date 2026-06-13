@@ -8,7 +8,7 @@ import inspect
 from typing import Any
 
 from fastmcp import FastMCP
-from fastmcp.tools.tool import ToolAnnotations
+from mcp.types import ToolAnnotations
 
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger

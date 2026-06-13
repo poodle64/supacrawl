@@ -428,7 +428,7 @@ def create_tool_wrapper(
                                 normalised_kwargs[param_name] = parsed
                         else:
                             logger.warning(f"JSON '{value}' not a list for {param_name}")
-                    except (json.JSONDecodeError, ValueError):
+                    except json.JSONDecodeError, ValueError:
                         logger.warning(f"Cannot parse string '{value}' as JSON list for parameter {param_name}")
                 elif isinstance(value, (tuple, set)):
                     logger.debug(f"Normalising {type(value).__name__} to list for parameter {param_name}")
