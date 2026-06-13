@@ -8,7 +8,8 @@ import httpx
 from bs4 import BeautifulSoup
 
 from supacrawl.exceptions import ProviderError
-from supacrawl.models import SearchResultItem, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
+from supacrawl.services.search.filters import domain_operator_query
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -37,9 +38,15 @@ class DuckDuckGoProvider:
             self._owns_client = True
         return self._http_client
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
-        params = {"q": query, "kl": "au-en"}
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
+        params: dict[str, str] = {"q": query, "kl": "au-en"}
+        if filters and filters.time_range and filters.time_range in ("day", "week", "month"):
+            params["df"] = {"day": "d", "week": "w", "month": "m"}[filters.time_range]
         response = await client.get("https://lite.duckduckgo.com/lite/", params=params)
         response.raise_for_status()
 
@@ -106,7 +113,9 @@ class DuckDuckGoProvider:
 
         return results
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
 
         token_response = await client.get("https://duckduckgo.com/", params={"q": query})
@@ -162,7 +171,9 @@ class DuckDuckGoProvider:
         )
         return results
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
 
         token_response = await client.get("https://duckduckgo.com/", params={"q": query})

@@ -6,7 +6,8 @@ import os
 import httpx
 
 from supacrawl.exceptions import ProviderError
-from supacrawl.models import SearchResultItem, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
+from supacrawl.services.search.filters import domain_operator_query, iso_to_us_date
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -48,9 +49,25 @@ class SerpAPIProvider:
             "engine": "google",
         }
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    def _apply_filters_to_params(self, params: dict[str, str], filters: SearchFilters) -> None:
+        """Apply domain operators and tbs recency filter to SerpAPI params."""
+        if filters.start_date and filters.end_date:
+            us_min = iso_to_us_date(filters.start_date)
+            us_max = iso_to_us_date(filters.end_date)
+            if us_min and us_max:
+                params["tbs"] = f"cdr:1,cd_min:{us_min},cd_max:{us_max}"
+        elif filters.time_range:
+            params["tbs"] = "qdr:" + {"day": "d", "week": "w", "month": "m", "year": "y"}[filters.time_range]
+
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
         params = {**self._base_params(query), "num": str(limit)}
+        if filters and not filters.is_empty():
+            self._apply_filters_to_params(params, filters)
         response = await client.get(f"{self.API_BASE}/search.json", params=params)
         response.raise_for_status()
 
@@ -76,7 +93,9 @@ class SerpAPIProvider:
         )
         return results
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
         params = {**self._base_params(query), "engine": "google_images", "num": str(limit)}
         response = await client.get(f"{self.API_BASE}/search.json", params=params)
@@ -107,9 +126,15 @@ class SerpAPIProvider:
         )
         return results
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
         params = {**self._base_params(query), "engine": "google_news", "num": str(limit)}
+        if filters and not filters.is_empty():
+            self._apply_filters_to_params(params, filters)
         response = await client.get(f"{self.API_BASE}/search.json", params=params)
         response.raise_for_status()
 

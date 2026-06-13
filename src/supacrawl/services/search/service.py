@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Literal
 import httpx
 
 from supacrawl.exceptions import generate_correlation_id
-from supacrawl.models import LocaleConfig, SearchResult, SearchResultItem, SearchSourceType
+from supacrawl.models import LocaleConfig, SearchFilters, SearchResult, SearchResultItem, SearchSourceType
 from supacrawl.services.search.providers import ProviderChain
 from supacrawl.services.search.registry import build_provider_chain
 from supacrawl.utils import log_with_correlation
@@ -289,6 +289,7 @@ class SearchService:
         sources: list[SourceType] | None = None,
         scrape_options: ScrapeOptions | None = None,
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
+        filters: SearchFilters | None = None,
     ) -> SearchResult:
         """Search the web using the provider chain with automatic fallback.
 
@@ -297,6 +298,9 @@ class SearchService:
             limit: Maximum number of results (1-10) per source type.
             sources: List of source types to search. Defaults to ["web"].
             scrape_options: Options for scraping result pages (web only).
+            filters: Optional recency/topic/domain filters, mapped onto each
+                provider's native API (or synthesised as ``site:`` query
+                operators where a provider has no native support).
 
         Returns:
             SearchResult with search results and optional scraped content.
@@ -328,6 +332,7 @@ class SearchService:
                             query=query,
                             limit=limit,
                             correlation_id=correlation_id,
+                            filters=filters,
                         )
                 except asyncio.TimeoutError as e:
                     msg = (

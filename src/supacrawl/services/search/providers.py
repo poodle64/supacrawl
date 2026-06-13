@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
-from supacrawl.models import SearchResultItem
+from supacrawl.models import SearchFilters, SearchResultItem
 
 LOGGER = logging.getLogger(__name__)
 
@@ -113,15 +113,21 @@ class SearchProvider(Protocol):
         """Whether this provider has required credentials/config to operate."""
         ...
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         """Search for web pages."""
         ...
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         """Search for images. May raise NotImplementedError if unsupported."""
         ...
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         """Search for news articles. May raise NotImplementedError if unsupported."""
         ...
 
@@ -284,6 +290,7 @@ class ProviderChain:
         query: str,
         limit: int,
         correlation_id: str,
+        filters: SearchFilters | None = None,
     ) -> list[SearchResultItem]:
         """Search using the provider chain with fallback.
 
@@ -292,6 +299,7 @@ class ProviderChain:
             query: Search query.
             limit: Max results.
             correlation_id: Correlation ID for logging.
+            filters: Optional recency/topic/domain filters mapped per provider.
 
         Returns:
             Search results from the first successful provider.
@@ -335,11 +343,11 @@ class ProviderChain:
                 LOGGER.debug(f"Trying provider {provider.name} for {source} search [correlation_id={correlation_id}]")
 
                 if source == "web":
-                    results = await provider.search_web(query, limit, correlation_id)
+                    results = await provider.search_web(query, limit, correlation_id, filters)
                 elif source == "images":
-                    results = await provider.search_images(query, limit, correlation_id)
+                    results = await provider.search_images(query, limit, correlation_id, filters)
                 elif source == "news":
-                    results = await provider.search_news(query, limit, correlation_id)
+                    results = await provider.search_news(query, limit, correlation_id, filters)
                 else:
                     LOGGER.warning(f"Unknown source type: {source} [correlation_id={correlation_id}]")
                     return []

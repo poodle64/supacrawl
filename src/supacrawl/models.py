@@ -432,6 +432,38 @@ class SearchSourceType(str, Enum):
     NEWS = "news"
 
 
+class SearchFilters(BaseModel):
+    """Provider-agnostic search filters mapped onto each provider's native API.
+
+    Filters a provider cannot express natively are applied where possible by
+    rewriting the query with ``site:`` operators (domains), or skipped with a
+    debug log. ``time_range`` and ``start_date``/``end_date`` are alternative
+    ways to express recency; when both are given, explicit dates take precedence.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    time_range: Literal["day", "week", "month", "year"] | None = None
+    start_date: str | None = None  # ISO 8601 date (YYYY-MM-DD)
+    end_date: str | None = None  # ISO 8601 date (YYYY-MM-DD)
+    topic: Literal["general", "news", "finance"] | None = None
+    include_domains: list[str] | None = None
+    exclude_domains: list[str] | None = None
+
+    def is_empty(self) -> bool:
+        """True when no filter is set (lets providers skip filter handling)."""
+        return not any(
+            (
+                self.time_range,
+                self.start_date,
+                self.end_date,
+                self.topic,
+                self.include_domains,
+                self.exclude_domains,
+            )
+        )
+
+
 class SearchResultItem(BaseModel):
     """Individual search result."""
 

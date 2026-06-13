@@ -6,7 +6,8 @@ import os
 import httpx
 
 from supacrawl.exceptions import ProviderError
-from supacrawl.models import SearchResultItem, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
+from supacrawl.services.search.filters import domain_operator_query, iso_to_us_date
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -48,9 +49,25 @@ class SerperProvider:
             "Content-Type": "application/json",
         }
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    def _apply_filters_to_payload(self, payload: dict[str, object], filters: SearchFilters) -> None:
+        """Apply recency (tbs) filter to a Serper payload dict."""
+        if filters.start_date and filters.end_date:
+            us_min = iso_to_us_date(filters.start_date)
+            us_max = iso_to_us_date(filters.end_date)
+            if us_min and us_max:
+                payload["tbs"] = f"cdr:1,cd_min:{us_min},cd_max:{us_max}"
+        elif filters.time_range:
+            payload["tbs"] = "qdr:" + {"day": "d", "week": "w", "month": "m", "year": "y"}[filters.time_range]
+
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
-        payload = {"q": query, "num": limit}
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
+        payload: dict[str, object] = {"q": query, "num": limit}
+        if filters and not filters.is_empty():
+            self._apply_filters_to_payload(payload, filters)
         response = await client.post(
             f"{self.API_BASE}/search",
             headers=self._headers(),
@@ -80,9 +97,11 @@ class SerperProvider:
         )
         return results
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
-        payload = {"q": query, "num": limit}
+        payload: dict[str, object] = {"q": query, "num": limit}
         response = await client.post(
             f"{self.API_BASE}/images",
             headers=self._headers(),
@@ -115,9 +134,15 @@ class SerperProvider:
         )
         return results
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
-        payload = {"q": query, "num": limit}
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
+        payload: dict[str, object] = {"q": query, "num": limit}
+        if filters and not filters.is_empty():
+            self._apply_filters_to_payload(payload, filters)
         response = await client.post(
             f"{self.API_BASE}/news",
             headers=self._headers(),

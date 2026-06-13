@@ -16,7 +16,7 @@ from supacrawl.api.models.search import (
     SearchResponse,
     WebResultItem,
 )
-from supacrawl.models import SearchResult, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResult, SearchSourceType
 from supacrawl.services.search.service import SearchService
 
 logger = logging.getLogger("supacrawl.api.search")
@@ -71,9 +71,20 @@ async def search(
     _api_key: str | None = Depends(get_api_key),
 ) -> SearchResponse:
     """Search the web (Firecrawl v2-compatible)."""
+    filters = SearchFilters.model_validate(
+        {
+            "time_range": req.time_range,
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "topic": req.topic,
+            "include_domains": req.include_domains,
+            "exclude_domains": req.exclude_domains,
+        }
+    )
     result = await service.search(
         query=req.query,
         limit=req.limit,
         sources=req.sources,  # type: ignore[arg-type]
+        filters=None if filters.is_empty() else filters,
     )
     return _search_result_to_response(result)

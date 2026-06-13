@@ -21,6 +21,7 @@ from supacrawl.mcp.validators import (
     validate_query,
     validate_sources,
 )
+from supacrawl.models import SearchFilters
 
 
 async def _fetch_url_metadata(url: str, timeout: float = 5.0) -> dict[str, Any]:
@@ -122,6 +123,12 @@ async def supacrawl_search(
     formats: list[Literal["markdown", "html"]] | None = None,
     only_main_content: bool = True,
     include_metadata: bool = False,
+    time_range: Literal["day", "week", "month", "year"] | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    topic: Literal["general", "news", "finance"] | None = None,
+    include_domains: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Search the web and optionally scrape result pages.
@@ -172,6 +179,15 @@ async def supacrawl_search(
         include_metadata: Fetch lightweight metadata (content_type, content_length,
             last_modified) for web results via HEAD requests. Useful for deciding
             which results to scrape without loading full pages.
+        time_range: Restrict results to the past "day"/"week"/"month"/"year".
+        start_date: Earliest result date (YYYY-MM-DD); pairs with end_date.
+        end_date: Latest result date (YYYY-MM-DD).
+        topic: Topic vertical "general"/"news"/"finance" (honoured natively by
+            Tavily and Exa; other providers ignore it — use sources=["news"] for news).
+        include_domains: Restrict results to these domains.
+        exclude_domains: Exclude results from these domains.
+        Filters map onto each provider's native API, or are synthesised as
+        ``site:`` query operators for providers without native support.
 
     Returns:
         Firecrawl-compatible search result:
@@ -272,12 +288,24 @@ async def supacrawl_search(
 
         progress_cb = on_scrape_progress if scrape_results else None
 
+        filters = SearchFilters.model_validate(
+            {
+                "time_range": time_range,
+                "start_date": start_date,
+                "end_date": end_date,
+                "topic": topic,
+                "include_domains": include_domains,
+                "exclude_domains": exclude_domains,
+            }
+        )
+
         result = await api_client.search_service.search(
             query=validated_query,
             limit=validated_limit,
             sources=typed_sources,
             scrape_options=scrape_options,
             progress_callback=progress_cb,
+            filters=None if filters.is_empty() else filters,
         )
 
         response = result.model_dump()

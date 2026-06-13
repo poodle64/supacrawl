@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from supacrawl.exceptions import ProviderError
-from supacrawl.models import SearchResultItem, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
 from supacrawl.services.search import SearchService
 from supacrawl.services.search.providers import (
     ALERT_DEBOUNCE_SECONDS,
@@ -40,7 +40,9 @@ class MockProvider:
     def is_available(self) -> bool:
         return self._available
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         self._calls.append(f"web:{query}")
         if self._fail_with:
             raise self._fail_with
@@ -50,7 +52,9 @@ class MockProvider:
             )
         ]
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         self._calls.append(f"images:{query}")
         if self._fail_with:
             raise self._fail_with
@@ -60,7 +64,9 @@ class MockProvider:
             )
         ]
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         self._calls.append(f"news:{query}")
         if self._fail_with:
             raise self._fail_with
@@ -446,7 +452,7 @@ class TestProviderChain:
         """NotImplementedError should skip to next provider silently."""
 
         class ImagesOnlyProvider(MockProvider):
-            async def search_web(self, query, limit, correlation_id):
+            async def search_web(self, query, limit, correlation_id, filters=None):
                 raise NotImplementedError("No web search")
 
         p1 = ImagesOnlyProvider("images-only")

@@ -37,6 +37,13 @@ class SearchRequest(BaseModel):
     sources: list[str] = Field(default_factory=lambda: ["web"])
     timeout: int = 30000
     scrape_options: dict[str, Any] | None = None
+    # Recency / topic / domain filters (mapped onto each provider's native API).
+    time_range: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    topic: str | None = None
+    include_domains: list[str] | None = None
+    exclude_domains: list[str] | None = None
 
     @field_validator("sources", mode="before")
     @classmethod

@@ -35,6 +35,32 @@ from supacrawl.cli._common import app
     help="Scrape content from result pages (web results only).",
 )
 @click.option(
+    "--time-range",
+    type=click.Choice(["day", "week", "month", "year"], case_sensitive=False),
+    default=None,
+    help="Restrict results to the past day/week/month/year (mapped per provider).",
+)
+@click.option("--start-date", type=str, default=None, help="Earliest result date (YYYY-MM-DD).")
+@click.option("--end-date", type=str, default=None, help="Latest result date (YYYY-MM-DD).")
+@click.option(
+    "--topic",
+    type=click.Choice(["general", "news", "finance"], case_sensitive=False),
+    default=None,
+    help="Topic vertical (honoured natively by Tavily and Exa).",
+)
+@click.option(
+    "--include-domain",
+    "include_domains",
+    multiple=True,
+    help="Restrict results to this domain. Repeatable.",
+)
+@click.option(
+    "--exclude-domain",
+    "exclude_domains",
+    multiple=True,
+    help="Exclude results from this domain. Repeatable.",
+)
+@click.option(
     "--provider",
     type=str,
     default=None,
@@ -56,6 +82,12 @@ def search(
     limit: int,
     sources: tuple[str, ...],
     scrape: bool,
+    time_range: str | None,
+    start_date: str | None,
+    end_date: str | None,
+    topic: str | None,
+    include_domains: tuple[str, ...],
+    exclude_domains: tuple[str, ...],
     provider: str | None,
     output: Path | None,
 ) -> None:
@@ -94,6 +126,22 @@ def search(
             seen.add(s)
             unique_sources.append(s)
 
+    # Build provider-agnostic filters; pass None when nothing was set so the
+    # default search path is untouched.
+    from supacrawl.models import SearchFilters
+
+    filters_obj = SearchFilters.model_validate(
+        {
+            "time_range": time_range,
+            "start_date": start_date,
+            "end_date": end_date,
+            "topic": topic,
+            "include_domains": list(include_domains) or None,
+            "exclude_domains": list(exclude_domains) or None,
+        }
+    )
+    search_filters = None if filters_obj.is_empty() else filters_obj
+
     async def run():
         # Create scrape service if scraping is requested
         scrape_service = None
@@ -116,6 +164,7 @@ def search(
                 limit=limit,
                 sources=unique_sources,  # type: ignore[arg-type]
                 scrape_options=scrape_options,
+                filters=search_filters,
             )
             return result
         finally:

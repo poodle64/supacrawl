@@ -13,7 +13,8 @@ import os
 
 import httpx
 
-from supacrawl.models import SearchResultItem, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
+from supacrawl.services.search.filters import domain_operator_query
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -55,14 +56,20 @@ class SearXNGProvider:
         limit: int,
         categories: str,
         correlation_id: str,
+        filters: SearchFilters | None = None,
     ) -> list[dict]:
         """Execute a search against the SearXNG JSON API."""
         client = await self._get_client()
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
         params: dict[str, str | int] = {
             "q": query,
             "format": "json",
             "categories": categories,
         }
+        # SearXNG supports day/month/year but not week.
+        if filters and filters.time_range and filters.time_range in ("day", "month", "year"):
+            params["time_range"] = filters.time_range
         response = await client.get(
             f"{self._url}/search",
             params=params,
@@ -72,8 +79,10 @@ class SearXNGProvider:
         data = response.json()
         return data.get("results", [])[:limit]
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
-        raw_results = await self._search(query, limit, "general", correlation_id)
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
+        raw_results = await self._search(query, limit, "general", correlation_id, filters)
         results: list[SearchResultItem] = []
         for item in raw_results:
             results.append(
@@ -94,7 +103,9 @@ class SearXNGProvider:
         )
         return results
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         raw_results = await self._search(query, limit, "images", correlation_id)
         results: list[SearchResultItem] = []
         for item in raw_results:
@@ -123,8 +134,10 @@ class SearXNGProvider:
         )
         return results
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
-        raw_results = await self._search(query, limit, "news", correlation_id)
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
+        raw_results = await self._search(query, limit, "news", correlation_id, filters)
         results: list[SearchResultItem] = []
         for item in raw_results:
             results.append(

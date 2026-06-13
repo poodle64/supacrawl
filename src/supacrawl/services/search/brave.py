@@ -5,7 +5,8 @@ import logging
 import httpx
 
 from supacrawl.exceptions import ProviderError
-from supacrawl.models import SearchResultItem, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
+from supacrawl.services.search.filters import domain_operator_query
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -46,9 +47,22 @@ class BraveProvider:
             "X-Subscription-Token": self._require_api_key(),
         }
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    def _apply_freshness(self, params: dict[str, str | int], filters: SearchFilters) -> None:
+        """Add Brave freshness param for recency filtering."""
+        if filters.start_date and filters.end_date:
+            params["freshness"] = f"{filters.start_date}to{filters.end_date}"
+        elif filters.time_range:
+            params["freshness"] = {"day": "pd", "week": "pw", "month": "pm", "year": "py"}[filters.time_range]
+
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
         params: dict[str, str | int] = {"q": query, "count": limit}
+        if filters and not filters.is_empty():
+            self._apply_freshness(params, filters)
         response = await client.get(
             "https://api.search.brave.com/res/v1/web/search",
             headers=self._headers(),
@@ -77,7 +91,9 @@ class BraveProvider:
         )
         return results
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
         params: dict[str, str | int] = {"q": query, "count": limit}
         response = await client.get(
@@ -111,9 +127,15 @@ class BraveProvider:
         )
         return results
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
+        if filters and not filters.is_empty():
+            query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
         params: dict[str, str | int] = {"q": query, "count": limit}
+        if filters and not filters.is_empty():
+            self._apply_freshness(params, filters)
         response = await client.get(
             "https://api.search.brave.com/res/v1/news/search",
             headers=self._headers(),

@@ -6,7 +6,8 @@ import os
 import httpx
 
 from supacrawl.exceptions import ProviderError
-from supacrawl.models import SearchResultItem, SearchSourceType
+from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
+from supacrawl.services.search.filters import iso_to_exa_datetime, time_range_to_start_date
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -48,14 +49,39 @@ class ExaProvider:
             "Content-Type": "application/json",
         }
 
-    async def search_web(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    _TOPIC_CATEGORY: dict[str, str] = {"news": "news", "finance": "financial report"}
+
+    def _apply_exa_filters(self, payload: dict[str, object], filters: SearchFilters) -> None:
+        """Apply domain, date, and topic filters to an Exa payload dict."""
+        if filters.include_domains:
+            payload["includeDomains"] = filters.include_domains
+        if filters.exclude_domains:
+            payload["excludeDomains"] = filters.exclude_domains
+        start_iso = filters.start_date or time_range_to_start_date(filters.time_range)
+        if start_iso:
+            exa_dt = iso_to_exa_datetime(start_iso)
+            if exa_dt:
+                payload["startPublishedDate"] = exa_dt
+        if filters.end_date:
+            exa_dt = iso_to_exa_datetime(filters.end_date)
+            if exa_dt:
+                payload["endPublishedDate"] = exa_dt
+
+    async def search_web(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
 
-        payload = {
+        payload: dict[str, object] = {
             "query": query,
             "numResults": limit,
             "type": "auto",
         }
+
+        if filters and not filters.is_empty():
+            self._apply_exa_filters(payload, filters)
+            if filters.topic and filters.topic in self._TOPIC_CATEGORY:
+                payload["category"] = self._TOPIC_CATEGORY[filters.topic]
 
         response = await client.post(
             f"{self.API_BASE}/search",
@@ -87,18 +113,27 @@ class ExaProvider:
         )
         return results
 
-    async def search_images(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_images(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         raise NotImplementedError("Exa does not support image search")
 
-    async def search_news(self, query: str, limit: int, correlation_id: str) -> list[SearchResultItem]:
+    async def search_news(
+        self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
+    ) -> list[SearchResultItem]:
         client = await self._get_client()
 
-        payload = {
+        payload: dict[str, object] = {
             "query": query,
             "numResults": limit,
             "type": "auto",
             "category": "news",
         }
+
+        if filters and not filters.is_empty():
+            self._apply_exa_filters(payload, filters)
+            if filters.topic == "finance":
+                payload["category"] = "financial report"
 
         response = await client.post(
             f"{self.API_BASE}/search",
