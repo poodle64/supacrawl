@@ -31,7 +31,8 @@ class SearXNGProvider:
         url: str | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._url = (url or os.getenv("SEARXNG_URL", "")).rstrip("/")
+        resolved = url or os.getenv("SEARXNG_URL", "") or ""
+        self._url = resolved.rstrip("/")
         self._owns_client = http_client is None
         self._http_client = http_client
 
@@ -104,8 +105,12 @@ class SearXNGProvider:
                     description=item.get("content", item.get("source", "")),
                     source_type=SearchSourceType.IMAGES,
                     thumbnail=item.get("thumbnail_src", item.get("img_src", "")),
-                    image_width=item.get("img_format", {}).get("width") if isinstance(item.get("img_format"), dict) else None,
-                    image_height=item.get("img_format", {}).get("height") if isinstance(item.get("img_format"), dict) else None,
+                    image_width=item.get("img_format", {}).get("width")
+                    if isinstance(item.get("img_format"), dict)
+                    else None,
+                    image_height=item.get("img_format", {}).get("height")
+                    if isinstance(item.get("img_format"), dict)
+                    else None,
                 )
             )
 
