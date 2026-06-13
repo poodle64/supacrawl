@@ -263,7 +263,7 @@ def crawl_cmd(
                     )
             elif event.type == "page":
                 # Extract path from URL for cleaner output
-                path = urlparse(event.url).path or "/"
+                path = urlparse(event.url or "").path or "/"
                 click.echo(f"\n  + {path}")
             elif event.type == "error":
                 path = urlparse(event.url).path if event.url else "unknown"
