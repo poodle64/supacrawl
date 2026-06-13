@@ -39,6 +39,7 @@ from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.detection import detect_bot_protection, estimate_js_requirement
 from supacrawl.services.http_fetch import fetch_static
 from supacrawl.services.platform import detect_platform
+from supacrawl.services.remediation import remediation_hint, thin_content_hint
 
 LOGGER = logging.getLogger(__name__)
 
@@ -946,10 +947,11 @@ class ScrapeService:
                             error=(f"{quality_reason[len('HARD: ') :]} [correlation_id={correlation_id}]"),
                         )
                     else:
-                        # SOFT: keep success=True but surface via warnings
+                        # SOFT: keep success=True but surface via warnings, with a
+                        # concrete remediation for recovering the missing content.
                         soft_msg = quality_reason[len("SOFT: ") :]
                         LOGGER.debug("Content quality soft warning for %s: %s", url, soft_msg)
-                        content_quality_warnings = [soft_msg]
+                        content_quality_warnings = [f"{soft_msg} {thin_content_hint(only_main_content)}"]
 
                 # Expect-content gate: the caller asserted specific content but it
                 # is not present. Treat as a soft failure — escalate once to stealth
@@ -1146,18 +1148,21 @@ class ScrapeService:
                         expect=expect,
                     )
 
-            # Add stealth hint for errors, gated on whether a bot challenge was
-            # actually signalled.  Pure network / timeout failures do not benefit
-            # from engine switching, so a softer note is used instead.
-            _bot_pattern_in_error = not self._stealth and any(
-                pattern in error_msg.lower()
-                for pattern in ["403", "429", "timeout", "blocked", "denied", "err_http2_protocol_error"]
-            )
-            if _bot_pattern_in_error:
-                _bot_suspected_error = any(
-                    pattern in error_msg.lower() for pattern in ["403", "429", "blocked", "denied"]
-                )
-                error_msg += _stealth_hint(bot_suspected=_bot_suspected_error)
+            # Attach an agent-readable, honest remediation hint. Anti-bot failures
+            # get the availability-aware stealth hint (engine switching can help);
+            # every other failure mode (timeout, DNS, connection, TLS, 4xx/5xx) gets
+            # a concrete next action, and a failure with no useful remediation gets
+            # none rather than speculative advice.
+            low_error = error_msg.lower()
+            if not self._stealth and any(
+                pattern in low_error for pattern in ["403", "429", "blocked", "denied", "err_http2_protocol_error"]
+            ):
+                bot_suspected = any(pattern in low_error for pattern in ["403", "429", "blocked", "denied"])
+                error_msg += _stealth_hint(bot_suspected=bot_suspected)
+            else:
+                hint = remediation_hint(error_msg)
+                if hint:
+                    error_msg += f" [HINT: {hint}]"
 
             LOGGER.error(f"Scrape failed for {url}: {e}", exc_info=True)
 
@@ -1367,7 +1372,7 @@ class ScrapeService:
             if quality_reason.startswith("HARD:"):
                 LOGGER.debug("HTTP-first escalating %s: content quality hard-failed", url)
                 return None
-            content_quality_warnings = [quality_reason[len("SOFT: ") :]]
+            content_quality_warnings = [f"{quality_reason[len('SOFT: ') :]} {thin_content_hint(only_main_content)}"]
 
         # Caller asserted specific content; if a cheap GET doesn't satisfy it the
         # content is likely hydrated client-side, so escalate to the browser.

@@ -66,10 +66,19 @@ def map_exception(
         correlation_id: Correlation ID for request tracking
 
     Returns:
-        Mapped SupacrawlMCPError exception
+        Mapped SupacrawlMCPError exception. When the failure has a known recovery
+        action (timeout, DNS, connection, TLS, 4xx/5xx), an agent-readable
+        remediation hint is appended to the message.
     """
     import httpx
     from pydantic import ValidationError
+
+    from supacrawl.services.remediation import remediation_hint
+
+    def hinted(base: str) -> str:
+        """Append a concrete remediation to a base message when one applies."""
+        hint = remediation_hint(str(exception))
+        return f"{base} [HINT: {hint}]" if hint else base
 
     # Handle Pydantic ValidationError
     if isinstance(exception, ValidationError):
@@ -82,14 +91,14 @@ def map_exception(
     # Handle httpx connection errors
     if isinstance(exception, httpx.ConnectError):
         return SupacrawlConnectionError(
-            f"Connection failed: {exception!s}",
+            hinted(f"Connection failed: {exception!s}"),
             endpoint=endpoint,
             correlation_id=correlation_id,
         )
 
     if isinstance(exception, httpx.TimeoutException):
         return SupacrawlTimeoutError(
-            f"Request timed out: {exception!s}",
+            hinted(f"Request timed out: {exception!s}"),
             endpoint=endpoint,
             correlation_id=correlation_id,
         )
@@ -99,14 +108,14 @@ def map_exception(
         status_code = exception.response.status_code
         if 400 <= status_code < 500:
             return SupacrawlClientError(
-                f"HTTP client error ({status_code}): {exception!s}",
+                hinted(f"HTTP client error ({status_code}): {exception!s}"),
                 endpoint=endpoint,
                 status_code=status_code,
                 correlation_id=correlation_id,
             )
         elif status_code >= 500:
             return SupacrawlServerError(
-                f"HTTP server error ({status_code}): {exception!s}",
+                hinted(f"HTTP server error ({status_code}): {exception!s}"),
                 endpoint=endpoint,
                 status_code=status_code,
                 correlation_id=correlation_id,
@@ -115,7 +124,7 @@ def map_exception(
     # Handle generic connection errors
     if isinstance(exception, (ConnectionError, OSError)):
         return SupacrawlConnectionError(
-            f"Connection failed: {exception!s}",
+            hinted(f"Connection failed: {exception!s}"),
             endpoint=endpoint,
             correlation_id=correlation_id,
         )
@@ -123,7 +132,7 @@ def map_exception(
     # Handle timeout errors
     if isinstance(exception, TimeoutError):
         return SupacrawlTimeoutError(
-            f"Operation timed out: {exception!s}",
+            hinted(f"Operation timed out: {exception!s}"),
             endpoint=endpoint,
             correlation_id=correlation_id,
         )
@@ -158,14 +167,14 @@ def map_exception(
 
     if isinstance(exception, LibProviderError):
         return SupacrawlServerError(
-            f"Provider error: {exception!s}",
+            hinted(f"Provider error: {exception!s}"),
             endpoint=endpoint,
             correlation_id=correlation_id,
         )
 
     if isinstance(exception, LibSupacrawlError):
         return SupacrawlMCPError(
-            str(exception),
+            hinted(str(exception)),
             endpoint=endpoint,
             correlation_id=correlation_id,
         )
@@ -180,7 +189,7 @@ def map_exception(
 
     # Unknown exception - wrap it
     return SupacrawlMCPError(
-        f"Unexpected error: {exception!s}",
+        hinted(f"Unexpected error: {exception!s}"),
         endpoint=endpoint,
         correlation_id=correlation_id,
     )
