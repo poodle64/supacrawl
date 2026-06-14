@@ -6,10 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2026.6.0] - 2026-06-14
+
 ### Added
 
 - **HTTP-first fast path** (Closes #119): `scrape` now tries a cheap HTTP GET before launching a browser, escalating to Playwright only when a render-needed or bot-challenge signal fires (the same heuristics `diagnose` uses). Static pages return several times faster and without browser cost. Enabled by default; disable with `--no-http-first` (CLI), `httpFirst: false` (REST), or `http_first=False` (MCP). Browser-only requests (screenshot, PDF, actions, device emulation, stealth, or a non-default engine) skip the fast path automatically.
-- **robots.txt enforcement during crawl** (Closes #119): `crawl` now honours each origin's `robots.txt`, skipping disallowed URLs before scraping. Disable with `--ignore-robots` (CLI), `ignoreRobotsTxt: true` (REST), or `respect_robots=False` (MCP).
+- **Optional robots.txt enforcement for crawl** (Closes #119): `crawl` can honour each origin's `robots.txt`, skipping disallowed URLs and respecting `Crawl-delay`. It is opt-in — a crawl fetches the URLs it is given by default — so enable it with `--respect-robots` (CLI), `respect_robots=True` (MCP), or `ignoreRobotsTxt: false` (REST).
 - **Per-host courtesy throttle for crawl** (Closes #119): a minimum inter-request gap per host, set with `--delay` (CLI), `delay` (REST), or `request_delay` (MCP). A `robots.txt` `Crawl-delay` automatically raises the gap. Prevents a personal IP being rate-limited or banned during a crawl.
 - **`--expect` content gate** (Closes #121): assert that specific content is present before a scrape returns. A bare integer is a minimum word count; any other value is matched first as a CSS selector then as a text substring. When the assertion is unmet, the HTTP-first path escalates to the browser, the browser waits for a selector-shaped expectation to hydrate, and an still-unmet assertion (after a stealth + longer-wait retry) returns `success=False` with a remediation hint instead of a pre-hydration skeleton. Available as `--expect` (CLI), `expect` (REST/MCP).
 - **Agent-readable, remediation-shaped errors** (Closes #123): scrape failures and MCP tool errors now carry a concrete, honest recovery hint instead of an opaque stack trace — `[HINT: ...]` for timeouts (raise the timeout/wait_for), DNS/connection/TLS faults, and 4xx/5xx responses, and a "try only_main_content=False" hint on thin-content warnings. Anti-bot failures keep the availability-aware stealth hint; failures with no useful action get no speculative advice (the #107 lesson). Lets an agent retry with a corrected parameter without human intervention.
@@ -21,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **Extracted `services/detection.py`**: the pure page-classification heuristics (CDN/WAF, JS framework, bot protection, login wall, render-needed estimate, recommendation generation) moved out of the `diagnose` MCP tool into a shared module so the scrape fast path, crawl, and diagnose share one implementation. A dead `BOT_DETECTION_PATTERNS` constant in `diagnose.py` was removed.
 - **Extracted `ScrapeService._assemble_result()`**: the output-format assembly and caching tail is now shared by the browser path and the HTTP-first path, eliminating duplication.
+- **Dropped two vestigial result models and tidied the E2E suite**: removed `ContentStats` and `ProcessMetadata`, which were defined but never populated or surfaced; replaced swallowed-exception mock scaffolding with deterministic browser fakes; made the search and the site-dependent crawl/map tests skip gracefully when a live provider or page yields nothing; bounded external-link discovery; and gave the timeout tests short explicit timeouts so they fail fast.
+
+### Documentation
+
+- Brought the CLI and REST references current with the HTTP-first fast path, the `--expect` content gate, the `structuredData` format, the content-extraction dial, search recency/topic/domain filters, and the crawl robots/delay options.
 
 ## [2026.5.0] - 2026-05-15
 

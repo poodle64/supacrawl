@@ -2032,7 +2032,7 @@ wheels = [
 
 [[package]]
 name = "supacrawl"
-version = "2026.5.0"
+version = "2026.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
