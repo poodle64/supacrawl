@@ -11,6 +11,7 @@ import pytest
 
 from supacrawl.models import SearchFilters
 from supacrawl.services.search.brave import BraveProvider
+from supacrawl.services.search.duckduckgo import DuckDuckGoProvider
 from supacrawl.services.search.exa import ExaProvider
 from supacrawl.services.search.serper import SerperProvider
 from supacrawl.services.search.tavily import TavilyProvider
@@ -166,3 +167,42 @@ class TestExaFilters:
         await provider.search_web("ai", 5, "cid", SearchFilters(time_range="week"))
         # Exa has no relative range; time_range is converted to an absolute start date.
         assert fake.last["json"]["startPublishedDate"].endswith("T00:00:00.000Z")
+
+
+class _DDGResponse:
+    """A DDG response carrying both a vqd token (in text) and a JSON body."""
+
+    def __init__(self) -> None:
+        self.text = 'vqd="tok123"'
+        self.status_code = 200
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict[str, Any]:
+        return {"results": []}
+
+
+class _DDGClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def get(self, url: str, *, params: Any = None, headers: Any = None) -> _DDGResponse:
+        self.calls.append({"url": url, "params": params})
+        return _DDGResponse()
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+class TestDuckDuckGoNewsFilters:
+    """Regression: DuckDuckGo news must apply filters like web, not ignore them."""
+
+    async def test_news_applies_df_and_domain_operators(self) -> None:
+        fake = _DDGClient()
+        provider = DuckDuckGoProvider(http_client=fake)  # type: ignore[arg-type]
+        await provider.search_news("ai", 5, "cid", SearchFilters(time_range="day", include_domains=["bbc.com"]))
+        news_call = next(c for c in fake.calls if "news.js" in c["url"])
+        assert news_call["params"]["df"] == "d"
+        assert "site:bbc.com" in news_call["params"]["q"]

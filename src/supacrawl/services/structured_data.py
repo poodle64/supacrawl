@@ -84,7 +84,12 @@ def _flatten_json_ld(data: Any) -> list[Any]:
     if isinstance(data, dict):
         graph = data.get("@graph")
         if isinstance(graph, list):
-            return list(graph)
+            # Recurse so a nested @graph (some complex schema.org payloads emit
+            # one) is also flattened rather than left as an opaque dict.
+            result = []
+            for item in graph:
+                result.extend(_flatten_json_ld(item))
+            return result
         return [data]
     return [data]
 

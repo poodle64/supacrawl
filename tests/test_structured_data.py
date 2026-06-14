@@ -55,6 +55,16 @@ class TestExtractStructuredData:
         types = {obj["@type"] for obj in sd.json_ld}
         assert types == {"Organization", "WebSite"}
 
+    def test_nested_graph_is_flattened(self) -> None:
+        html = (
+            '<html><head><script type="application/ld+json">'
+            '{"@context":"x","@graph":[{"@graph":[{"@type":"A"},{"@type":"B"}]},{"@type":"C"}]}'
+            "</script></head><body>x</body></html>"
+        )
+        sd = extract_structured_data(html)
+        assert sd.json_ld is not None
+        assert {obj.get("@type") for obj in sd.json_ld} == {"A", "B", "C"}
+
     def test_opengraph(self) -> None:
         sd = extract_structured_data(JSON_LD_HTML)
         assert sd.opengraph == {"og:title": "Widget — Buy Now", "og:type": "product"}

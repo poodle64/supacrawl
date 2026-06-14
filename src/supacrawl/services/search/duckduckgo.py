@@ -191,7 +191,14 @@ class DuckDuckGoProvider:
             return []
 
         vqd = vqd_match.group(1)
-        params = {"q": query, "vqd": vqd, "l": "au-en", "o": "json", "noamp": "1", "df": ""}
+        # Apply domain and recency filters consistently with search_web.
+        news_query = query
+        df = ""
+        if filters and not filters.is_empty():
+            news_query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
+            if filters.time_range in ("day", "week", "month"):
+                df = {"day": "d", "week": "w", "month": "m"}[filters.time_range]
+        params = {"q": news_query, "vqd": vqd, "l": "au-en", "o": "json", "noamp": "1", "df": df}
         response = await client.get("https://duckduckgo.com/news.js", params=params)
 
         results: list[SearchResultItem] = []
