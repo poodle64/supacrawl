@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from supacrawl.services.browser import BrowserManager
+from supacrawl.services.browser import BrowserManager, PageContent, PageMetadata
 from supacrawl.services.scrape import ScrapeService
 
 # ---------------------------------------------------------------------------
@@ -181,27 +181,51 @@ class TestScrapeServiceDevice:
 
     @pytest.mark.asyncio
     async def test_device_passed_to_browser_fetch_page(self):
-        """Device parameter should be forwarded to browser.fetch_page()."""
+        """Device parameter should be forwarded to browser.fetch_page().
+
+        Drives the real browser path (``http_first=False`` skips the HTTP-first fast
+        path) against a fake BrowserManager, so fetch_page is genuinely called and the
+        scrape completes successfully rather than relying on a swallowed exception.
+        """
         service = ScrapeService(headless=True)
         assert service._owns_browser is True
 
-        with (
-            patch.object(BrowserManager, "__aenter__", new_callable=AsyncMock) as mock_enter,
-            patch.object(BrowserManager, "__aexit__", new_callable=AsyncMock),
-            patch.object(BrowserManager, "__init__", return_value=None),
-            patch.object(BrowserManager, "fetch_page", new_callable=AsyncMock) as mock_fetch,
-        ):
-            mock_enter.return_value = MagicMock()
+        fake_browser = MagicMock()
+        fake_browser.__aenter__ = AsyncMock(return_value=fake_browser)
+        fake_browser.__aexit__ = AsyncMock(return_value=None)
+        fake_browser.fetch_page = AsyncMock(
+            return_value=PageContent(
+                url="https://example.com",
+                html="<html><body><h1>Example</h1><p>Real page content.</p></body></html>",
+                title="Example",
+                status_code=200,
+            )
+        )
+        fake_browser.extract_metadata = AsyncMock(
+            return_value=PageMetadata(
+                title="Example",
+                description=None,
+                language=None,
+                keywords=None,
+                robots=None,
+                canonical_url=None,
+                og_title=None,
+                og_description=None,
+                og_image=None,
+                og_url=None,
+                og_site_name=None,
+            )
+        )
 
-            try:
-                await service.scrape("https://example.com", device="iPhone 14")
-            except Exception:
-                pass  # We only care about the fetch_page call
+        make_browser = MagicMock(return_value=fake_browser)
+        with patch("supacrawl.services.scrape.BrowserManager", make_browser):
+            result = await service.scrape(
+                "https://example.com", formats=["markdown"], device="iPhone 14", http_first=False
+            )
 
-            # Verify fetch_page was actually called and device was passed
-            assert mock_fetch.called, "fetch_page was never called"
-            _, kwargs = mock_fetch.call_args
-            assert kwargs.get("device") == "iPhone 14"
+        fake_browser.fetch_page.assert_called_once()
+        assert fake_browser.fetch_page.call_args.kwargs.get("device") == "iPhone 14"
+        assert result.success
 
 
 # ---------------------------------------------------------------------------

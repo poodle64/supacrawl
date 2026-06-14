@@ -13,9 +13,11 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_invalid_url_handling(self) -> None:
         """Test handling of invalid URLs."""
-        async with BrowserManager() as browser:
+        # A short timeout reaches both the HTTP-first fetch and the browser so a
+        # dead host fails fast instead of waiting out the 30s default twice.
+        async with BrowserManager(timeout_ms=3000) as browser:
             service = ScrapeService(browser=browser)
-            result = await service.scrape("https://this-domain-does-not-exist-12345.com")
+            result = await service.scrape("https://this-domain-does-not-exist-12345.com", timeout=3000)
 
         # Should fail gracefully with error
         assert not result.success
@@ -48,10 +50,11 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_network_error_handling(self) -> None:
         """Test handling of network errors."""
-        async with BrowserManager() as browser:
+        async with BrowserManager(timeout_ms=3000) as browser:
             service = ScrapeService(browser=browser)
-            # Use a URL that should cause network error (unreachable host)
-            result = await service.scrape("https://192.0.2.1")
+            # 192.0.2.1 (reserved TEST-NET-1) is non-routable; a short timeout on
+            # both the HTTP-first fetch and the browser avoids a ~60s connect hang.
+            result = await service.scrape("https://192.0.2.1", timeout=3000)
 
         # Should fail gracefully (192.0.2.1 is reserved TEST-NET-1)
         assert not result.success
@@ -71,10 +74,10 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_scrape_404_handling(self) -> None:
         """Test handling of 404 errors."""
-        async with BrowserManager() as browser:
+        async with BrowserManager(timeout_ms=5000) as browser:
             service = ScrapeService(browser=browser)
             # Try a URL that should return 404
-            result = await service.scrape("https://example.com/this-page-does-not-exist-12345")
+            result = await service.scrape("https://example.com/this-page-does-not-exist-12345", timeout=5000)
 
         # Should either succeed (some 404 pages are valid HTML) or fail gracefully
         assert hasattr(result, "success")

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from supacrawl.services.browser import BrowserManager
+from supacrawl.services.browser import BrowserManager, PageContent, PageMetadata
 from supacrawl.services.crawl import CrawlService
 from supacrawl.services.map import MapService
 from supacrawl.services.scrape import ScrapeService
@@ -54,27 +54,51 @@ class TestScrapeServiceHeadlessPropagation:
 
     @pytest.mark.asyncio
     async def test_owns_browser_passes_headless(self):
-        """When creating its own BrowserManager, ScrapeService passes headless."""
+        """When creating its own BrowserManager, ScrapeService passes headless through.
+
+        Drives the real browser path (``http_first=False`` skips the HTTP-first fast
+        path) against a fake BrowserManager, so the constructor call is genuine and the
+        scrape completes successfully. The #78 propagation contract is the assertion;
+        the successful result proves the path actually executed rather than being
+        short-circuited and asserted vacuously.
+        """
         service = ScrapeService(headless=True, stealth=True)
         assert service._owns_browser is True
 
-        with (
-            patch.object(BrowserManager, "__aenter__", new_callable=AsyncMock) as mock_enter,
-            patch.object(BrowserManager, "__aexit__", new_callable=AsyncMock),
-            patch.object(BrowserManager, "__init__", return_value=None) as mock_init,
-            patch.object(BrowserManager, "fetch_page", new_callable=AsyncMock),
-        ):
-            mock_enter.return_value = MagicMock()
+        fake_browser = MagicMock()
+        fake_browser.__aenter__ = AsyncMock(return_value=fake_browser)
+        fake_browser.__aexit__ = AsyncMock(return_value=None)
+        fake_browser.fetch_page = AsyncMock(
+            return_value=PageContent(
+                url="https://example.com",
+                html="<html><body><h1>Example</h1><p>Real page content.</p></body></html>",
+                title="Example",
+                status_code=200,
+            )
+        )
+        fake_browser.extract_metadata = AsyncMock(
+            return_value=PageMetadata(
+                title="Example",
+                description=None,
+                language=None,
+                keywords=None,
+                robots=None,
+                canonical_url=None,
+                og_title=None,
+                og_description=None,
+                og_image=None,
+                og_url=None,
+                og_site_name=None,
+            )
+        )
 
-            try:
-                await service.scrape("https://example.com")
-            except Exception:
-                pass  # We only care about the BrowserManager constructor call
+        make_browser = MagicMock(return_value=fake_browser)
+        with patch("supacrawl.services.scrape.BrowserManager", make_browser):
+            result = await service.scrape("https://example.com", formats=["markdown"], http_first=False)
 
-            # Verify headless=True was passed to BrowserManager
-            if mock_init.called:
-                _, kwargs = mock_init.call_args
-                assert kwargs.get("headless") is True
+        make_browser.assert_called_once()
+        assert make_browser.call_args.kwargs["headless"] is True
+        assert result.success
 
 
 class TestMapServiceHeadlessPropagation:

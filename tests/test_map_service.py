@@ -120,10 +120,11 @@ class TestMapService:
         """Test that external links are allowed when enabled."""
         service = MapService()
         # This test verifies the parameter is accepted; actual external link
-        # discovery depends on the source page having external links
+        # discovery depends on the source page having external links. A small
+        # limit keeps it from following links deep across external sites.
         result = await service.map_all(
             "https://example.com",
-            limit=10,
+            limit=2,
             sitemap="skip",
             allow_external_links=True,
         )

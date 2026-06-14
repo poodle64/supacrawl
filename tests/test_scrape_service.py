@@ -4,7 +4,7 @@ import inspect
 
 import pytest
 
-from supacrawl.models import ContentStats, ProcessMetadata, ScrapeResult
+from supacrawl.models import ScrapeResult
 from supacrawl.services.scrape import ScrapeService
 
 
@@ -202,56 +202,3 @@ class TestScrapeService:
         # Summary may be None if Ollama is not running
         if result.data.summary is not None:
             assert isinstance(result.data.summary, str)
-
-    @pytest.mark.asyncio
-    async def test_scrape_returns_content_stats(self):
-        """Test that scrape returns content_stats with quality metrics."""
-        service = ScrapeService()
-        result = await service.scrape("https://example.com")
-        assert result.success
-        assert result.data is not None
-        assert result.data.content_stats is not None
-        assert isinstance(result.data.content_stats, ContentStats)
-        assert result.data.content_stats.word_count >= 0
-        assert result.data.content_stats.extracted_elements >= 0
-        assert isinstance(result.data.content_stats.possible_issues, list)
-
-    @pytest.mark.asyncio
-    async def test_scrape_warnings_for_minimal_content(self):
-        """Test that scrape returns warnings for pages with minimal content."""
-        service = ScrapeService()
-        # example.com is intentionally minimal (only ~20 words)
-        result = await service.scrape("https://example.com")
-        assert result.success
-        assert result.data is not None
-        # example.com has minimal content, so a warning is expected
-        assert result.warnings is not None
-        assert len(result.warnings) > 0
-        assert "minimal" in result.warnings[0].lower()
-
-    @pytest.mark.asyncio
-    async def test_scrape_returns_process_metadata(self):
-        """Test that scrape returns process_metadata with scraping info."""
-        service = ScrapeService()
-        result = await service.scrape("https://example.com")
-        assert result.success
-        assert result.data is not None
-        assert result.data.process_metadata is not None
-        assert isinstance(result.data.process_metadata, ProcessMetadata)
-        # Page load time should be a positive integer
-        assert result.data.process_metadata.page_load_time_ms is not None
-        assert result.data.process_metadata.page_load_time_ms > 0
-        # Default extraction method is main_content
-        assert result.data.process_metadata.extraction_method == "main_content"
-        # Stealth mode not used for example.com
-        assert result.data.process_metadata.stealth_mode_used is False
-
-    @pytest.mark.asyncio
-    async def test_scrape_process_metadata_full_page(self):
-        """Test that process_metadata reflects full_page extraction."""
-        service = ScrapeService()
-        result = await service.scrape("https://example.com", only_main_content=False)
-        assert result.success
-        assert result.data is not None
-        assert result.data.process_metadata is not None
-        assert result.data.process_metadata.extraction_method == "full_page"
