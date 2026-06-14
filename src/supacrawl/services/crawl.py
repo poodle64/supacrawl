@@ -123,7 +123,7 @@ class CrawlService:
         change_tracking_modes: list[str] | None = None,
         expand_iframes: str = "same-origin",
         headers: dict[str, str] | None = None,
-        respect_robots: bool = True,
+        respect_robots: bool = False,
         request_delay: float = 0.0,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Crawl a website, yielding events as pages complete.
@@ -167,14 +167,14 @@ class CrawlService:
                 the start URL's origin; dropped for external-origin URLs when
                 allow_external_links is True. Only header KEYS are logged;
                 values are never written to logs or persisted.
-            respect_robots: Honour each origin's robots.txt (default True).
-                Disallowed URLs are skipped before scraping and a declared
-                Crawl-delay raises the per-host request gap. Set False to crawl
-                without consulting robots.txt.
+            respect_robots: When True, consult each origin's robots.txt and skip
+                disallowed URLs before scraping (a declared Crawl-delay also raises
+                the per-host gap). Default False: the crawl fetches the URLs it is
+                given without consulting robots.txt.
             request_delay: Minimum seconds between requests to the same host
-                (default 0.0). When respect_robots is True and a site declares a
-                larger Crawl-delay, the larger value wins. Prevents hammering a
-                single origin from a personal IP.
+                (default 0.0, i.e. no throttle). Set a positive value to space out
+                requests to a single origin. When respect_robots is True and a site
+                declares a larger Crawl-delay, the larger value wins.
 
         Yields:
             CrawlEvent for each page and progress update
@@ -282,7 +282,7 @@ class CrawlService:
         expand_iframes: str = "same-origin",
         engine: str | None = None,
         headers: dict[str, str] | None = None,
-        respect_robots: bool = True,
+        respect_robots: bool = False,
         request_delay: float = 0.0,
     ) -> AsyncGenerator[CrawlEvent, None]:
         """Core crawl logic. Assumes _browser, _map_service, _scrape_service are set."""

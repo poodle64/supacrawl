@@ -28,7 +28,7 @@ async def supacrawl_crawl(
     expand_iframes: str = "same-origin",
     engine: Literal["playwright", "patchright", "camoufox"] | None = None,
     headers: dict[str, str] | None = None,
-    respect_robots: bool = True,
+    respect_robots: bool = False,
     request_delay: float = 0.0,
 ) -> dict:
     """
@@ -87,12 +87,12 @@ async def supacrawl_crawl(
             {"Authorization": "Bearer token"}). Dropped for external-origin URLs
             when allow_external_links is True. Only header KEYS are logged;
             values are never persisted or written to logs.
-        respect_robots: Honour each origin's robots.txt (default True). Disallowed
-            URLs are skipped before scraping and a declared Crawl-delay raises the
-            per-host request gap. Set False to crawl without consulting robots.txt.
+        respect_robots: When True, consult each origin's robots.txt and skip
+            disallowed URLs before scraping. Default False: crawl the given URLs
+            without consulting robots.txt.
         request_delay: Minimum seconds between requests to the same host (default
-            0.0). When respect_robots is True and a site declares a larger
-            Crawl-delay, the larger value wins.
+            0.0, no throttle). Set a positive value to space out requests to one
+            origin; a robots.txt Crawl-delay raises it when respect_robots is True.
 
     Returns:
         Firecrawl-compatible crawl result:

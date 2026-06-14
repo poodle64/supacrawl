@@ -151,9 +151,9 @@ from supacrawl.cli._common import app, parse_header_string, parse_headers_env
 )
 @click.option(
     "--respect-robots/--ignore-robots",
-    default=True,
+    default=False,
     show_default=True,
-    help="Honour each origin's robots.txt (skip disallowed URLs, apply Crawl-delay).",
+    help="Consult each origin's robots.txt and skip disallowed URLs (off by default).",
 )
 @click.option(
     "--delay",
@@ -161,7 +161,7 @@ from supacrawl.cli._common import app, parse_header_string, parse_headers_env
     type=click.FloatRange(0.0),
     default=0.0,
     show_default=True,
-    help="Minimum seconds between requests to the same host. A robots.txt Crawl-delay raises this.",
+    help="Minimum seconds between requests to the same host (0 = no throttle).",
 )
 def crawl_cmd(
     url: str,

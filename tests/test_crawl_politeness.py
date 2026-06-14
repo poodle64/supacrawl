@@ -61,6 +61,31 @@ async def test_crawl_skips_robots_disallowed(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
+async def test_crawl_default_does_not_enforce_robots(monkeypatch: pytest.MonkeyPatch) -> None:
+    """By default (respect_robots unset) robots.txt is not consulted and nothing is skipped."""
+    fetched_origins: list[str] = []
+
+    async def fake_fetch_robots(origin: str, timeout: float = 30.0) -> RobotsConfig:
+        fetched_origins.append(origin)
+        return RobotsConfig(disallow_patterns=["/private"])
+
+    monkeypatch.setattr("supacrawl.services.crawl.fetch_robots", fake_fetch_robots)
+
+    scraped: list[str] = []
+    service = CrawlService(
+        browser=MagicMock(),
+        map_service=_map_service(["https://example.com/ok", "https://example.com/private/secret"]),
+        scrape_service=_scrape_service(scraped),
+    )
+
+    # No respect_robots argument -> default behaviour.
+    [event async for event in service.crawl("https://example.com")]
+
+    assert "https://example.com/private/secret" in scraped
+    assert fetched_origins == []
+
+
+@pytest.mark.asyncio
 async def test_crawl_ignores_robots_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """With respect_robots=False, robots.txt is never fetched and nothing is skipped."""
     fetched_origins: list[str] = []

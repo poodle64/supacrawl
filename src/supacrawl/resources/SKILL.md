@@ -64,7 +64,7 @@ supacrawl map https://docs.example.com --limit 200
 supacrawl crawl https://docs.example.com --output corpus/ --limit 100
 ```
 
-`map` returns URLs only (cheap discovery). `crawl` scrapes each page into `--output` as markdown/HTML/JSON files. Crawl is polite by default: it honours `robots.txt` (disable with `--ignore-robots`) and you can add a per-host gap with `--delay <seconds>`. Scope with `--include`/`--exclude` glob patterns, `--max-depth`, and `--limit`.
+`map` returns URLs only (cheap discovery). `crawl` scrapes each page into `--output` as markdown/HTML/JSON files. Scope with `--include`/`--exclude` glob patterns, `--max-depth`, and `--limit`. To space out requests to one host, add `--delay <seconds>`; to consult `robots.txt`, add `--respect-robots`.
 
 ## llm-extract / agent — structured + autonomous
 
