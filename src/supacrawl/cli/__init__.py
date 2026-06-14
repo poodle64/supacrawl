@@ -9,6 +9,7 @@ into modules by functionality:
 - agent: Search, extraction, and agent commands (search, llm-extract, agent)
 - cache: Cache management subcommands (cache stats/clear/prune)
 - serve: REST API server
+- skill: Install the agent skill (install-skill)
 """
 
 # Import all command modules to register them with the app
@@ -21,6 +22,7 @@ from supacrawl.cli import (
     map,  # noqa: F401
     scrape,  # noqa: F401
     serve,  # noqa: F401
+    skill,  # noqa: F401
 )
 from supacrawl.cli._common import app
 

@@ -144,6 +144,16 @@ pip install supacrawl[mcp,camoufox]   # Camoufox for Akamai/Cloudflare (Tier 3)
 pip install supacrawl[mcp,captcha]    # 2Captcha CAPTCHA solving
 ```
 
+## Agent Skill
+
+Agents that drive the CLI (rather than MCP) can self-onboard from a single concise [`SKILL.md`](src/supacrawl/resources/SKILL.md) — command selection, flags, and failure recovery — plus a root [`llms.txt`](llms.txt). Register the skill in one command:
+
+```bash
+supacrawl install-skill            # into ./.claude/skills/supacrawl/
+supacrawl install-skill --user     # into ~/.claude/skills/supacrawl/
+supacrawl install-skill --dir PATH # for Cursor, Codex, or any other runtime
+```
+
 ## REST API
 
 Supacrawl includes an optional REST API server compatible with the [Firecrawl v2](https://docs.firecrawl.dev) protocol. Any tool that already integrates with Firecrawl (n8n, LangChain, LlamaIndex) can use Supacrawl as a self-hosted drop-in backend.
