@@ -24,6 +24,7 @@ The `supacrawl` CLI provides commands for web scraping, URL mapping, search, and
 Scrape a single URL and output content.
 
 **Usage:**
+
 ```bash
 supacrawl scrape URL [OPTIONS]
 ```
@@ -34,7 +35,7 @@ supacrawl scrape URL [OPTIONS]
 
 **Options:**
 
-- `-f, --format FORMAT` - Output formats: `markdown`, `html`, `rawHtml`, `links`, `images`, `screenshot`, `pdf`, `json`, `branding`, `summary` (default: `markdown`, can specify multiple)
+- `-f, --format FORMAT` - Output formats: `markdown`, `html`, `rawHtml`, `links`, `images`, `screenshot`, `pdf`, `json`, `branding`, `structuredData`, `summary` (default: `markdown`, can specify multiple)
 - `--schema PATH` - Path to JSON schema file (for json format)
 - `-p, --prompt TEXT` - Extraction prompt (for json format)
 - `--only-main-content/--no-only-main-content` - Extract main content area only (default: true)
@@ -61,8 +62,14 @@ supacrawl scrape URL [OPTIONS]
 - `--device TEXT` - Emulate a specific device (e.g. "iPhone 15", "Pixel 7"). Overrides `--mobile`. See `--list-devices` for available presets
 - `--list-devices` - List all available device presets and exit
 - `--parse-pdf CHOICE` - PDF URL parsing mode: `auto` (default, detect .pdf URLs and extract text with OCR fallback), `fast` (text extraction only), `ocr` (force OCR, requires `supacrawl[pdf-ocr]`), `off` (disable, render in browser)
+- `--http-first/--no-http-first` - Try a cheap HTTP GET before launching a browser, escalating to the browser only when JavaScript or a bot challenge is detected. Use `--no-http-first` to always render in the browser (default: on)
+- `--expect TEXT` - Require asserted content to be present before returning. A bare integer is a minimum word count; any other value is matched first as a CSS selector then as a text substring. When unmet, the scrape waits and retries with escalation rather than returning a pre-hydration page. Examples: `--expect '.price'`, `--expect 'In stock'`, `--expect 200`
+- `--content-mode FLOAT` - Content extraction precision/recall dial (0.0–1.0, default: 0.5). Low values keep more content (recall-biased); high values prune aggressively (precision-biased). Requires `supacrawl[readability]` for the full cascade; without it, only the CSS-selector heuristic is active
+- `--query TEXT` - Filter extracted sections by relevance to this query (BM25). Flat pages with no headings are never filtered. Requires `supacrawl[readability]`
+- `-H, --header 'Key: Value'` - Custom HTTP request header. Repeatable. Example: `--header 'Authorization: Bearer token'`
 
 **Example:**
+
 ```bash
 $ supacrawl scrape https://example.com --format markdown
 # Outputs markdown content to stdout
@@ -136,6 +143,7 @@ $ supacrawl scrape https://example.com --expand-iframes all
 Crawl a website starting from a URL.
 
 **Usage:**
+
 ```bash
 supacrawl crawl URL [OPTIONS]
 ```
@@ -166,8 +174,11 @@ supacrawl crawl URL [OPTIONS]
 - `--cache-dir PATH` - Cache directory for change tracking (default: `~/.supacrawl/cache`)
 - `--change-tracking-modes CHOICE` - Diff modes for change tracking: `git-diff`, `json` (can specify multiple). Requires `-f changeTracking`
 - `--expand-iframes CHOICE` - Iframe content expansion: `none`, `same-origin` (default), `all`
+- `--respect-robots/--ignore-robots` - Consult each origin's `robots.txt` and skip disallowed URLs (default: ignore)
+- `--delay FLOAT` - Minimum seconds between requests to the same host (default: 0)
 
 **Example:**
+
 ```bash
 $ supacrawl crawl https://docs.example.com -o ./docs --limit 50
 # Crawl up to 50 pages to ./docs directory
@@ -196,6 +207,7 @@ $ supacrawl crawl https://example.com -o ./output --engine camoufox
 Map URLs from a website without scraping content.
 
 **Usage:**
+
 ```bash
 supacrawl map URL [OPTIONS]
 ```
@@ -220,6 +232,7 @@ supacrawl map URL [OPTIONS]
 - `--wait-until STRATEGY` - Page load strategy
 
 **Example:**
+
 ```bash
 $ supacrawl map https://example.com --limit 100 --format json
 # Output full JSON result with link metadata
@@ -242,6 +255,7 @@ $ supacrawl map https://example.com --ignore-query-params
 Search the web with multi-provider fallback. Supports 6 providers: Brave, Tavily, Serper, SerpAPI, Exa, and DuckDuckGo. Providers are tried in order; if one fails (rate limit, quota, CAPTCHA), the next is tried automatically.
 
 **Usage:**
+
 ```bash
 supacrawl search QUERY [OPTIONS]
 ```
@@ -256,9 +270,16 @@ supacrawl search QUERY [OPTIONS]
 - `-s, --source TYPE` - Source types: `web`, `images`, `news`, or `all` (default: `web`, can specify multiple)
 - `--scrape/--no-scrape` - Scrape content from result pages (default: no-scrape)
 - `--provider PROVIDERS` - Search provider(s), comma-separated for fallback chain. Supported: `brave`, `tavily`, `serper`, `serpapi`, `exa`, `duckduckgo` (default: `brave`). Also configurable via `SUPACRAWL_SEARCH_PROVIDERS` env var
+- `--time-range [day|week|month|year]` - Restrict results to the past day, week, month, or year (mapped onto each provider's native API)
+- `--start-date YYYY-MM-DD` - Earliest result date
+- `--end-date YYYY-MM-DD` - Latest result date
+- `--topic [general|news|finance]` - Topic vertical. Honoured natively by Tavily and Exa; other providers ignore it
+- `--include-domain TEXT` - Restrict results to this domain. Repeatable
+- `--exclude-domain TEXT` - Exclude results from this domain. Repeatable
 - `-o, --output PATH` - Output file (JSON). If omitted, prints to stdout
 
 **Example:**
+
 ```bash
 $ supacrawl search "python web scraping" --limit 5 --source web
 # Search web for Python scraping content
@@ -274,6 +295,15 @@ $ supacrawl search "tech updates" --source all
 
 $ supacrawl search "topic" --provider brave,tavily,serper
 # Use multiple providers with automatic fallback
+
+$ supacrawl search "AI breakthroughs" --time-range week
+# Results from the past week only
+
+$ supacrawl search "earnings report" --topic finance --start-date 2025-01-01 --end-date 2025-06-30
+# Finance-vertical results within a date range
+
+$ supacrawl search "open source tools" --include-domain github.com --exclude-domain reddit.com
+# Restrict or exclude specific domains
 ```
 
 ### llm-extract
@@ -281,6 +311,7 @@ $ supacrawl search "topic" --provider brave,tavily,serper
 Extract structured data from URLs using an LLM.
 
 **Usage:**
+
 ```bash
 supacrawl llm-extract URLS... [OPTIONS]
 ```
@@ -302,6 +333,7 @@ supacrawl llm-extract URLS... [OPTIONS]
 - `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` - API key for cloud providers
 
 **Example:**
+
 ```bash
 $ supacrawl llm-extract https://example.com/products --prompt "Extract product names and prices"
 # Extract product data from a page
@@ -318,6 +350,7 @@ $ supacrawl llm-extract https://a.com https://b.com --prompt "Extract titles" -o
 Run an autonomous web agent that searches, navigates, and extracts data.
 
 **Usage:**
+
 ```bash
 supacrawl agent PROMPT [OPTIONS]
 ```
@@ -341,6 +374,7 @@ supacrawl agent PROMPT [OPTIONS]
 - `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` - API key for cloud providers
 
 **Example:**
+
 ```bash
 $ supacrawl agent "Find the pricing plans for Anthropic Claude API"
 # Agent will search and navigate to find pricing info
@@ -357,6 +391,7 @@ $ supacrawl agent "Find Python tutorial websites" --max-steps 5 --quiet
 Manage the local scrape cache.
 
 **Usage:**
+
 ```bash
 supacrawl cache COMMAND [OPTIONS]
 ```
@@ -377,6 +412,7 @@ supacrawl cache COMMAND [OPTIONS]
 - `-y, --yes` - Skip confirmation prompt
 
 **Example:**
+
 ```bash
 $ supacrawl cache stats
 # Show cache statistics
@@ -485,7 +521,7 @@ supacrawl scrape https://spa.example.com --actions actions.json
 Supacrawl uses a three-tier engine system for anti-bot protection:
 
 | Tier | Engine | Install | Use Case |
-|------|--------|---------|----------|
+| --- | --- | --- | --- |
 | 1 | Playwright (default) | Included | Basic stealth scripts, always active |
 | 2 | Patchright | `pip install supacrawl[stealth]` | Cloudflare, general anti-bot |
 | 3 | Camoufox | `pip install supacrawl[camoufox]` | Akamai Bot Manager, advanced TLS fingerprinting |
@@ -669,6 +705,7 @@ See `.env.example` for additional browser configuration options.
 ### Common Errors
 
 **URL Not Reachable:**
+
 ```text
 Error: Failed to fetch URL: https://example.com [correlation_id=abc12345]
 ```
@@ -676,6 +713,7 @@ Error: Failed to fetch URL: https://example.com [correlation_id=abc12345]
 **Solution:** Check the URL is correct and accessible. The site may be blocking automated requests. Try `--stealth` mode.
 
 **LLM Provider Error:**
+
 ```text
 Error: LLM extraction failed: Connection refused [correlation_id=abc12345]
 ```
@@ -683,6 +721,7 @@ Error: LLM extraction failed: Connection refused [correlation_id=abc12345]
 **Solution:** Ensure Ollama is running (`ollama serve`) or check API keys for cloud providers. Verify `SUPACRAWL_LLM_PROVIDER` and `SUPACRAWL_LLM_MODEL` are set.
 
 **Timeout Error:**
+
 ```text
 Error: Page load timeout exceeded [correlation_id=abc12345]
 ```

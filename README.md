@@ -15,9 +15,12 @@ There are excellent web scraping tools available. Supacrawl takes a different ap
 - **Zero infrastructure**: `pip install` and go, no Docker/databases/Redis
 - **Terminal-first**: Designed for shell workflows and pipelines
 - **MCP server**: Give AI assistants direct access to web scraping
-- **Clean markdown**: Playwright renders JS, outputs readable markdown
+- **Fast by default**: HTTP-first fetch skips the browser for static pages, escalating only when JavaScript or a bot challenge needs it
+- **Clean markdown**: Renders JS when needed, outputs readable markdown with a precision/recall extraction dial
+- **Structured data, no LLM**: Pull schema.org JSON-LD, microdata, and OpenGraph as JSON, deterministically
 - **LLM-ready**: Built-in extraction with Ollama, OpenAI, or Anthropic
 - **Anti-bot protection**: Three-tier engine system (Playwright, Patchright, Camoufox) with automatic HTTP/2 fallback
+- **Web search**: Multi-provider search with fallback and recency/topic/domain filters
 - **PDF parsing**: Auto-detect PDF URLs, extract text with optional OCR
 - **Mobile emulation**: Scrape as any mobile device using Playwright device descriptors
 

@@ -64,30 +64,38 @@ Scrape a single URL synchronously. Returns scraped content in the requested form
   "excludeTags": [".sidebar"],
   "mobile": false,
   "actions": [],
-  "location": {"country": "AU", "languages": ["en-AU"]},
-  "headers": {"Cookie": "session=abc"},
+  "location": { "country": "AU", "languages": ["en-AU"] },
+  "headers": { "Cookie": "session=abc" },
   "maxAge": 60000,
   "proxy": "basic",
-  "storeInCache": true
+  "storeInCache": true,
+  "httpFirst": true,
+  "expect": ".product-price",
+  "contentMode": 0.5,
+  "query": "pricing"
 }
 ```
 
-| Field             | Type           | Default  | Description                                                                     |
-| ----------------- | -------------- | -------- | ------------------------------------------------------------------------------- |
-| `url`             | string         | required | URL to scrape                                                                   |
-| `formats`         | string[]       | `null`   | Output formats. Supacrawl extras: `"images"`, `"branding"`, `"pdf"`             |
-| `onlyMainContent` | boolean        | `true`   | Extract main content area only                                                  |
-| `waitFor`         | integer        | `0`      | Additional wait time in milliseconds after page load                            |
-| `timeout`         | integer        | `30000`  | Page load timeout in milliseconds                                               |
-| `includeTags`     | string[]       | `null`   | CSS selectors for elements to include                                           |
-| `excludeTags`     | string[]       | `null`   | CSS selectors for elements to exclude                                           |
-| `mobile`          | boolean        | `null`   | Emulate a mobile viewport                                                       |
-| `actions`         | array          | `null`   | Page actions (click, scroll, wait)                                              |
-| `location`        | object         | `null`   | Locale settings: `{ "country": "AU", "languages": ["en-AU"] }`                  |
-| `headers`         | object         | `null`   | Custom HTTP request headers                                                     |
-| `maxAge`          | integer        | `null`   | Cache freshness in milliseconds (divided by 1000 for service layer)             |
-| `proxy`           | string/boolean | `null`   | `"basic"`, `"enhanced"`, `"auto"` map to `true`; a URL string is passed through |
-| `storeInCache`    | boolean        | `null`   | `false` bypasses cache entirely (sets `maxAge` to 0)                            |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `url` | string | required | URL to scrape |
+| `formats` | string[] | `null` | Output formats. Supacrawl extras: `"images"`, `"branding"`, `"pdf"`, `"structuredData"` |
+| `onlyMainContent` | boolean | `true` | Extract main content area only |
+| `waitFor` | integer | `0` | Additional wait time in milliseconds after page load |
+| `timeout` | integer | `30000` | Page load timeout in milliseconds |
+| `includeTags` | string[] | `null` | CSS selectors for elements to include |
+| `excludeTags` | string[] | `null` | CSS selectors for elements to exclude |
+| `mobile` | boolean | `null` | Emulate a mobile viewport |
+| `actions` | array | `null` | Page actions (click, scroll, wait) |
+| `location` | object | `null` | Locale settings: `{ "country": "AU", "languages": ["en-AU"] }` |
+| `headers` | object | `null` | Custom HTTP request headers |
+| `maxAge` | integer | `null` | Cache freshness in milliseconds (divided by 1000 for service layer) |
+| `proxy` | string/boolean | `null` | `"basic"`, `"enhanced"`, `"auto"` map to `true`; a URL string is passed through |
+| `storeInCache` | boolean | `null` | `false` bypasses cache entirely (sets `maxAge` to 0) |
+| `httpFirst` | boolean | `true` | Try a cheap HTTP GET before launching a browser; escalates automatically when JavaScript or a bot challenge is detected. Set to `false` to always render in the browser |
+| `expect` | string | `null` | Require asserted content before returning. A bare integer is a minimum word count; any other value is matched first as a CSS selector then as a text substring |
+| `contentMode` | number | `0.5` | Content extraction precision/recall dial (0.0–1.0). Low values keep more content; high values prune aggressively. Requires `supacrawl[readability]` for the full cascade |
+| `query` | string | `null` | Filter extracted sections by relevance to this query (BM25). Flat pages with no headings are never filtered. Requires `supacrawl[readability]` |
 
 Fields not listed here (e.g. `skipTlsVerification`, `blockAds`, `removeBase64Images`) are accepted silently and ignored.
 
@@ -112,7 +120,8 @@ Fields not listed here (e.g. `skipTlsVerification`, `blockAds`, `removeBase64Ima
     },
     "actions": null,
     "branding": null,
-    "changeTracking": null
+    "changeTracking": null,
+    "structuredData": null
   }
 }
 ```
@@ -155,18 +164,20 @@ Start an asynchronous crawl job. Returns a job ID immediately; use `GET /crawl/{
 }
 ```
 
-| Field                   | Type     | Default  | Description                                                     |
-| ----------------------- | -------- | -------- | --------------------------------------------------------------- |
-| `url`                   | string   | required | Starting URL for the crawl                                      |
-| `limit`                 | integer  | `10000`  | Maximum pages to crawl                                          |
-| `maxDiscoveryDepth`     | integer  | `3`      | Maximum crawl depth                                             |
-| `includePaths`          | string[] | `null`   | Regex patterns on URL path to include                           |
-| `excludePaths`          | string[] | `null`   | Regex patterns on URL path to exclude                           |
-| `allowExternalLinks`    | boolean  | `false`  | Follow links to external domains                                |
-| `allowSubdomains`       | boolean  | `false`  | Follow links to subdomains                                      |
-| `maxConcurrency`        | integer  | `10`     | Maximum concurrent requests                                     |
-| `ignoreQueryParameters` | boolean  | `false`  | Deduplicate URLs differing only by query params                 |
-| `scrapeOptions`         | object   | `null`   | Nested scrape options (same fields as POST /scrape minus `url`) |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `url` | string | required | Starting URL for the crawl |
+| `limit` | integer | `10000` | Maximum pages to crawl |
+| `maxDiscoveryDepth` | integer | `3` | Maximum crawl depth |
+| `includePaths` | string[] | `null` | Regex patterns on URL path to include |
+| `excludePaths` | string[] | `null` | Regex patterns on URL path to exclude |
+| `allowExternalLinks` | boolean | `false` | Follow links to external domains |
+| `allowSubdomains` | boolean | `false` | Follow links to subdomains |
+| `maxConcurrency` | integer | `10` | Maximum concurrent requests |
+| `ignoreQueryParameters` | boolean | `false` | Deduplicate URLs differing only by query params |
+| `ignoreRobotsTxt` | boolean | `true` | Skip `robots.txt` checks. Set to `false` to consult each origin's robots.txt and skip disallowed URLs |
+| `delay` | number | `0` | Minimum seconds between requests to the same host |
+| `scrapeOptions` | object | `null` | Nested scrape options (same fields as POST /scrape minus `url`) |
 
 **Response body:**
 
@@ -272,16 +283,16 @@ Discover URLs on a website synchronously. Returns a list of discovered links wit
 }
 ```
 
-| Field                   | Type    | Default     | Description                                          |
-| ----------------------- | ------- | ----------- | ---------------------------------------------------- |
-| `url`                   | string  | required    | Starting URL to map                                  |
-| `limit`                 | integer | `5000`      | Maximum URLs to discover                             |
-| `search`                | string  | `null`      | Filter URLs by relevance to this term                |
-| `sitemap`               | string  | `"include"` | Sitemap handling: `"skip"`, `"include"`, or `"only"` |
-| `includeSubdomains`     | boolean | `false`     | Include subdomain URLs                               |
-| `ignoreQueryParameters` | boolean | `false`     | Remove query parameters from URLs                    |
-| `ignoreCache`           | boolean | `false`     | Bypass cached map results                            |
-| `timeout`               | integer | `30000`     | Timeout in milliseconds                              |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `url` | string | required | Starting URL to map |
+| `limit` | integer | `5000` | Maximum URLs to discover |
+| `search` | string | `null` | Filter URLs by relevance to this term |
+| `sitemap` | string | `"include"` | Sitemap handling: `"skip"`, `"include"`, or `"only"` |
+| `includeSubdomains` | boolean | `false` | Include subdomain URLs |
+| `ignoreQueryParameters` | boolean | `false` | Remove query parameters from URLs |
+| `ignoreCache` | boolean | `false` | Bypass cached map results |
+| `timeout` | integer | `30000` | Timeout in milliseconds |
 
 **Response body:**
 
@@ -289,8 +300,8 @@ Discover URLs on a website synchronously. Returns a list of discovered links wit
 {
   "success": true,
   "links": [
-    {"url": "https://example.com/about", "title": "About Us", "description": "Learn more..."},
-    {"url": "https://example.com/pricing", "title": "Pricing", "description": null}
+    { "url": "https://example.com/about", "title": "About Us", "description": "Learn more..." },
+    { "url": "https://example.com/pricing", "title": "Pricing", "description": null }
   ]
 }
 ```
@@ -315,19 +326,31 @@ Search the web synchronously. Results are bucketed by source type (web, images, 
 {
   "query": "python web scraping tutorial",
   "limit": 5,
-  "sources": [{"type": "web"}],
+  "sources": [{ "type": "web" }],
   "timeout": 30000,
-  "scrapeOptions": null
+  "scrapeOptions": null,
+  "timeRange": "week",
+  "startDate": "2025-01-01",
+  "endDate": "2025-06-30",
+  "topic": "general",
+  "includeDomains": ["docs.python.org"],
+  "excludeDomains": ["reddit.com"]
 }
 ```
 
-| Field           | Type    | Default             | Description                                                                                                                 |
-| --------------- | ------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `query`         | string  | required            | Search query                                                                                                                |
-| `limit`         | integer | `5`                 | Maximum results per source type                                                                                             |
-| `sources`       | array   | `[{"type": "web"}]` | Source types. Accepts v2 objects `[{"type": "web"}]` or plain strings `["web"]`. Valid types: `"web"`, `"images"`, `"news"` |
-| `timeout`       | integer | `30000`             | Timeout in milliseconds                                                                                                     |
-| `scrapeOptions` | object  | `null`              | Nested scrape options for fetching result page content                                                                      |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `query` | string | required | Search query |
+| `limit` | integer | `5` | Maximum results per source type |
+| `sources` | array | `[{"type": "web"}]` | Source types. Accepts v2 objects `[{"type": "web"}]` or plain strings `["web"]`. Valid types: `"web"`, `"images"`, `"news"` |
+| `timeout` | integer | `30000` | Timeout in milliseconds |
+| `scrapeOptions` | object | `null` | Nested scrape options for fetching result page content |
+| `timeRange` | string | `null` | Restrict results to the past `"day"`, `"week"`, `"month"`, or `"year"` (mapped per provider) |
+| `startDate` | string | `null` | Earliest result date (YYYY-MM-DD) |
+| `endDate` | string | `null` | Latest result date (YYYY-MM-DD) |
+| `topic` | string | `null` | Topic vertical: `"general"`, `"news"`, or `"finance"`. Honoured natively by Tavily and Exa; other providers ignore it |
+| `includeDomains` | string[] | `null` | Restrict results to these domains |
+| `excludeDomains` | string[] | `null` | Exclude results from these domains |
 
 **Response body:**
 
@@ -336,14 +359,15 @@ Search the web synchronously. Results are bucketed by source type (web, images, 
   "success": true,
   "data": {
     "web": [
-      {"title": "Web Scraping with Python", "url": "https://...", "description": "A guide...", "markdown": null}
+      {
+        "title": "Web Scraping with Python",
+        "url": "https://...",
+        "description": "A guide...",
+        "markdown": null
+      }
     ],
-    "images": [
-      {"title": "Scraping diagram", "imageUrl": "https://...", "url": "https://..."}
-    ],
-    "news": [
-      {"title": "Python 3.13 Released", "url": "https://...", "snippet": "The latest..."}
-    ]
+    "images": [{ "title": "Scraping diagram", "imageUrl": "https://...", "url": "https://..." }],
+    "news": [{ "title": "Python 3.13 Released", "url": "https://...", "snippet": "The latest..." }]
   }
 }
 ```
@@ -371,8 +395,8 @@ Start an asynchronous LLM extraction job. Returns a job ID immediately; use `GET
   "schema": {
     "type": "object",
     "properties": {
-      "name": {"type": "string"},
-      "price": {"type": "number"}
+      "name": { "type": "string" },
+      "price": { "type": "number" }
     }
   },
   "scrapeOptions": null
@@ -418,9 +442,7 @@ Poll the status of an extract job.
 {
   "success": true,
   "status": "completed",
-  "data": [
-    {"name": "Example Corp", "founding_year": 2010}
-  ],
+  "data": [{ "name": "Example Corp", "founding_year": 2010 }],
   "error": null
 }
 ```
@@ -497,11 +519,15 @@ Poll the status of a batch scrape job. Results are paginated; follow the `next` 
   "data": [
     {
       "markdown": "# Example Domain\n...",
-      "metadata": {"title": "Example Domain", "sourceURL": "https://example.com", "statusCode": 200}
+      "metadata": {
+        "title": "Example Domain",
+        "sourceURL": "https://example.com",
+        "statusCode": 200
+      }
     },
     {
       "markdown": "# Example Org\n...",
-      "metadata": {"title": "Example Org", "sourceURL": "https://example.org", "statusCode": 200}
+      "metadata": { "title": "Example Org", "sourceURL": "https://example.org", "statusCode": 200 }
     }
   ],
   "next": null
@@ -525,7 +551,7 @@ Credential verification stub. n8n's Firecrawl node tests credentials by hitting 
 ```json
 {
   "success": true,
-  "data": {"credits": 0}
+  "data": { "credits": 0 }
 }
 ```
 
@@ -646,13 +672,13 @@ Jobs are stored in memory and expire after a configurable TTL (default 24 hours)
 
 ## Configuration
 
-| Variable                 | Default   | Description                                                   |
-| ------------------------ | --------- | ------------------------------------------------------------- |
-| `SUPACRAWL_API_KEY`      | unset     | Bearer token for authentication. When unset, auth is disabled |
-| `SUPACRAWL_API_HOST`     | `0.0.0.0` | Server bind address                                           |
-| `SUPACRAWL_API_PORT`     | `8308`    | Server bind port                                              |
-| `SUPACRAWL_API_JOB_TTL`  | `86400`   | Async job expiry in seconds (default 24 hours)                |
-| `SUPACRAWL_API_MAX_JOBS` | `3`       | Maximum concurrent async jobs                                 |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SUPACRAWL_API_KEY` | unset | Bearer token for authentication. When unset, auth is disabled |
+| `SUPACRAWL_API_HOST` | `0.0.0.0` | Server bind address |
+| `SUPACRAWL_API_PORT` | `8308` | Server bind port |
+| `SUPACRAWL_API_JOB_TTL` | `86400` | Async job expiry in seconds (default 24 hours) |
+| `SUPACRAWL_API_MAX_JOBS` | `3` | Maximum concurrent async jobs |
 
 ## Using with n8n
 
@@ -660,14 +686,13 @@ n8n has a built-in Firecrawl node. Point it at your local Supacrawl server:
 
 1. Install and start Supacrawl:
 
-    ```shell
-    pip install supacrawl[api]
-    export SUPACRAWL_API_KEY=YOUR_KEY
-    supacrawl serve
-    ```
+   ```shell
+   pip install supacrawl[api]
+   export SUPACRAWL_API_KEY=YOUR_KEY
+   supacrawl serve
+   ```
 
 2. In n8n, add a **Firecrawl** credential:
-
    - **API Key**: `YOUR_KEY`
    - **API URL**: `http://localhost:8308`
 
@@ -688,14 +713,14 @@ All errors use a consistent envelope:
 
 ### Status Codes
 
-| Code | Meaning                                                                                                           |
-| ---- | ----------------------------------------------------------------------------------------------------------------- |
-| 200  | Success                                                                                                           |
-| 400  | Bad request (invalid input). FastAPI's 422 validation errors are remapped to 400 with the standard error envelope |
-| 401  | Missing or invalid API key                                                                                        |
-| 404  | Job not found                                                                                                     |
-| 429  | Too many concurrent async jobs                                                                                    |
-| 500  | Internal server error                                                                                             |
+| Code | Meaning |
+| --- | --- |
+| 200 | Success |
+| 400 | Bad request (invalid input). FastAPI's 422 validation errors are remapped to 400 with the standard error envelope |
+| 401 | Missing or invalid API key |
+| 404 | Job not found |
+| 429 | Too many concurrent async jobs |
+| 500 | Internal server error |
 
 ### Protocol Notes
 
