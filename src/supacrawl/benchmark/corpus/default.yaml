@@ -26,9 +26,9 @@ cases:
 
   # --- Content article / news chrome ------------------------------------
   - id: article-wikipedia-en
-    url: https://en.wikipedia.org/wiki/Web_scraping
+    url: https://en.wikipedia.org/w/index.php?title=Web_scraping&oldid=1358788600
     category: article
-    title: Wikipedia "Web scraping"
+    title: Wikipedia "Web scraping" (frozen revision)
     why: Heavy nav/sidebar chrome around real prose; the classic main-content test.
     difficulty: 2
     probes: [main_content, boilerplate_removal]
@@ -118,9 +118,9 @@ cases:
 
   # --- Data tables -------------------------------------------------------
   - id: tables-wikipedia-gdp
-    url: https://en.wikipedia.org/wiki/List_of_countries_by_GDP_(nominal)
+    url: https://en.wikipedia.org/w/index.php?title=List_of_countries_by_GDP_(nominal)&oldid=1358330458
     category: tables
-    title: Wikipedia GDP (nominal) tables
+    title: Wikipedia GDP (nominal) tables (frozen revision)
     why: Several large data tables; tests markdown table fidelity.
     difficulty: 3
     probes: [tables]

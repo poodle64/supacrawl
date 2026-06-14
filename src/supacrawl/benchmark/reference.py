@@ -23,17 +23,6 @@ from pydantic import BaseModel
 
 LOGGER = logging.getLogger(__name__)
 
-# CSS selectors tried in order when locating the main content container.
-# Fallback order chosen to prefer semantic/site-specific selectors before
-# the whole document body.
-_MAIN_SELECTORS = [
-    "main",
-    "article",
-    "[role='main']",
-    ".mw-parser-output",  # Wikipedia
-    "#content",
-]
-
 # JS that collects structural element counts in a single evaluate call to
 # avoid the per-call overhead of repeated page.evaluate round trips.
 _COUNT_JS = """
