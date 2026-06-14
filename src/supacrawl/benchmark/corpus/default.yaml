@@ -1,0 +1,177 @@
+name: default
+description: >-
+  Curated scrape-quality corpus spanning static HTML through JavaScript-heavy single-page apps, structured-data commerce, data tables, PDFs, anti-bot, and non-Latin/RTL pages. URLs favour frozen targets (purpose-built sandboxes, Wikipedia permalink revisions, immutable arXiv PDFs) so that score changes over time reflect supacrawl changes rather than the web shifting underneath. Volatile targets are marked stable=false and excluded from the regression index; they exist to probe the capability ceiling.
+
+
+cases:
+  # --- Static / baseline -------------------------------------------------
+  - id: static-example
+    url: https://example.com/
+    category: static
+    title: IANA example domain
+    why: Irreducible baseline; if this is not clean, nothing will be.
+    difficulty: 1
+    probes: [baseline]
+    expect: ['Example Domain', 'illustrative examples']
+
+  - id: static-sandbox-simple
+    url: https://www.scrapethissite.com/pages/simple/
+    category: static
+    title: ScrapeThisSite simple country list
+    why: Static server-rendered list; tests faithful capture of repeated items.
+    difficulty: 1
+    probes: [static_list]
+    expect: ['Andorra', 'Afghanistan']
+    expect_absent: ['Sandbox', 'Lessons', 'FAQ']
+
+  # --- Content article / news chrome ------------------------------------
+  - id: article-wikipedia-en
+    url: https://en.wikipedia.org/wiki/Web_scraping
+    category: article
+    title: Wikipedia "Web scraping"
+    why: Heavy nav/sidebar chrome around real prose; the classic main-content test.
+    difficulty: 2
+    probes: [main_content, boilerplate_removal]
+    expect: ['Web scraping', 'data scraping', 'HTTP']
+    expect_absent: ['Jump to content', 'Create account', 'Privacy policy', 'What links here']
+
+  - id: article-gutenberg-text
+    url: https://www.gutenberg.org/cache/epub/84/pg84.txt
+    category: article
+    title: Project Gutenberg Frankenstein (plain text)
+    why: Long plain-text body; tests that prose survives without mangling.
+    difficulty: 1
+    probes: [long_text]
+    expect: ['Frankenstein', 'Walton']
+
+  # --- Documentation -----------------------------------------------------
+  - id: docs-python-json
+    url: https://docs.python.org/3.12/library/json.html
+    category: docs
+    title: Python docs — json module
+    why: Code blocks, definition lists and tables; tests structure preservation.
+    difficulty: 2
+    probes: [code_blocks, tables]
+    expect: ['json.dumps', 'Serialize', 'object_hook']
+    expect_absent: ['Navigation', 'Quick search', 'previous |']
+
+  # --- E-commerce static + structured data ------------------------------
+  - id: ecommerce-books-static
+    url: https://books.toscrape.com/
+    category: ecommerce
+    title: Books to Scrape catalogue
+    why: Purpose-built static shop; pagination and product grid, no schema markup.
+    difficulty: 1
+    probes: [product_grid]
+    expect: ['A Light in the Attic', '£']
+
+  - id: ecommerce-scrapeme-jsonld
+    url: https://scrapeme.live/shop/Bulbasaur/
+    category: ecommerce
+    title: ScrapeMe WooCommerce product (JSON-LD)
+    why: Real WooCommerce Product/Offer JSON-LD; tests structured-data harvest.
+    difficulty: 2
+    probes: [structured_data, json_ld]
+    expect: ['Bulbasaur']
+
+  - id: ecommerce-webscrapingdev-product
+    url: https://web-scraping.dev/product/1
+    category: ecommerce
+    title: web-scraping.dev product 1 (JSON-LD + hidden JSON)
+    why: ScrapFly sandbox product with embedded JSON-LD and hidden state.
+    difficulty: 2
+    probes: [structured_data, json_ld]
+    expect: ['Box of Chocolate Candy']
+
+  # --- JavaScript-rendered / SPA ----------------------------------------
+  - id: spa-quotes-js
+    url: https://quotes.toscrape.com/js/
+    category: spa
+    title: Quotes to Scrape (JavaScript build)
+    why: Quotes exist only in a JS array; bare HTTP sees nothing — proves rendering.
+    difficulty: 3
+    js_heavy: true
+    spa: true
+    probes: [js_render]
+    expect: ['Albert Einstein', 'world as we have created it']
+
+  - id: spa-ajax-javascript
+    url: https://www.scrapethissite.com/pages/ajax-javascript/
+    category: spa
+    title: ScrapeThisSite AJAX/JavaScript Oscars table
+    why: Table populated by AJAX after load; tests wait-for-content behaviour.
+    difficulty: 3
+    js_heavy: true
+    probes: [js_render, ajax]
+    expect: ['2015', 'Spotlight']
+
+  # --- Infinite scroll / lazy load --------------------------------------
+  - id: infinite-quotes-scroll
+    url: https://quotes.toscrape.com/scroll
+    category: infinite_scroll
+    title: Quotes to Scrape (infinite scroll)
+    why: Content loads on scroll; measures how much a single render captures.
+    difficulty: 3
+    js_heavy: true
+    probes: [infinite_scroll]
+    expect: ['Albert Einstein']
+
+  # --- Data tables -------------------------------------------------------
+  - id: tables-wikipedia-gdp
+    url: https://en.wikipedia.org/wiki/List_of_countries_by_GDP_(nominal)
+    category: tables
+    title: Wikipedia GDP (nominal) tables
+    why: Several large data tables; tests markdown table fidelity.
+    difficulty: 3
+    probes: [tables]
+    expect: ['United States', 'Gross domestic product']
+
+  # --- PDF ---------------------------------------------------------------
+  - id: pdf-arxiv-attention
+    url: https://arxiv.org/pdf/1706.03762
+    category: pdf
+    title: 'arXiv: Attention Is All You Need (PDF)'
+    why: Immutable academic PDF; tests PDF text extraction quality.
+    difficulty: 3
+    content_type: pdf
+    probes: [pdf]
+    expect: ['Attention Is All You Need', 'Transformer', 'multi-head']
+
+  # --- Internationalisation / RTL ---------------------------------------
+  - id: i18n-ja-wikipedia
+    url: https://ja.wikipedia.org/wiki/ウェブスクレイピング
+    category: i18n
+    title: Japanese Wikipedia — web scraping
+    why: CJK content; tests encoding and that completeness survives non-Latin text.
+    difficulty: 2
+    probes: [i18n_cjk]
+    expect: ['ウェブスクレイピング']
+
+  - id: i18n-ar-wikipedia
+    url: https://ar.wikipedia.org/wiki/تنقيب_الويب
+    category: i18n
+    title: Arabic Wikipedia — web scraping (RTL)
+    why: Right-to-left script; tests RTL handling and ordering.
+    difficulty: 2
+    probes: [i18n_rtl]
+    expect: ['تنقيب']
+
+  # --- Anti-bot ----------------------------------------------------------
+  - id: antibot-webscrapingdev-easy
+    url: https://web-scraping.dev/antibot/easy
+    category: antibot
+    title: web-scraping.dev easy anti-bot
+    why: Stable, deterministic anti-bot gate; tests default evasion on easy mode.
+    difficulty: 4
+    antibot: true
+    probes: [antibot]
+
+  - id: antibot-live-reviews
+    url: https://www.example-reviews.com/categories/web-scraping
+    category: antibot
+    title: Reviews category (live Cloudflare)
+    why: Live commercial anti-bot; capability ceiling probe, not regression signal.
+    difficulty: 5
+    antibot: true
+    stable: false
+    probes: [antibot, cloudflare]
