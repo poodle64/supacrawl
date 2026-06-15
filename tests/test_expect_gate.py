@@ -133,6 +133,7 @@ class TestHttpFirstExpectEscalation:
             max_age=0,
             cache_variant=None,
             expect=expect,
+            parse_pdf=None,
         )
 
     async def test_met_expectation_served(self, monkeypatch: pytest.MonkeyPatch) -> None:

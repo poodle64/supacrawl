@@ -659,12 +659,30 @@ class ScrapeService:
 
         # PDF detection: if parse_pdf is enabled, check if URL points to a PDF
         # and route to the PDF extraction pipeline instead of the browser.
-        # Only checks the .pdf file extension — no HEAD requests are sent to
-        # avoid per-URL network overhead during bulk scraping.
+        # The extension check is free; the HEAD-based content-type check is only
+        # performed on the browser-only path (where the GET has not been made
+        # yet) for ambiguous extensionless URLs.  On the http-first path the
+        # content-type is already visible from the GET response in _try_http_first,
+        # so no HEAD is needed there.
         if parse_pdf is not None:
-            from supacrawl.services.pdf import is_pdf_url
+            from supacrawl.services.pdf import (
+                detect_pdf_content_type,
+                is_pdf_url,
+                needs_content_type_check,
+            )
 
             is_pdf = is_pdf_url(url)
+
+            # HEAD gate: fires only when the http-first GET will NOT be made
+            # (screenshots, actions, stealth, device emulation, --no-http-first).
+            # On the http-first path the content-type is already visible from
+            # fetch_static's GET response, so no extra round-trip is needed.
+            # needs_content_type_check() limits this to ambiguous/extensionless
+            # URLs, so obvious non-PDF URLs (e.g. .html, .js) never trigger a
+            # HEAD request.
+            if not is_pdf and not (http_first and self._http_first_eligible(formats, actions, engine, device)):
+                if needs_content_type_check(url):
+                    is_pdf = await detect_pdf_content_type(url)
 
             if is_pdf:
                 return await self._scrape_pdf(
@@ -705,6 +723,7 @@ class ScrapeService:
                 max_age=max_age,
                 cache_variant=cache_variant,
                 expect=expect,
+                parse_pdf=parse_pdf,
             )
             if fast_result is not None:
                 return fast_result
@@ -1297,6 +1316,7 @@ class ScrapeService:
         max_age: int,
         cache_variant: str | None,
         expect: str | None,
+        parse_pdf: Literal["fast", "auto", "ocr"] | None,
     ) -> ScrapeResult | None:
         """Attempt to satisfy a scrape with a single httpx GET, no browser.
 
@@ -1304,6 +1324,11 @@ class ScrapeService:
         or None to signal that the caller should escalate to the browser path
         (render-needed, bot challenge, suspect quality, fetch failure, an unmet
         ``expect`` assertion, or a page with iframes that need expanding).
+
+        When ``parse_pdf`` is set and the server responds with
+        ``application/pdf`` (or the body starts with ``%PDF`` magic bytes for
+        ambiguous content-types), the already-fetched bytes are routed directly
+        to the PDF extractor — no second download occurs.
         """
         accept_language = self._locale_config.get_accept_language_header() if self._locale_config else None
         fetched = await fetch_static(
@@ -1314,6 +1339,32 @@ class ScrapeService:
             proxy=proxy or self._proxy,
         )
         if fetched is None:
+            return None
+
+        # PDF detected via Content-Type header (or magic-byte sniffing for
+        # application/octet-stream / missing content-type — fetch_static handles
+        # the sniff and only sets raw_bytes when bytes are confirmed as PDF).
+        if fetched.raw_bytes is not None:
+            if parse_pdf is not None:
+                # Route to the PDF extractor using the already-fetched bytes —
+                # no second download.
+                return await self._scrape_pdf(
+                    url=url,
+                    mode=parse_pdf,
+                    formats=formats,
+                    json_schema=json_schema,
+                    json_prompt=json_prompt,
+                    max_age=max_age,
+                    cache_variant=cache_variant,
+                    wants_change_tracking=wants_change_tracking,
+                    previous_entry=previous_entry,
+                    change_tracking_modes=change_tracking_modes,
+                    pdf_bytes=fetched.raw_bytes,
+                )
+            # PDF parsing is disabled: escalate to the browser rather than
+            # returning an empty success (html="" is not usable content).
+            # Mirrors the behaviour of the .pdf-extension path when parse_pdf
+            # is None — the browser may at least render the PDF viewer.
             return None
 
         html = fetched.html
@@ -1607,16 +1658,22 @@ class ScrapeService:
         wants_change_tracking: bool = False,
         previous_entry: Any | None = None,
         change_tracking_modes: list[str] | None = None,
+        pdf_bytes: bytes | None = None,
     ) -> ScrapeResult:
         """Scrape a PDF URL by downloading and extracting text.
 
-        Bypasses the browser entirely — downloads the PDF via httpx and
-        processes it through the PDF extraction pipeline.
+        Bypasses the browser entirely — downloads the PDF via httpx (or reuses
+        ``pdf_bytes`` when already fetched by the HTTP-first path) and processes
+        it through the PDF extraction pipeline.
+
+        Args:
+            pdf_bytes: Pre-fetched PDF content.  When provided, the download
+                step inside ``parse_pdf`` is skipped entirely.
         """
         from supacrawl.services.pdf import parse_pdf as do_parse_pdf
 
         try:
-            pdf_result = await do_parse_pdf(url=url, mode=mode)
+            pdf_result = await do_parse_pdf(url=url, mode=mode, pdf_bytes=pdf_bytes)
         except ImportError as e:
             return ScrapeResult(success=False, error=str(e))
         except Exception as e:

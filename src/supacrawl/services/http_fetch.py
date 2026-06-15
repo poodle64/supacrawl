@@ -7,9 +7,11 @@ render only when a render-needed or bot-challenge signal fires.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
+
+from supacrawl.services._pdf_sniff import MAX_PDF_SIZE, is_pdf_bytes
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +37,9 @@ class HttpFetchResult:
         status_code: HTTP status code.
         content_type: Lowercased content type without parameters.
         headers: Response headers (for CDN detection).
+        raw_bytes: Raw response body when the content-type is application/pdf,
+            so the caller can pass it directly to the PDF extractor without a
+            second download.
     """
 
     url: str
@@ -42,6 +47,7 @@ class HttpFetchResult:
     status_code: int
     content_type: str
     headers: dict[str, str]
+    raw_bytes: bytes | None = field(default=None)
 
 
 async def fetch_static(
@@ -66,9 +72,12 @@ async def fetch_static(
         max_bytes: Maximum response body size to accept on the fast path.
 
     Returns:
-        An :class:`HttpFetchResult` for HTML responses, or ``None`` when the fast
-        path is not viable (network error, non-HTML content type, or oversized
-        body) and the caller should fall back to the browser.
+        An :class:`HttpFetchResult` for HTML/PDF responses, or ``None`` when the
+        fast path is not viable (network error, non-HTML/non-PDF content type,
+        oversized body, or oversized PDF) and the caller should fall back to the
+        browser.  For ``application/pdf`` responses, ``raw_bytes`` carries the
+        downloaded bytes so the caller can route them to the PDF extractor
+        without a second download.
     """
     request_headers = {
         "User-Agent": DEFAULT_USER_AGENT,
@@ -94,12 +103,82 @@ async def fetch_static(
 
     content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
 
-    # Only markup is fast-pathable. PDFs are handled by the dedicated PDF path,
-    # and other binary content belongs to the browser.
+    # PDFs are routed to the dedicated PDF extractor — carry the bytes through
+    # rather than discarding them.  The PDF size limit is more generous than the
+    # HTML cap; enforce it separately so real PDFs are not silently dropped.
+    #
+    # application/octet-stream: some servers (e.g. academic repositories)
+    # declare a generic binary type instead of application/pdf; sniff the
+    # magic bytes to confirm.
+    #
+    # Missing content-type (content_type == ""): pre-patch behaviour was to
+    # fall through to the HTML path (the `if content_type and ...` guard below
+    # was falsy for an empty string).  We preserve that by sniffing for PDF
+    # magic bytes first; if the body IS a PDF we route it to the extractor
+    # (strictly better than before), and if it is not we let it fall through
+    # to the HTML path exactly as before — no regression.
+    _is_pdf_content_type = content_type == "application/pdf"
+    _is_octet_stream = content_type == "application/octet-stream"
+    _missing_content_type = not content_type
+    if _is_pdf_content_type or _is_octet_stream or _missing_content_type:
+        # Cheap Content-Length pre-check: avoid buffering an oversized PDF
+        # body only to discard it.  The post-read len() guard below is the
+        # backstop for servers that omit or under-report Content-Length.
+        content_length_header = response.headers.get("content-length", "")
+        if content_length_header.strip().isdigit():
+            declared_size = int(content_length_header.strip())
+            if declared_size > MAX_PDF_SIZE:
+                limit_mb = MAX_PDF_SIZE / (1024 * 1024)
+                LOGGER.debug(
+                    "HTTP-first skipped PDF for %s: Content-Length %d bytes exceeds %s MB cap (pre-read)",
+                    url,
+                    declared_size,
+                    f"{limit_mb:.0f}",
+                )
+                return None
+
+        body = response.content
+
+        # For octet-stream, only carry bytes through if the body actually
+        # starts with the %PDF magic marker.
+        if _is_octet_stream and not is_pdf_bytes(body):
+            LOGGER.debug("HTTP-first skipped for %s: octet-stream body is not a PDF", url)
+            return None
+
+        # For missing content-type: sniff for PDF magic bytes.  If not a PDF,
+        # fall through to the HTML path below (restores pre-patch behaviour;
+        # the `if content_type and ...` guard is falsy for empty strings).
+        if _missing_content_type and not is_pdf_bytes(body):
+            pass  # fall through to HTML path
+        else:
+            if len(body) > MAX_PDF_SIZE:
+                size_mb = len(body) / (1024 * 1024)
+                limit_mb = MAX_PDF_SIZE / (1024 * 1024)
+                LOGGER.debug(
+                    "HTTP-first skipped PDF for %s: %s MB exceeds %s MB cap",
+                    url,
+                    f"{size_mb:.1f}",
+                    f"{limit_mb:.0f}",
+                )
+                return None
+            LOGGER.debug("HTTP-first fetched PDF for %s (%d bytes)", url, len(body))
+            return HttpFetchResult(
+                url=str(response.url),
+                html="",
+                status_code=response.status_code,
+                content_type=content_type,
+                headers=dict(response.headers),
+                raw_bytes=body,
+            )
+
+    # Only markup is fast-pathable; other binary content belongs to the browser.
     if content_type and "html" not in content_type and "xml" not in content_type:
         LOGGER.debug("HTTP-first skipped for %s: non-HTML content type %r", url, content_type)
         return None
 
+    # response.content is a cached property in httpx — no second network call;
+    # the bytes are identical to the read at line 140 for the missing-content-type
+    # non-PDF fall-through path.  The re-read is intentional and free.
     body = response.content
     if len(body) > max_bytes:
         LOGGER.debug("HTTP-first skipped for %s: body %d bytes exceeds %d cap", url, len(body), max_bytes)

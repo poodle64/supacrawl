@@ -19,15 +19,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from supacrawl.services._pdf_sniff import MAX_PDF_SIZE, is_pdf_bytes
 from supacrawl.services.pdf import (
-    MAX_PDF_SIZE,
     MIN_WORDS_FOR_SUCCESS,
     PdfExtractionResult,
     PdfMetadata,
     _clean_cell,
     _normalise_pdf_date,
     _table_to_markdown,
-    is_pdf_bytes,
     is_pdf_url,
     needs_content_type_check,
 )
@@ -602,6 +601,181 @@ class TestScrapeServicePdfRouting:
             assert result.data.metadata.pdf_author == "Test Author"
             assert result.data.metadata.pdf_page_count == 3
             assert result.data.metadata.pdf_creation_date == "2024-01-15T12:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_content_type_pdf_extensionless_url_routes_to_extractor(self) -> None:
+        """A URL with no .pdf extension whose GET returns Content-Type: application/pdf
+        must be routed to PDF extraction, not the browser, and must not trigger a
+        second download (the already-fetched bytes are reused)."""
+        from supacrawl.services.pdf import PdfExtractionResult, PdfMetadata
+        from supacrawl.services.scrape import ScrapeService
+
+        pdf_bytes = _make_simple_pdf(
+            "Attention is all you need. Transformer architecture for neural machine translation."
+        )
+        mock_result = PdfExtractionResult(
+            markdown="# Attention Is All You Need\n\nTransformer architecture for neural machine translation.",
+            metadata=PdfMetadata(title="Attention Is All You Need", page_count=1),
+        )
+
+        download_mock = AsyncMock()
+
+        with (
+            patch("supacrawl.services.http_fetch.httpx.AsyncClient") as mock_client_cls,
+            patch("supacrawl.services.pdf.parse_pdf", new_callable=AsyncMock, return_value=mock_result) as mock_parse,
+            patch("supacrawl.services.pdf.download_pdf", download_mock),
+        ):
+            # Simulate the httpx GET returning application/pdf content-type
+            mock_response = MagicMock()
+            mock_response.headers = {"content-type": "application/pdf"}
+            mock_response.status_code = 200
+            mock_response.content = pdf_bytes
+            mock_response.url = "https://arxiv.org/pdf/1706.03762"
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client_cls.return_value)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value.get = AsyncMock(return_value=mock_response)
+
+            service = ScrapeService(headless=True)
+            result = await service.scrape(
+                url="https://arxiv.org/pdf/1706.03762",
+                formats=["markdown"],
+                parse_pdf="fast",
+            )
+
+        assert result.success is True
+        assert result.data is not None
+        assert result.data.markdown is not None
+        # parse_pdf was called — routed to extractor
+        mock_parse.assert_called_once()
+        # pre-fetched bytes were passed — no second download
+        call_kwargs = mock_parse.call_args.kwargs
+        assert call_kwargs.get("pdf_bytes") is not None
+        # download_pdf was NOT called — no second request
+        download_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_magic_byte_fallback_octet_stream_routes_to_extractor(self) -> None:
+        """A URL whose GET returns Content-Type: application/octet-stream but whose
+        body starts with %PDF magic bytes is routed to PDF extraction."""
+        from supacrawl.services.pdf import PdfExtractionResult, PdfMetadata
+        from supacrawl.services.scrape import ScrapeService
+
+        pdf_bytes = _make_simple_pdf("A scanned document served with a generic binary content type.")
+        mock_result = PdfExtractionResult(
+            markdown="# Scanned Document\n\nA scanned document served with a generic binary content type.",
+            metadata=PdfMetadata(page_count=1),
+        )
+
+        download_mock = AsyncMock()
+
+        with (
+            patch("supacrawl.services.http_fetch.httpx.AsyncClient") as mock_client_cls,
+            patch("supacrawl.services.pdf.parse_pdf", new_callable=AsyncMock, return_value=mock_result) as mock_parse,
+            patch("supacrawl.services.pdf.download_pdf", download_mock),
+        ):
+            mock_response = MagicMock()
+            mock_response.headers = {"content-type": "application/octet-stream"}
+            mock_response.status_code = 200
+            mock_response.content = pdf_bytes
+            mock_response.url = "https://example.com/download/doc"
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client_cls.return_value)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value.get = AsyncMock(return_value=mock_response)
+
+            service = ScrapeService(headless=True)
+            result = await service.scrape(
+                url="https://example.com/download/doc",
+                formats=["markdown"],
+                parse_pdf="fast",
+            )
+
+        assert result.success is True
+        assert result.data is not None
+        mock_parse.assert_called_once()
+        call_kwargs = mock_parse.call_args.kwargs
+        assert call_kwargs.get("pdf_bytes") is not None
+        download_mock.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_html_response_not_routed_to_pdf_extractor(self) -> None:
+        """A normal HTML response must not be routed to the PDF extractor."""
+        from supacrawl.services.scrape import ScrapeService
+
+        html_body = b"<html><body><h1>Hello</h1><p>This is a normal web page with enough words to pass quality checks.</p></body></html>"
+
+        with (
+            patch("supacrawl.services.http_fetch.httpx.AsyncClient") as mock_client_cls,
+            patch("supacrawl.services.pdf.parse_pdf", new_callable=AsyncMock) as mock_parse,
+        ):
+            mock_response = MagicMock()
+            mock_response.headers = {"content-type": "text/html; charset=utf-8"}
+            mock_response.content = html_body
+            mock_response.text = html_body.decode()
+            mock_response.url = "https://example.com/"
+            mock_response.status_code = 200
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client_cls.return_value)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value.get = AsyncMock(return_value=mock_response)
+
+            service = ScrapeService(headless=True)
+            await service.scrape(
+                url="https://example.com/",
+                formats=["markdown"],
+                parse_pdf="fast",
+            )
+
+        # HTML page must not be passed to parse_pdf
+        mock_parse.assert_not_called()
+        # The scrape may succeed (HTML path) or fail (quality/bot checks) — what
+        # matters is that the PDF extractor was never invoked.
+
+    @pytest.mark.asyncio
+    async def test_pdf_body_without_parse_pdf_escalates_to_browser(self) -> None:
+        """When the server returns a PDF body but parse_pdf is disabled (None),
+        _try_http_first must return None so the pipeline escalates to the browser
+        rather than returning an empty successful result with html=""."""
+        from supacrawl.services.http_fetch import HttpFetchResult
+        from supacrawl.services.scrape import ScrapeService
+
+        pdf_bytes = _make_simple_pdf("Some PDF content that should not be returned as empty HTML.")
+
+        with patch("supacrawl.services.scrape.fetch_static") as mock_fetch_static:
+            mock_fetch_static.return_value = HttpFetchResult(
+                url="https://example.com/report",
+                html="",
+                status_code=200,
+                content_type="application/pdf",
+                headers={},
+                raw_bytes=pdf_bytes,
+            )
+
+            service = ScrapeService(headless=True)
+            result = await service._try_http_first(
+                url="https://example.com/report",
+                formats=["markdown"],
+                timeout=30000,
+                only_main_content=True,
+                include_tags=None,
+                exclude_tags=None,
+                content_mode=0.35,
+                query=None,
+                expand_iframes="none",
+                headers=None,
+                proxy=None,
+                json_schema=None,
+                json_prompt=None,
+                wants_change_tracking=False,
+                previous_entry=None,
+                change_tracking_modes=None,
+                max_age=0,
+                cache_variant=None,
+                expect=None,
+                parse_pdf=None,
+            )
+
+        # Must return None so the caller escalates to the browser path, not an
+        # empty successful ScrapeResult.
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

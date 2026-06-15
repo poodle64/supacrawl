@@ -19,17 +19,12 @@ from urllib.parse import urlparse
 
 import httpx
 
-LOGGER = logging.getLogger(__name__)
+from supacrawl.services._pdf_sniff import MAX_PDF_SIZE, is_pdf_bytes
 
-# Magic bytes for PDF detection
-PDF_MAGIC = b"%PDF"
-PDF_SNIFF_SIZE = 1024
+LOGGER = logging.getLogger(__name__)
 
 # Minimum word count to consider text extraction successful (for auto mode fallback)
 MIN_WORDS_FOR_SUCCESS = 20
-
-# Maximum PDF file size in bytes (50 MB). Prevents memory exhaustion on huge files.
-MAX_PDF_SIZE = 50 * 1024 * 1024
 
 # Type alias for parse modes
 type ParsePdfMode = Literal["fast", "auto", "ocr"]
@@ -159,11 +154,6 @@ async def detect_pdf_content_type(url: str, timeout: float = 10.0) -> bool:
             return "application/pdf" in content_type.lower()
     except Exception:
         return False
-
-
-def is_pdf_bytes(data: bytes) -> bool:
-    """Check if data starts with the ``%PDF`` magic number."""
-    return PDF_MAGIC in data[:PDF_SNIFF_SIZE]
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ these stay unit tests.
 """
 
 import re
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -245,6 +246,7 @@ class TestTryHttpFirst:
             "max_age": 0,
             "cache_variant": None,
             "expect": None,
+            "parse_pdf": None,
         }
         kwargs.update(overrides)
         return await service._try_http_first(**kwargs)  # type: ignore[arg-type]
@@ -321,3 +323,128 @@ class TestTryHttpFirst:
         assert result.data is not None
         assert result.data.links is not None
         assert "https://example.com/a" in result.data.links
+
+
+@pytest.mark.asyncio
+class TestFetchStatic:
+    """Unit tests for fetch_static() content-type routing and size guards.
+
+    Each test injects a fake httpx response so no real network calls are made.
+    """
+
+    def _make_fake_response(
+        self,
+        *,
+        content_type: str,
+        body: bytes,
+        content_length: str | None = None,
+        url: str = "https://example.com/doc",
+        status_code: int = 200,
+    ) -> MagicMock:
+        """Build a minimal fake httpx response."""
+        resp = MagicMock()
+        headers: dict[str, str] = {}
+        if content_type:
+            headers["content-type"] = content_type
+        if content_length is not None:
+            headers["content-length"] = content_length
+        resp.headers = headers
+        resp.content = body
+        resp.text = body.decode("utf-8", errors="replace")
+        resp.url = url
+        resp.status_code = status_code
+        return resp
+
+    async def _call(self, fake_response: MagicMock) -> HttpFetchResult | None:
+        """Call fetch_static with a patched httpx.AsyncClient."""
+        from supacrawl.services.http_fetch import fetch_static
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=fake_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        # False matches httpx's real __aexit__ — it does not suppress exceptions.
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("supacrawl.services.http_fetch.httpx.AsyncClient", return_value=mock_client):
+            return await fetch_static("https://example.com/doc", timeout_ms=5000)
+
+    async def test_missing_content_type_with_pdf_magic_routed_to_pdf(self) -> None:
+        """A response with no Content-Type header whose body starts with %PDF
+        must be returned with raw_bytes set (routed to the PDF extractor).
+
+        This is strictly better than pre-patch behaviour, which would have
+        decoded the raw bytes as text and returned them on the HTML path.
+        """
+        pdf_body = b"%PDF-1.4 test content"
+        resp = self._make_fake_response(content_type="", body=pdf_body)
+        result = await self._call(resp)
+        assert result is not None
+        assert result.raw_bytes == pdf_body
+
+    async def test_missing_content_type_with_html_body_falls_through_to_html_path(self) -> None:
+        """A response with no Content-Type header whose body is plain HTML must
+        be processed on the HTML path, not discarded.
+
+        Pre-patch behaviour: the `if content_type and ...` guard was falsy for
+        an empty string, so the body fell through to HTML decoding and was
+        returned as html=response.text.  This test documents and locks in that
+        behaviour — a missing content-type non-PDF response is a valid HTML
+        result, not a browser-fallback None.
+        """
+        html_body = b"<html><body><p>Hello world</p></body></html>"
+        resp = self._make_fake_response(content_type="", body=html_body)
+        result = await self._call(resp)
+        # Must return a result (not None) so the HTML-first path can proceed.
+        assert result is not None
+        # Must not have been mistaken for a PDF.
+        assert result.raw_bytes is None
+        assert "Hello world" in result.html
+
+    async def test_content_length_pre_check_skips_oversized_pdf(self) -> None:
+        """When Content-Length declares a body exceeding MAX_PDF_SIZE, fetch_static
+        must return None WITHOUT reading the body — the expensive buffer is never
+        allocated.
+
+        The body here is tiny (to prove the body was not read); only the header
+        is consulted for the early-exit decision.
+        """
+        from supacrawl.services._pdf_sniff import MAX_PDF_SIZE
+
+        # Declare a body larger than the cap via header; actual body is tiny.
+        oversized_length = str(MAX_PDF_SIZE + 1)
+        resp = self._make_fake_response(
+            content_type="application/pdf",
+            body=b"%PDF-1.4 tiny",
+            content_length=oversized_length,
+        )
+        result = await self._call(resp)
+        # The body is tiny, so the post-read size guard (len(body) > max_bytes)
+        # can never produce None for this input.  A None result can therefore
+        # only originate from the Content-Length pre-read check, proving that
+        # path fired before any body was consumed.
+        assert result is None
+
+    async def test_content_length_pre_check_allows_within_limit(self) -> None:
+        """A Content-Length within the PDF cap must not trigger the early exit."""
+        from supacrawl.services._pdf_sniff import MAX_PDF_SIZE
+
+        within_limit = str(MAX_PDF_SIZE - 1)
+        pdf_body = b"%PDF-1.4 small document"
+        resp = self._make_fake_response(
+            content_type="application/pdf",
+            body=pdf_body,
+            content_length=within_limit,
+        )
+        result = await self._call(resp)
+        assert result is not None
+        assert result.raw_bytes == pdf_body
+
+    async def test_post_read_size_guard_still_rejects_oversized_body(self) -> None:
+        """When Content-Length is absent (server omits it), the post-read len()
+        check must still reject a body that exceeds MAX_PDF_SIZE."""
+        from supacrawl.services._pdf_sniff import MAX_PDF_SIZE
+
+        oversized_body = b"%PDF-1.4 " + b"x" * (MAX_PDF_SIZE + 1)
+        resp = self._make_fake_response(content_type="application/pdf", body=oversized_body)
+        result = await self._call(resp)
+        assert result is None
