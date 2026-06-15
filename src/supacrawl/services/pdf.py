@@ -532,7 +532,7 @@ async def parse_pdf(
 
     # Validate PDF content
     if not is_pdf_bytes(pdf_bytes):
-        raise ValueError(f"Content from {url} is not a valid PDF (missing %PDF header)")
+        raise ValueError(f"Content from {url} is not a valid PDF (expected %PDF- header)")
 
     if mode == "ocr":
         if not _is_ocr_available():

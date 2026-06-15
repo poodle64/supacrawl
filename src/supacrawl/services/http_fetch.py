@@ -140,7 +140,7 @@ async def fetch_static(
         body = response.content
 
         # For octet-stream, only carry bytes through if the body actually
-        # starts with the %PDF magic marker.
+        # contains the %PDF- signature within the sniff window.
         if _is_octet_stream and not is_pdf_bytes(body):
             LOGGER.debug("HTTP-first skipped for %s: octet-stream body is not a PDF", url)
             return None

@@ -92,6 +92,57 @@ class TestIsPdfBytes:
     def test_short_bytes(self):
         assert is_pdf_bytes(b"AB") is False
 
+    def test_bare_percent_pdf_without_hyphen_is_false(self):
+        """HTML or docs containing "%PDF" but not "%PDF-" must NOT be classified as PDF.
+
+        This is the false-positive the hyphen fix eliminates: before the fix,
+        bare "%PDF" anywhere in the first 1 KB would trigger mis-routing to the
+        PDF extractor.
+        """
+        html_with_pct_pdf = b"<html><p>See the %PDF specification for details.</p></html>"
+        assert is_pdf_bytes(html_with_pct_pdf) is False
+
+    def test_pdf_2_0_header(self):
+        """PDF 2.0 files ("%PDF-2.0") must be detected."""
+        data = b"%PDF-2.0\n%%EOF"
+        assert is_pdf_bytes(data) is True
+
+    def test_pdf_with_leading_junk_within_window(self):
+        """A PDF whose header is preceded by a small amount of junk (e.g. a BOM
+        or garbage bytes) must still be detected, provided the header falls
+        within the 1024-byte sniff window.
+
+        Real readers (Acrobat) accept this; a strict startswith check would
+        produce a false negative — the worse error for a scraper.
+        """
+        junk_prefix = b"\x00\x01\x02" + b"junk" * 5
+        data = junk_prefix + b"%PDF-1.6\nsome content"
+        assert is_pdf_bytes(data) is True
+
+    def test_pdf_magic_beyond_sniff_window_is_false(self):
+        """A signature starting at offset 1024 (the first byte excluded by
+        data[:PDF_SNIFF_SIZE]) must NOT match.
+
+        This keeps the sniff bounded so that a multi-MB response body is never
+        scanned in its entirety.
+        """
+        data = b"x" * 1024 + b"%PDF-1.7\ncontent"
+        assert is_pdf_bytes(data) is False
+
+    def test_pdf_version_string_in_prose_is_known_residual_true(self):
+        """Binary-suspected content containing a full %PDF-1.x version string
+        within the first 1024 bytes is classified True — this is a KNOWN,
+        ACCEPTED limitation of the windowed sniff.
+
+        In practice this path is only reached for responses whose Content-Type
+        is ``application/octet-stream`` or absent; ``text/html`` responses are
+        filtered out in ``http_fetch.fetch_static`` before the sniff runs.  On
+        a misfire the PDF parser raises ``ValueError`` loudly rather than
+        returning corrupt output, so the residual false positive fails safely.
+        """
+        data = b"<html><p>PDF files begin with %PDF-1.4 ...</p></html>"
+        assert is_pdf_bytes(data) is True
+
 
 # ---------------------------------------------------------------------------
 # Content-Type detection

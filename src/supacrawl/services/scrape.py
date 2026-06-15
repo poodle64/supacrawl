@@ -1326,9 +1326,10 @@ class ScrapeService:
         ``expect`` assertion, or a page with iframes that need expanding).
 
         When ``parse_pdf`` is set and the server responds with
-        ``application/pdf`` (or the body starts with ``%PDF`` magic bytes for
-        ambiguous content-types), the already-fetched bytes are routed directly
-        to the PDF extractor — no second download occurs.
+        ``application/pdf`` (or the body contains the ``%PDF-`` signature
+        within the sniff window for ambiguous content-types), the
+        already-fetched bytes are routed directly to the PDF extractor — no
+        second download occurs.
         """
         accept_language = self._locale_config.get_accept_language_header() if self._locale_config else None
         fetched = await fetch_static(
