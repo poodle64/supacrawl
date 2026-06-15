@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2026.6.1] - 2026-06-15
+
+### Added
+
+- **Scrape-quality benchmark** (`supacrawl bench`, Closes #125): a curated, mostly-frozen corpus of real-world pages — static, articles, docs, SPA, infinite-scroll, data tables, PDF, CJK/RTL i18n, anti-bot, Australian government tax-law (HTML + PDF), and AU retail — scored 0–100 on completeness, token-F1, gold-anchor presence, boilerplate absence, structure, and inter-word spacing against an independent browser reference. Subcommands `bench run | compare | list | show` persist a per-run JSON document, a flat `metrics.jsonl`, and a run index for trend tracking. Volatile or reference-unfriendly targets are marked as capability probes and excluded from the regression index.
+- **`word_spacing` benchmark metric**: detects PDF-extraction defects that fuse adjacent words into one token, guarding the PDF cases against regression. It counts only over-long all-ASCII alphabetic runs, so non-Latin scripts (CJK, Arabic) are never falsely penalised, and short bodies are skipped.
+- **Real-world benchmark cases**: a frozen ATO government PDF (RAG/tax-law), two ATO gov-CMS HTML pages, a live AU pet-food retailer (JSON-LD Article), and a JS-rendered GitHub README (microdata).
+
+### Fixed
+
+- **PDF inter-word spacing for RAG quality**: LaTeX/academic PDFs extracted with words run together ("Thedominantsequencetransduction…") because pdfplumber's default gap threshold (3pt) is wider than those PDFs' inter-word spaces. Tightening `x_tolerance` to 2 restores spacing without over-splitting digitally-generated PDFs such as government publications; the arXiv reference PDF goes from ~5,300 fused tokens to ~9,400 correctly-spaced words.
+- **JS-shell pages now escalate to a real render** (Closes #126): single-page-app shells whose only payload was inline JSON (e.g. `quotes.toscrape.com/js/`) looked content-rich to the static fast path and never rendered. The JS-requirement estimate now ignores inline JSON/template scripts, so these pages escalate to the browser.
+- **PDF detection by content-type and magic bytes** (Closes #127): extensionless PDF URLs (e.g. `arxiv.org/pdf/…` and government content-API URLs) are detected via the `Content-Type` header and the `%PDF-` signature, not only the `.pdf` extension, and the already-fetched bytes are reused for extraction instead of being downloaded twice.
+
 ## [2026.6.0] - 2026-06-14
 
 ### Added
