@@ -26,6 +26,14 @@ LOGGER = logging.getLogger(__name__)
 # Minimum word count to consider text extraction successful (for auto mode fallback)
 MIN_WORDS_FOR_SUCCESS = 20
 
+# Horizontal gap (in points) below which pdfplumber treats adjacent glyphs as one
+# word. pdfplumber defaults to 3, which is too wide for LaTeX/academic PDFs whose
+# inter-word spaces are narrower than 3pt — at the default they extract as
+# "Thedominantsequencetransduction...". A tolerance of 2 restores inter-word
+# spacing on those PDFs without over-splitting digitally-generated ones (e.g.
+# government PDFs), which is what the RAG use case needs.
+PDF_TEXT_X_TOLERANCE = 2
+
 # Type alias for parse modes
 type ParsePdfMode = Literal["fast", "auto", "ocr"]
 
@@ -421,7 +429,7 @@ def extract_text(pdf_bytes: bytes) -> PdfExtractionResult:
             # Extract text, optionally cropping out table regions
             if table_bboxes:
                 # Simple approach: extract full text, then append tables separately
-                text = page.extract_text() or ""
+                text = page.extract_text(x_tolerance=PDF_TEXT_X_TOLERANCE) or ""
                 text = _apply_headings_to_text(text, page)
                 page_parts.append(text)
 
@@ -431,7 +439,7 @@ def extract_text(pdf_bytes: bytes) -> PdfExtractionResult:
                     if md_table:
                         page_parts.append(md_table)
             else:
-                text = page.extract_text() or ""
+                text = page.extract_text(x_tolerance=PDF_TEXT_X_TOLERANCE) or ""
                 text = _apply_headings_to_text(text, page)
                 page_parts.append(text)
 
