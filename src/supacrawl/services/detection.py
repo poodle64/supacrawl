@@ -63,6 +63,27 @@ JS_FRAMEWORK_PATTERNS: dict[str, list[str]] = {
 _MIN_BODY_TEXT_LENGTH = 100
 # HTML length below which a framework marker is treated as a JS-shell signal.
 _JS_SHELL_HTML_LENGTH = 5000
+# Visible body text ceiling for the script-heavy shell guard (Guard 3).
+# 100–499 chars of visible text on a script-heavy page is intentionally
+# treated as a probable JS shell: that range is consistent with a nav+footer
+# wrapper where the real content is injected at runtime, not with a page that
+# has actual written content. Pages at or above 500 chars are left alone even
+# when they carry large analytics or config blobs.
+_JS_SHELL_MAX_VISIBLE_TEXT = 500
+# Minimum ratio of inline executable-JS chars to visible text chars for Guard 3.
+# A ratio ≥ 3 means the document's bulk is script, not content — a strong
+# signal that the real content is injected at runtime.
+_JS_SHELL_SCRIPT_TEXT_RATIO = 3
+# Matches only executable JavaScript <script> blocks for Guard 3 script_chars.
+# Excludes type values containing "json" (application/ld+json, application/json)
+# and "template" (text/template, text/x-handlebars-template, etc.) because these
+# are static structured-data or server-side-template annotations present on many
+# genuine static pages — counting them would falsely escalate a product page
+# carrying a schema.org block.
+_JS_EXECUTABLE_SCRIPT_RE = re.compile(
+    r'<script(?![^>]*\s+type\s*=\s*["\'][^"\']*(?:json|template)[^"\']*["\'])[^>]*>(.*?)</script>',
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 def detect_cdn(headers: dict[str, str]) -> str | None:
@@ -201,12 +222,28 @@ def estimate_js_requirement(html: str, content_length: int) -> bool:
     body_match = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
     if body_match:
         body_content = body_match.group(1).strip()
+
+        # Collect executable-JS script content before stripping, so Guard 3
+        # can measure it. See _JS_EXECUTABLE_SCRIPT_RE for exclusion rationale.
+        script_blocks = _JS_EXECUTABLE_SCRIPT_RE.findall(body_content)
+        script_chars = sum(len(s) for s in script_blocks)
+
         body_text = re.sub(r"<script[^>]*>.*?</script>", "", body_content, flags=re.DOTALL | re.IGNORECASE)
         body_text = re.sub(r"<style[^>]*>.*?</style>", "", body_text, flags=re.DOTALL | re.IGNORECASE)
         body_text = re.sub(r"<[^>]+>", "", body_text)
         body_text = body_text.strip()
 
+        # Guard 2: visible text so sparse that the body carries no real content.
         if len(body_text) < _MIN_BODY_TEXT_LENGTH:
+            return True
+
+        # Guard 3: thin visible text with a script payload that dwarfs it.
+        # Catches SPA shells that ship all data inline (e.g. a JSON quote array)
+        # without any recognised framework marker — a static GET returns only
+        # the nav/footer wrapper while the real content is injected at runtime.
+        # The _JS_SHELL_MAX_VISIBLE_TEXT ceiling prevents escalating content-rich
+        # pages that happen to carry large analytics or config blobs.
+        if len(body_text) < _JS_SHELL_MAX_VISIBLE_TEXT and script_chars >= len(body_text) * _JS_SHELL_SCRIPT_TEXT_RATIO:
             return True
 
     return False

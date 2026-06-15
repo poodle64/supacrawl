@@ -6,9 +6,15 @@ from static HTML. The fast path's network call is monkeypatched throughout so
 these stay unit tests.
 """
 
+import re
+
 import pytest
 
-from supacrawl.services.detection import estimate_js_requirement
+from supacrawl.services.detection import (
+    _JS_SHELL_MAX_VISIBLE_TEXT,
+    _MIN_BODY_TEXT_LENGTH,
+    estimate_js_requirement,
+)
 from supacrawl.services.http_fetch import HttpFetchResult
 from supacrawl.services.scrape import ScrapeService
 
@@ -38,6 +44,88 @@ def _fetched(html: str, status: int = 200) -> HttpFetchResult:
     )
 
 
+# A shell that ships all content as inline JSON data without any framework
+# marker — mimics quotes.toscrape.com/js/ pattern.  Visible text (~194 chars)
+# clears Guard 2's 100-char floor but stays below Guard 3's 500-char ceiling;
+# the large inline <script> payload (>3x visible text) triggers Guard 3.
+_NAV_LINKS = "".join(f"<a href='/{i}'>Category{i}</a>" for i in range(10))
+_INLINE_SCRIPT_PAYLOAD = (
+    '{"quotes": [' + ", ".join(f'{{"text": "quote{i}", "author": "author{i}"}}' for i in range(60)) + "]}"
+)
+JS_DATA_SHELL = (
+    "<html><head><title>Quotes</title></head><body>"
+    f"<nav><a href='/'>Home</a>{_NAV_LINKS}"
+    "<a href='/login'>Sign In</a><a href='/register'>Register</a>"
+    "<a href='/about'>About</a><a href='/contact'>Contact Us</a>"
+    "<a href='/help'>Help Centre</a></nav>"
+    f"<script>var data = {_INLINE_SCRIPT_PAYLOAD};</script>"
+    "<footer><p>Copyright 2024 Quotes Inc. All rights reserved.</p>"
+    "<a href='/privacy'>Privacy</a><a href='/terms'>Terms</a></footer>"
+    "</body></html>"
+)
+# A content-rich static page that also carries a large analytics blob.
+# Guard 3 must NOT escalate: visible text (~763 chars) exceeds the 500-char ceiling.
+_ANALYTICS_BLOB = "var _analytics = {" + ", ".join(f"k{i}: {i}" for i in range(200)) + "};"
+STATIC_WITH_ANALYTICS = (
+    "<html><head><title>Article</title></head><body>"
+    "<main><h1>A real article</h1><p>" + ("word " * 150) + "</p></main>"
+    f"<script>{_ANALYTICS_BLOB}</script>"
+    "</body></html>"
+)
+# A static product page with thin visible text (~149 chars) and a sizeable
+# schema.org ld+json block in the body (~4.1x the visible text, i.e. 609/149).
+# Before the HIGH 1 fix, Guard 3 would have falsely escalated this because
+# the ld+json chars were counted as script_chars (old ratio: 4.1x > 3x).
+# After the fix, application/ld+json blocks are excluded from script_chars
+# so Guard 3 sees 0 executable-JS chars and correctly returns False.
+_LD_JSON_BLOCK = (
+    '{"@context": "https://schema.org", "@type": "Product", "name": "Widget Pro 9000",'
+    ' "description": "A professional-grade widget for industrial use. Featuring advanced'
+    ' torque calibration and precision engineering.", "brand": {"@type": "Brand", "name":'
+    ' "Widget Corp"}, "offers": {"@type": "Offer", "price": "299.99", "priceCurrency":'
+    ' "USD", "availability": "https://schema.org/InStock", "seller": {"@type":'
+    ' "Organization", "name": "Shop Inc."}}, "aggregateRating": {"@type":'
+    ' "AggregateRating", "ratingValue": "4.8", "reviewCount": "247"},'
+    ' "image": ["https://example.com/img1.jpg", "https://example.com/img2.jpg"]}'
+)
+STATIC_PRODUCT_WITH_LD_JSON = (
+    "<html><head><title>Widget Pro 9000</title></head><body>"
+    "<nav><a href='/'>Home</a><a href='/products'>Products</a><a href='/cart'>Cart</a></nav>"
+    "<main><h1>Widget Pro 9000</h1><p>In stock. Free shipping on orders over fifty dollars.</p>"
+    "<p>Trusted by professionals worldwide.</p></main>"
+    f'<script type="application/ld+json">{_LD_JSON_BLOCK}</script>'
+    "<footer><p>Shop Inc. All rights reserved.</p></footer>"
+    "</body></html>"
+)
+
+
+# Guard that the JS_DATA_SHELL fixture's visible text stays within Guard 3's
+# target window — if a future edit pushes it below 100 (Guard 2 fires instead)
+# or at/above 500 (Guard 3 cannot fire), the positive test loses its meaning.
+def _extract_visible_text(html: str) -> str:
+    body_match = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
+    if not body_match:
+        return ""
+    body = body_match.group(1)
+    body = re.sub(r"<script[^>]*>.*?</script>", "", body, flags=re.DOTALL | re.IGNORECASE)
+    body = re.sub(r"<style[^>]*>.*?</style>", "", body, flags=re.DOTALL | re.IGNORECASE)
+    body = re.sub(r"<[^>]+>", "", body)
+    return body.strip()
+
+
+_js_data_shell_visible = _extract_visible_text(JS_DATA_SHELL)
+assert len(_js_data_shell_visible) >= _MIN_BODY_TEXT_LENGTH, (
+    f"JS_DATA_SHELL visible text ({len(_js_data_shell_visible)} chars) fell below "
+    f"_MIN_BODY_TEXT_LENGTH ({_MIN_BODY_TEXT_LENGTH}); Guard 2 fires before Guard 3 "
+    "and the positive test no longer targets the right branch."
+)
+assert len(_js_data_shell_visible) < _JS_SHELL_MAX_VISIBLE_TEXT, (
+    f"JS_DATA_SHELL visible text ({len(_js_data_shell_visible)} chars) reached "
+    f"_JS_SHELL_MAX_VISIBLE_TEXT ({_JS_SHELL_MAX_VISIBLE_TEXT}); Guard 3 can no "
+    "longer fire and the positive test always passes vacuously."
+)
+
+
 class TestEstimateJsRequirement:
     """The render-needed heuristic that gates escalation."""
 
@@ -50,6 +138,50 @@ class TestEstimateJsRequirement:
     def test_empty_body_needs_js(self) -> None:
         html = "<html><body>   </body></html>"
         assert estimate_js_requirement(html, len(html)) is True
+
+    def test_inline_data_shell_needs_js(self) -> None:
+        """Guard 3: nav+footer text (~194 chars) clears Guard 2 but sits below
+        Guard 3's 500-char ceiling; the inline JS data payload is >3x the
+        visible text, so Guard 3 must escalate.
+
+        Covers the quotes.toscrape.com/js/ pattern: no framework marker, body
+        is just a nav/footer wrapper with real content injected at runtime.
+        This fixture is designed so Guard 2 does NOT fire (visible text >= 100)
+        and Guard 3 is the branch under test.
+        """
+        assert estimate_js_requirement(JS_DATA_SHELL, len(JS_DATA_SHELL)) is True
+
+    def test_content_rich_page_with_analytics_does_not_need_js(self) -> None:
+        """False-positive control: a page with ~763 chars of visible text must NOT
+        escalate even when it carries a large inline analytics or config script blob.
+        Visible text comfortably exceeds Guard 3's 500-char ceiling (~263 chars margin).
+        """
+        assert estimate_js_requirement(STATIC_WITH_ANALYTICS, len(STATIC_WITH_ANALYTICS)) is False
+
+    def test_static_product_with_ld_json_does_not_need_js(self) -> None:
+        """False-positive control for non-JS script types (HIGH 1 regression guard).
+
+        A static product page with ~149 chars visible text and a schema.org
+        application/ld+json block totalling ~4.1x the visible text must NOT
+        escalate. Before the fix, ld+json chars were counted as script_chars
+        and Guard 3 would have fired (old ratio 4.1x > 3x threshold); after
+        the fix, application/ld+json is excluded so script_chars is 0.
+        """
+        assert estimate_js_requirement(STATIC_PRODUCT_WITH_LD_JSON, len(STATIC_PRODUCT_WITH_LD_JSON)) is False
+
+    def test_thin_static_page_without_scripts_does_not_need_js(self) -> None:
+        """Regression guard: Guard 3 must not fire when there are no inline scripts.
+
+        Confirms that a page clearing Guard 2's 100-char floor (visible text ~150
+        chars) but carrying zero script content does not escalate — the ratio
+        condition (0 >= 3x) is false regardless of the visible-text ceiling.
+        Does not exercise Guard 3's positive path; use test_inline_data_shell_needs_js
+        for that.
+        """
+        # ~150 chars of visible text, no <script> blocks — Guard 3 ratio is 0.
+        visible = "word " * 30  # 150 chars
+        html = f"<html><body><nav><a href='/'>Home</a></nav><p>{visible}</p></body></html>"
+        assert estimate_js_requirement(html, len(html)) is False
 
 
 class TestHttpFirstEligible:
