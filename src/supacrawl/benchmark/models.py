@@ -128,6 +128,11 @@ class CaseMetrics(BaseModel):
     expect_hit: float | None = None
     expect_absent_ok: float | None = None
 
+    # Text-quality (reference-free): inter-word spacing sanity. Catches fused
+    # word runs from a PDF-extraction spacing defect; 1.0 is clean, 0.0 is badly
+    # fused, None when there is too little prose to judge.
+    word_spacing: float | None = None
+
     # Optional LLM-as-judge
     judge_score: float | None = None
     judge_rationale: str | None = None

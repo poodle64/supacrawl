@@ -131,10 +131,13 @@ cases:
     url: https://arxiv.org/pdf/1706.03762
     category: pdf
     title: 'arXiv: Attention Is All You Need (PDF)'
-    why: Immutable academic PDF; tests PDF text extraction quality.
+    why: >-
+      Immutable academic PDF; tests PDF text extraction quality. LaTeX PDFs are the canonical trigger for the inter-word spacing defect, so this case also guards word_spacing (fused-word runs would tank the score).
+
+
     difficulty: 3
     content_type: pdf
-    probes: [pdf]
+    probes: [pdf, word_spacing]
     expect: ['Attention Is All You Need', 'Transformer', 'multi-head']
 
   # --- Internationalisation / RTL ---------------------------------------
@@ -175,3 +178,83 @@ cases:
     antibot: true
     stable: false
     probes: [antibot, cloudflare]
+
+  # --- Government / tax law / RAG ----------------------------------------
+  # The operator's headline use case: harvesting Australian tax law into a RAG
+  # collection. These probe gov-CMS HTML (tables + prose) and a frozen gov PDF.
+  # They are scored=false (capability probes, not regression index): the
+  # independent reference renderer is vanilla headless Chromium and the ATO CMS
+  # serves it only a ~15-word shell (supacrawl's own stealth/JS escalation gets
+  # the full content), so reference-based coverage/F1 are not trustworthy here.
+  # The reliable signal lives in the per-case detail: expect_hit (anchors),
+  # PIPES/tables (structure), and word_spacing — a regression collapses those.
+  - id: gov-ato-tax-rates
+    url: https://www.ato.gov.au/tax-rates-and-codes/tax-rates-australian-residents
+    category: gov
+    title: ATO resident tax rates (gov CMS, bracket tables)
+    why: >-
+      Australian Taxation Office guidance on a JS-rendered government CMS; the income-tax bracket tables must survive as markdown tables for RAG. The anchors are legislated values (the $18,200 tax-free threshold) rather than the year's marginal rate, so they stay valid across annual updates.
+
+
+    difficulty: 3
+    js_heavy: true
+    scored: false
+    probes: [gov, tables, main_content, rag]
+    expect: ['Resident tax rates', 'taxable income', '18,200']
+    expect_absent: ['Skip to', 'Back to top']
+
+  - id: gov-ato-wfh
+    url: https://www.ato.gov.au/individuals-and-families/income-deductions-offsets-and-records/deductions-you-can-claim/working-from-home-expenses
+    category: gov
+    title: ATO working-from-home deductions (gov CMS, prose)
+    why: >-
+      Long-form government guidance prose; tests main-content extraction on the same gov CMS without tables. A collapse toward the Next.js shell (near-zero words) catches a JS-shell-escalation regression.
+
+
+    difficulty: 3
+    js_heavy: true
+    scored: false
+    probes: [gov, main_content, rag]
+    expect: ['Working from home expenses', 'running expenses', 'deduction']
+    expect_absent: ['Skip to', 'Back to top']
+
+  - id: gov-ato-pdf-depreciation
+    url: https://www.ato.gov.au/api/public/content/a20e2f4ec8c041358a1885531785c8a0?v=62e5fe6a
+    category: gov
+    title: ATO Guide to depreciating assets 2025 (gov PDF)
+    why: >-
+      A versioned-immutable government PDF (NAT 1996-06.2025) reached through an extensionless content-API URL — exercises both content-type/magic-byte PDF detection and the word_spacing guard on a digitally-generated gov PDF, the exact shape of the operator's tax-law RAG sources.
+
+
+    difficulty: 3
+    content_type: pdf
+    scored: false
+    probes: [pdf, word_spacing, gov, rag, tables]
+    expect: ['Guide to depreciating assets', 'decline in value', 'NAT 1996', 'assessable income']
+
+  # --- Real-world operator use cases (retail, big-site JS) ---------------
+  - id: ecommerce-retailer-au
+    url: https://www.example-shop.com.au/discover/best-dog-food-for-sensitive-stomachs
+    category: ecommerce
+    title: Pet-supply retailer product guide (AU retailer, JSON-LD Article)
+    why: >-
+      The operator's pet-food research use case on a live Australian retailer; evergreen editorial with embedded JSON-LD Article. Tests main-content extraction plus deterministic structured-data harvest on a real commercial site (not a sandbox).
+
+
+    difficulty: 2
+    probes: [structured_data, json_ld, main_content]
+    expect: ['dog', 'food', 'sensitive', 'Dr Michelle Wong']
+
+  - id: docs-github-readme
+    url: https://github.com/microsoft/playwright
+    category: docs
+    title: GitHub repo README (JS-rendered, microdata)
+    why: >-
+      A large JS-rendered application shell whose README only appears after the static HTML hydrates; tests the JS-shell escalation on a mainstream site and microdata (SoftwareSourceCode) harvest.
+
+
+    difficulty: 2
+    js_heavy: true
+    probes: [js_render, structured_data, microdata]
+    expect: ['Playwright', 'web automation']
+    expect_absent: ['Skip to content']

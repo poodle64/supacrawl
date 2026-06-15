@@ -17,6 +17,7 @@ from supacrawl.benchmark.metrics import (
     substring_hit_rate,
     token_prf,
     tokenize,
+    word_spacing,
 )
 
 # ---------------------------------------------------------------------------
@@ -357,3 +358,70 @@ def test_composite_quality_high_link_density_penalised() -> None:
         link_density_value=100.0,  # well above the 50-link penalty cap
     )
     assert score_high_density < score_low_density
+
+
+# ---------------------------------------------------------------------------
+# word_spacing — fused-PDF guard, CJK exemption, short-body None
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_word_spacing_clean_text() -> None:
+    # Properly spaced prose has no over-long fused tokens.
+    clean = "the dominant sequence transduction models are based on recurrent networks " * 12
+    assert word_spacing(clean) == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_word_spacing_fused_runs_penalised() -> None:
+    # ~10% of tokens are 30+ char fused word runs (a PDF spacing defect); at the
+    # 5%-full-penalty ratio this drives the spacing score to 0.
+    fused = "Thedominantsequencetransductionmodelsarebasedoncomplexrecurrent a b c d e f g h i " * 12
+    assert word_spacing(fused) == pytest.approx(0.0)
+
+
+@pytest.mark.unit
+def test_word_spacing_cjk_not_penalised() -> None:
+    # CJK under-segments into long runs under whitespace tokenisation, but those
+    # tokens are non-ASCII and must NOT be counted as fused — score stays high.
+    cjk = "ウェブスクレイピング は ウェブサイト から 情報 を 抽出 する 技術 です " * 12
+    score = word_spacing(cjk)
+    assert score is not None
+    assert score == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_word_spacing_short_body_returns_none() -> None:
+    # Below the minimum token count there is too little prose to judge.
+    assert word_spacing("only a handful of words here") is None
+
+
+@pytest.mark.unit
+def test_composite_quality_fused_pdf_scored_below_clean() -> None:
+    # The PDF path has no browser reference, so only expect_hit and word_spacing
+    # are available. A fused extraction (spacing=0) must score well below a clean
+    # one (spacing=1) even though both hit every anchor — this is the regression
+    # signal that catches a reintroduced PDF spacing defect.
+    clean = composite_quality(
+        success=True,
+        char_coverage_value=None,
+        token_f1=None,
+        noise=None,
+        expect_hit=1.0,
+        expect_absent_ok=None,
+        link_density_value=None,
+        word_spacing_value=1.0,
+    )
+    fused = composite_quality(
+        success=True,
+        char_coverage_value=None,
+        token_f1=None,
+        noise=None,
+        expect_hit=1.0,
+        expect_absent_ok=None,
+        link_density_value=None,
+        word_spacing_value=0.0,
+    )
+    # expect_hit weight 0.15, word_spacing weight 0.10 → clean=100, fused=60.
+    assert clean == pytest.approx(100.0)
+    assert fused == pytest.approx(60.0)

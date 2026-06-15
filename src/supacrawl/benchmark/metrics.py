@@ -21,6 +21,17 @@ from collections import Counter
 # cover article-length content.
 _ROUGE_TOKEN_CAP = 4000
 
+# Word-spacing sanity. A token longer than this many characters that is pure
+# ASCII letters is almost certainly a fused word run from a PDF-extraction
+# spacing defect ("Thedominantsequencetransduction") rather than a genuine word.
+# Non-Latin scripts tokenise into long runs legitimately, so only all-ASCII
+# alphabetic tokens count. A page whose fused share reaches the full-penalty
+# ratio scores 0 on the spacing dimension; below the minimum token count there
+# is too little prose to judge.
+_WORD_SPACING_LONG_TOKEN_CHARS = 30
+_WORD_SPACING_FULL_PENALTY_RATIO = 0.05
+_WORD_SPACING_MIN_TOKENS = 50
+
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 # Markdown syntax stripped before tokenising so that formatting characters do
@@ -254,6 +265,35 @@ def link_density(link_count: int, word_count: int) -> float:
     return link_count * 1000.0 / word_count
 
 
+def word_spacing(markdown: str) -> float | None:
+    """Score how well inter-word spacing survived, penalising fused word runs.
+
+    A recurring PDF-extraction defect collapses adjacent words into a single
+    token ("Thedominantsequencetransduction") when the source font's space
+    glyph is narrower than the extractor's gap threshold. This metric flags that
+    by measuring the share of tokens that are improbably long runs of ASCII
+    letters. Non-Latin scripts (CJK, Arabic) legitimately tokenise into long
+    runs under whitespace tokenisation, so only all-ASCII alphabetic tokens
+    count, and very short bodies return ``None`` (too little signal to judge).
+
+    Args:
+        markdown: Scraper markdown output.
+
+    Returns:
+        Score in ``[0, 1]`` — 1.0 when spacing is clean, falling to 0.0 once a
+        full-penalty share of tokens are fused — or ``None`` when there is too
+        little prose to judge.
+    """
+    tokens = tokenize(markdown, markdown=True)
+    if len(tokens) < _WORD_SPACING_MIN_TOKENS:
+        return None
+    fused = sum(
+        1 for token in tokens if len(token) > _WORD_SPACING_LONG_TOKEN_CHARS and token.isascii() and token.isalpha()
+    )
+    ratio = fused / len(tokens)
+    return max(0.0, 1.0 - ratio / _WORD_SPACING_FULL_PENALTY_RATIO)
+
+
 def composite_quality(
     *,
     success: bool,
@@ -263,6 +303,7 @@ def composite_quality(
     expect_hit: float | None,
     expect_absent_ok: float | None,
     link_density_value: float | None,
+    word_spacing_value: float | None = None,
 ) -> float:
     """Blend the per-case signals into a single 0-100 quality score.
 
@@ -281,6 +322,7 @@ def composite_quality(
         expect_hit: Fraction of gold anchors present.
         expect_absent_ok: Fraction of boilerplate anchors correctly absent.
         link_density_value: Links per 1000 words (penalised above a threshold).
+        word_spacing_value: Inter-word spacing sanity (catches fused PDF text).
 
     Returns:
         Composite score in ``[0, 100]``.
@@ -303,6 +345,10 @@ def composite_quality(
     if link_density_value is not None:
         # 0 links/1k words is ideal; 50+ is menu-grade noise. Linear penalty.
         components.append((0.05, max(0.0, 1.0 - link_density_value / 50.0)))
+    if word_spacing_value is not None:
+        # Fused word runs (a PDF spacing defect) make output near-useless for RAG
+        # even when the right anchors are present; weight it alongside the anchors.
+        components.append((0.10, word_spacing_value))
 
     if not components:
         # Nothing to score on but the scrape succeeded; give a neutral floor.

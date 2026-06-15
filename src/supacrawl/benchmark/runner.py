@@ -28,6 +28,7 @@ from supacrawl.benchmark.metrics import (
     substring_hit_rate,
     token_prf,
     tokenize,
+    word_spacing,
 )
 from supacrawl.benchmark.models import (
     BenchCase,
@@ -112,6 +113,9 @@ def _score_case(
     structure = count_structure(markdown)
     ld = link_density(structure["links"], md_words)
 
+    # Inter-word spacing sanity (reference-free): catches fused-word PDF defects.
+    spacing = word_spacing(markdown)
+
     # Reference-based metrics — only when the reference was captured and
     # the scrape succeeded; for PDFs and failed references these stay None.
     char_cov: float | None = None
@@ -147,6 +151,7 @@ def _score_case(
         expect_hit=expect_hit,
         expect_absent_ok=expect_absent_ok,
         link_density_value=ld if output.success else None,
+        word_spacing_value=spacing,
     )
 
     return CaseMetrics(
@@ -171,6 +176,7 @@ def _score_case(
         json_ld_found=output.json_ld_found,
         expect_hit=expect_hit,
         expect_absent_ok=expect_absent_ok,
+        word_spacing=spacing,
         judge_score=judge_score,
         judge_rationale=judge_rationale,
         quality=quality,

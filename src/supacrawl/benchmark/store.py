@@ -131,6 +131,7 @@ def _case_row(run: RunResult, case: CaseResult) -> dict:
         "json_ld_found": m.json_ld_found,
         "expect_hit": m.expect_hit,
         "expect_absent_ok": m.expect_absent_ok,
+        "word_spacing": m.word_spacing,
         "judge_score": m.judge_score,
         "quality": m.quality,
     }
