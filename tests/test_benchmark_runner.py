@@ -11,11 +11,12 @@ from types import TracebackType
 from unittest.mock import patch
 
 import pytest
+from conftest import make_case_result as _make_case
 
 from supacrawl.benchmark.models import BenchCase, BenchSuite, RunResult
 from supacrawl.benchmark.providers.base import ProviderOutput
 from supacrawl.benchmark.reference import ReferenceCapture
-from supacrawl.benchmark.runner import run_benchmark
+from supacrawl.benchmark.runner import _build_aggregate, run_benchmark
 
 # ---------------------------------------------------------------------------
 # Fake provider
@@ -298,3 +299,62 @@ async def test_run_benchmark_artifacts_written(tmp_path: Path) -> None:
     run_dir = tmp_path / "runs" / result.run_id
     artifact_path = run_dir / html_case.artifacts["markdown"]
     assert artifact_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# _build_aggregate — unit tests for aggregation correctness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_build_aggregate_arithmetic_mean_of_scored_cases() -> None:
+    """_build_aggregate returns the plain mean of scored cases with known quality.
+
+    Formula: overall_quality = round(sum(qualities) / count, 1)
+    Scored cases: case-a (60.0) and case-b (80.0) → mean = (60+80)/2 = 70.0
+    Unscored case (case-c, quality=90.0) must NOT contribute to the mean.
+    """
+    cases = [
+        _make_case("case-a", quality=60.0, scored=True, latency_ms=100.0),
+        _make_case("case-b", quality=80.0, scored=True, latency_ms=100.0),
+        _make_case("case-c", quality=90.0, scored=False, latency_ms=100.0),  # excluded from mean
+    ]
+    agg = _build_aggregate(cases)
+
+    # (60.0 + 80.0) / 2 = 70.0
+    assert agg.overall_quality == pytest.approx(70.0)
+    assert agg.scored_cases == 2
+    assert agg.total_cases == 3
+    assert agg.success_rate == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_build_aggregate_excludes_none_quality() -> None:
+    """Cases where quality is None are excluded even when scored=True.
+
+    Formula counts only cases where both scored=True and quality is not None.
+    case-a (scored, quality=50.0) and case-b (scored, quality=None) →
+    only case-a contributes → overall_quality = 50.0.
+    """
+    cases = [
+        _make_case("case-a", quality=50.0, scored=True, latency_ms=100.0),
+        _make_case("case-b", quality=None, scored=True, success=False, latency_ms=100.0),
+    ]
+    agg = _build_aggregate(cases)
+
+    assert agg.overall_quality == pytest.approx(50.0)
+    # scored_cases counts cases where scored=True AND quality is not None
+    assert agg.scored_cases == 1
+
+
+@pytest.mark.unit
+def test_build_aggregate_all_unscored_gives_none() -> None:
+    """When no cases are scored, overall_quality is None (not zero)."""
+    cases = [
+        _make_case("case-a", quality=80.0, scored=False, latency_ms=100.0),
+        _make_case("case-b", quality=70.0, scored=False, latency_ms=100.0),
+    ]
+    agg = _build_aggregate(cases)
+
+    assert agg.overall_quality is None
+    assert agg.scored_cases == 0

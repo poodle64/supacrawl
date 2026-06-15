@@ -109,7 +109,6 @@ class CaseMetrics(BaseModel):
 
     # Fidelity vs the browser reference main text
     char_coverage: float | None = None
-    coverage: float | None = None
     token_f1: float | None = None
     rouge_l: float | None = None
     noise: float | None = None
@@ -155,6 +154,9 @@ class RunAggregate(BaseModel):
     overall_quality: float | None = None
     by_category: dict[str, float] = Field(default_factory=dict)
     total_cases: int = 0
+    # Cases that actually contributed to overall_quality: scored=True AND quality is not None.
+    # This is a strict subset of all scored=True cases — failed runs produce scored=True but
+    # quality=None, so they appear in total_cases but not here.
     scored_cases: int = 0
     success_rate: float = 0.0
     mean_latency_ms: float | None = None

@@ -110,9 +110,10 @@ def test_token_prf_partial_overlap() -> None:
     gold = ["the", "cat", "on", "mat"]
     p, r, f1 = token_prf(extracted, gold)
     # overlap = 2 (the, cat); precision = 2/3; recall = 2/4
+    # f1 = 2*(2/3)*(2/4) / (2/3 + 2/4) = (2/3) / (7/6) = 4/7
     assert p == pytest.approx(2 / 3)
     assert r == pytest.approx(2 / 4)
-    assert f1 > 0
+    assert f1 == pytest.approx(4 / 7)
 
 
 # ---------------------------------------------------------------------------
@@ -139,11 +140,13 @@ def test_rouge_l_empty() -> None:
 
 @pytest.mark.unit
 def test_rouge_l_subsequence() -> None:
-    # LCS of [a, b, c, d] and [a, c, d] is [a, c, d] length 3
+    # LCS of [a, b, c, d] and [a, c, d] is [a, c, d], length 3
+    # precision = 3/4, recall = 3/3 = 1.0
+    # F = 2*(3/4)*1.0 / (3/4 + 1.0) = (3/2) / (7/4) = 6/7
     a = ["a", "b", "c", "d"]
     b = ["a", "c", "d"]
     score = rouge_l(a, b)
-    assert 0.0 < score < 1.0
+    assert score == pytest.approx(6 / 7)
 
 
 # ---------------------------------------------------------------------------

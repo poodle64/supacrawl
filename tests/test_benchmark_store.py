@@ -9,9 +9,9 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import make_case_result as _make_case_result
 
 from supacrawl.benchmark.models import (
-    CaseMetrics,
     CaseResult,
     RunAggregate,
     RunResult,
@@ -23,42 +23,6 @@ from supacrawl.benchmark.store import (
     load_run,
     write_run,
 )
-
-
-def _make_case_result(
-    case_id: str,
-    *,
-    quality: float | None = 80.0,
-    success: bool = True,
-    scored: bool = True,
-    category: str = "static",
-) -> CaseResult:
-    """Build a synthetic CaseResult for testing.
-
-    Args:
-        case_id: Stable case identifier.
-        quality: Composite quality score or None.
-        success: Whether the scrape succeeded.
-        scored: Whether the case contributes to the aggregate.
-        category: Case category string.
-
-    Returns:
-        A ``CaseResult`` populated with minimal data.
-    """
-    return CaseResult(
-        case_id=case_id,
-        category=category,
-        url=f"https://example.com/{case_id}",
-        difficulty=2,
-        scored=scored,
-        metrics=CaseMetrics(
-            success=success,
-            quality=quality,
-            latency_ms=123.0,
-            markdown_chars=500,
-            markdown_words=100,
-        ),
-    )
 
 
 def _make_run(
