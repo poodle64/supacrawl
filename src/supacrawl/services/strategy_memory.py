@@ -152,12 +152,14 @@ class StrategyStore:
     def default(cls) -> "StrategyStore | None":
         """Return a default store, or None when memory is disabled via env.
 
-        ``SUPACRAWL_STRATEGY_MEMORY=0`` (or ``false``/``off``) disables it. Used by
-        the CLI and MCP wiring so per-domain learning is on out of the box for the
-        primary entry points while remaining opt-out and local.
+        ``SUPACRAWL_STRATEGY_MEMORY=0`` (or ``false``/``off``) disables it, as does
+        ``strategy_memory = false`` in the config store (env wins over the store).
+        Used by the CLI and MCP wiring so per-domain learning is on out of the box
+        for the primary entry points while remaining opt-out and local.
         """
-        flag = os.environ.get("SUPACRAWL_STRATEGY_MEMORY", "1").strip().lower()
-        if flag in ("0", "false", "off", "no"):
+        from supacrawl.config import load_config
+
+        if not load_config().strategy_memory:
             return None
         try:
             return cls()

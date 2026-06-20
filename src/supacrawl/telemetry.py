@@ -97,17 +97,19 @@ class MetricsSink:
     def default(cls) -> "MetricsSink | None":
         """Return a default sink, or None when telemetry is disabled.
 
-        ``SUPACRAWL_METRICS=0`` (or ``false``/``off``/``no``) disables it;
-        ``SUPACRAWL_METRICS_FULL_URL=1`` opts into full URLs/queries. Used by the
-        CLI and MCP wiring so field telemetry is on out of the box for the primary
-        entry points while remaining opt-out and local.
+        ``SUPACRAWL_METRICS=0`` (or ``false``/``off``/``no``) disables it, as does
+        ``metrics = false`` in the config store (env wins over the store);
+        ``SUPACRAWL_METRICS_FULL_URL=1`` / ``metrics_full_url = true`` opts into
+        full URLs/queries. Used by the CLI and MCP wiring so field telemetry is on
+        out of the box for the primary entry points while remaining opt-out and local.
         """
-        flag = os.environ.get("SUPACRAWL_METRICS", "1").strip().lower()
-        if flag in ("0", "false", "off", "no"):
+        from supacrawl.config import load_config
+
+        config = load_config()
+        if not config.metrics:
             return None
-        full = os.environ.get("SUPACRAWL_METRICS_FULL_URL", "0").strip().lower() in ("1", "true", "on", "yes")
         try:
-            return cls(full_url=full)
+            return cls(full_url=config.metrics_full_url)
         except OSError as exc:  # unwritable home — degrade silently to no telemetry
             LOGGER.debug("Telemetry unavailable (%s); not recording events", exc)
             return None

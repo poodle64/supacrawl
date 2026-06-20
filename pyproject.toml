@@ -32,6 +32,7 @@ dependencies = [
   "pydantic>=2.12.5",
   "pyyaml>=6.0.3",
   "rich>=14.3.3",
+  "tomli-w>=1.2.0",
 ]
 
 [project.urls]

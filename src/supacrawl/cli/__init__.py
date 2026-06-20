@@ -8,6 +8,7 @@ into modules by functionality:
 - map: URL discovery and mapping
 - agent: Search, extraction, and agent commands (search, llm-extract, agent)
 - cache: Cache management subcommands (cache stats/clear/prune)
+- config: Settings store and GUI schema (config get/set/schema/path/secrets)
 - strategy: Per-domain strategy memory (strategy list/show/forget/clear)
 - metrics: Field telemetry log (metrics summary/tail/path/prune)
 - serve: REST API server
@@ -21,6 +22,7 @@ from supacrawl.cli import (
     batch,  # noqa: F401
     bench,  # noqa: F401
     cache,  # noqa: F401
+    config,  # noqa: F401
     crawl,  # noqa: F401
     map,  # noqa: F401
     metrics,  # noqa: F401

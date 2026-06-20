@@ -15,7 +15,9 @@ The `supacrawl` CLI provides commands for web scraping, URL mapping, search, and
 - `llm-extract` - Extract structured data using LLM
 - `agent` - Run autonomous web agent
 - `cache` - Manage the local scrape cache
+- `config` - Inspect and edit settings; emit the GUI settings schema (see [configuration](configuration.md))
 - `strategy` - Inspect and reset per-domain strategy memory
+- `metrics` - Inspect the local field telemetry log
 - `serve` - Start the REST API server
 
 ## Command Reference
@@ -464,6 +466,38 @@ $ supacrawl strategy forget example-airline.com
 
 $ supacrawl strategy clear
 # Clear all learned strategies
+```
+
+### config
+
+Inspect and edit supacrawl's standing settings, and emit the schema a control-plane GUI renders its settings form from. Settings resolve from built-in defaults, then a local TOML store (`~/.supacrawl/config.toml`), then environment variables (`SUPACRAWL_<NAME>`) — each layer overriding the one before. A per-command flag overrides all three for that one run. Credentials are environment-only and never written to the store. See the [configuration guide](configuration.md) for the full field list and the GUI schema contract.
+
+**Usage:**
+
+```bash
+supacrawl config COMMAND
+```
+
+**Commands:**
+
+- `get [KEY] [--stored] [--json]` — Show the effective config, or one key. `--stored` shows the file + defaults only, ignoring the environment.
+- `set KEY VALUE` — Validate and persist a default to the store.
+- `unset KEY` — Remove a key from the store, reverting it to the default.
+- `schema` — Print the GUI settings schema (JSON, with `x-ui` render metadata).
+- `secrets` — Report which credentials are configured (presence only, never values).
+- `path` — Print the store location.
+
+**Examples:**
+
+```bash
+$ supacrawl config set engine camoufox
+# Persist a default browser engine
+
+$ supacrawl config get --stored
+# See exactly what the file pins, ignoring environment overrides
+
+$ supacrawl config schema > settings.schema.json
+# Emit the schema a dashboard renders its settings form from
 ```
 
 ### serve
