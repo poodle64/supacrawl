@@ -320,6 +320,20 @@ class TestKeylessLoudFailure:
         assert result.success is True
         assert result.data == []
 
+    async def test_circuit_broken_key_with_empty_is_loud(self):
+        # A keyed provider that is circuit-broken (cooled down after repeated
+        # failures) must not mask the keyless case: an empty result behind a dead
+        # key should still fail loudly, not silently succeed.
+        service = SearchService(providers="brave,duckduckgo", brave_api_key="test-key")
+        brave_health = service._chain._health["brave"]
+        for _ in range(brave_health.UNAVAILABLE_THRESHOLD):
+            brave_health.record_failure("boom")
+        assert service._has_keyed_provider() is False  # brave excluded from active
+        service._chain.search = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        result = await service.search("anything", limit=3)
+        assert result.success is False
+        assert result.error is not None and "BRAVE_API_KEY" in result.error
+
 
 class TestDuckDuckGoCaptchaDetection:
     """Tests for DuckDuckGo CAPTCHA/bot detection handling."""

@@ -907,7 +907,9 @@ class ScrapeService:
             attempt_engine = seed.engine
             attempt_stealth = seed.stealth
             wait_for = max(wait_for, seed.wait_for)
-            only_main_content = seed.only_main_content
+            # The seed drives the anti-bot strategy (engine / stealth / wait) only.
+            # only_main_content is the caller's content preference, never overridden
+            # by memory; the thin-content fallback already recovers over-pruning.
         # A seed that needs a real browser (stealth or a non-default engine) skips
         # the HTTP-first probe — the champion is browser-based for a reason.
         seed_requires_browser = bool(attempt_stealth or attempt_engine not in (None, "playwright"))
@@ -940,16 +942,22 @@ class ScrapeService:
                 parse_pdf=parse_pdf,
             )
             if fast_result is not None:
-                if memory_domain and self._strategy_store is not None:
-                    self._strategy_store.record(
-                        memory_domain,
-                        engine=attempt_engine,
-                        stealth=attempt_stealth,
-                        wait_for=wait_for,
-                        only_main_content=only_main_content,
-                        result=fast_result,
-                    )
-                return fast_result
+                # A recoverable poor verdict (bot / CAPTCHA / JS-shell / empty) on
+                # the cheap static path means a real browser may still recover the
+                # page — fall through to the browser ladder instead of returning a
+                # poor result, and do not record it as a champion.
+                fast_verdict = fast_result.quality.verdict if fast_result.quality else None
+                if fast_verdict not in _ESCALATABLE_VERDICTS:
+                    if memory_domain and self._strategy_store is not None:
+                        self._strategy_store.record(
+                            memory_domain,
+                            engine=attempt_engine,
+                            stealth=attempt_stealth,
+                            wait_for=wait_for,
+                            only_main_content=only_main_content,
+                            result=fast_result,
+                        )
+                    return fast_result
 
         # Closure that re-runs this scrape one rung deeper in the escalation
         # ladder with a stronger strategy (engine / stealth / longer wait),
@@ -1025,7 +1033,7 @@ class ScrapeService:
                 seed is not None
                 and not owns_browser
                 and browser is not None
-                and (attempt_engine != browser.engine or attempt_stealth)
+                and (attempt_engine != browser.engine or attempt_stealth != browser.stealth)
             )
 
             if owns_browser or needs_engine_override or needs_proxy_override or needs_seed_override:
@@ -1395,8 +1403,13 @@ class ScrapeService:
 
         has_response = result.data is not None
         verdict = result.quality.verdict if result.quality else None
+        # A thin result on a known site-builder (Wix/Squarespace/Framer/Foleon) is
+        # escalatable even though THIN is not in the generic set: the platform has
+        # a tuned engine that reliably renders it, where the generic ladder would
+        # not fire. `platform` is only set on a thin browser result.
         wants_escalation = http2_error or (
-            has_response and ((verdict in _ESCALATABLE_VERDICTS) or (expect is not None and not expect_met))
+            has_response
+            and ((verdict in _ESCALATABLE_VERDICTS) or platform is not None or (expect is not None and not expect_met))
         )
         if not escalate or not wants_escalation or level >= _MAX_ESCALATIONS:
             return result

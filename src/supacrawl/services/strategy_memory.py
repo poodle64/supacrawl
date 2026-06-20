@@ -182,10 +182,16 @@ class StrategyStore:
         return out
 
     def _save(self, data: dict[str, DomainStrategy]) -> None:
+        # Write atomically (temp file + os.replace) so a process killed mid-write
+        # never leaves a truncated, unparseable store behind.
+        payload = json.dumps({d: s.model_dump() for d, s in data.items()}, indent=2)
+        tmp = self.path.with_suffix(".json.tmp")
         try:
-            self.path.write_text(json.dumps({d: s.model_dump() for d, s in data.items()}, indent=2))
+            tmp.write_text(payload)
+            os.replace(tmp, self.path)
         except OSError as exc:
             LOGGER.warning("Failed to write strategy store: %s", exc)
+            tmp.unlink(missing_ok=True)
 
     def _is_expired(self, strategy: DomainStrategy, *, now: datetime) -> bool:
         try:

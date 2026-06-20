@@ -180,6 +180,52 @@ async def test_strategy_memory_disabled_is_identical(monkeypatch: pytest.MonkeyP
     assert len(created) == 1
 
 
+async def test_thin_result_on_known_platform_escalates(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A thin result on a recognised site-builder (Foleon) escalates to that
+    # platform's tuned engine, even though THIN is not in the generic escalatable
+    # set — a regression the review caught after the ladder refactor.
+    foleon_thin = '<html><body data-foleon="1"><p>short teaser only</p></body></html>'
+
+    def respond(engine: str | None, stealth: bool) -> tuple[str, int]:
+        if engine == "camoufox":
+            return _GOOD_HTML, 200
+        return foleon_thin, 200
+
+    created = _patch_ladder(monkeypatch, respond)
+    result = await ScrapeService().scrape("https://x.example", formats=["markdown"], http_first=False)
+
+    assert result.success is True
+    assert result.quality is not None and result.quality.verdict == QualityVerdict.OK
+    assert result.quality.escalated is True
+    assert any(b.engine == "camoufox" for b in created)
+
+
+async def test_http_first_escalatable_verdict_falls_through_to_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An HTTP-first result with an escalatable verdict (EMPTY) must NOT be returned
+    # directly — it falls through to the browser ladder, which recovers the page.
+    from supacrawl.models import ScrapeData, ScrapeMetadata, ScrapeResult
+    from supacrawl.quality import assess_quality
+
+    empty_quality = assess_quality(status_code=200, html="<html><body></body></html>", markdown="")
+
+    async def fake_http_first(self: ScrapeService, **_: object) -> ScrapeResult:
+        return ScrapeResult(
+            success=False,
+            error="empty",
+            quality=empty_quality,
+            data=ScrapeData(metadata=ScrapeMetadata(source_url="https://x.example")),
+        )
+
+    monkeypatch.setattr(ScrapeService, "_try_http_first", fake_http_first)
+    created = _patch_ladder(monkeypatch, lambda engine, stealth: (_GOOD_HTML, 200))
+
+    result = await ScrapeService().scrape("https://x.example", formats=["markdown"], http_first=True)
+
+    assert result.success is True
+    assert result.data is not None and result.data.markdown and "word10" in result.data.markdown
+    assert len(created) >= 1  # the browser path actually ran
+
+
 async def test_fetch_exception_yields_clean_failure_not_crash() -> None:
     # A mid-fetch exception must become success=False with a hint, never a crash.
     browser = MagicMock()

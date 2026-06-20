@@ -119,18 +119,17 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
         config["providers"] = provider_health
         # Surface a low-credit warning at the config level so MCP clients can
         # act on it without needing to inspect the per-provider health dict.
-        from supacrawl.services.search.providers import LOW_CREDIT_THRESHOLD
+        from supacrawl.services.search.providers import LOW_CREDIT_THRESHOLD, renewal_hint
 
-        low_credit_providers = [
-            f"{name} ({info['remaining_credits']} left)"
+        low_credit = [
+            (name, info["remaining_credits"])
             for name, info in provider_health.items()
             if isinstance(info.get("remaining_credits"), int) and info["remaining_credits"] < LOW_CREDIT_THRESHOLD
         ]
-        if low_credit_providers:
-            config["warning"] = (
-                f"Low search credits on: {', '.join(low_credit_providers)}. "
-                "Renew at https://brave.com/search/api/ to avoid outages."
-            )
+        if low_credit:
+            listed = ", ".join(f"{name} ({remaining} left)" for name, remaining in low_credit)
+            hints = "; ".join(dict.fromkeys(renewal_hint(name) for name, _ in low_credit))
+            config["warning"] = f"Low search credits on: {listed}. {hints} to avoid outages."
 
     if status == "degraded" and effective_provider == "duckduckgo" and "warning" not in config:
         config["warning"] = (

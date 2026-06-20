@@ -256,13 +256,16 @@ class SearchService:
         return self._chain
 
     def _has_keyed_provider(self) -> bool:
-        """Whether any available provider is backed by an API key.
+        """Whether any *usable* provider is backed by an API key.
 
         DuckDuckGo is the only keyless provider and is used as a last-resort
         fallback; if it is the only thing available, the chain is effectively
         unconfigured and an empty result should fail loudly rather than silently.
+        Uses ``active_providers`` so a keyed provider that is circuit-broken
+        (cooled down after repeated failures) does not mask the keyless case — an
+        empty result behind a dead key should also fail loudly.
         """
-        return any(p.name != "duckduckgo" and p.is_available() for p in self._chain.providers)
+        return any(p.name != "duckduckgo" for p in self._chain.active_providers)
 
     def _build_headers(self) -> dict[str, str]:
         """Build browser-realistic HTTP headers.

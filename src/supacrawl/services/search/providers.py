@@ -36,6 +36,19 @@ class ProviderStatus(str, Enum):
 # The Brave free tier provides 2 000 queries/month; 100 is a reasonable heads-up.
 LOW_CREDIT_THRESHOLD: int = 100
 
+# Per-provider plan/renewal pointer for low-credit warnings. Only providers that
+# expose a remaining-credit count can ever warn, so this stays small; the lookup
+# keeps the message accurate per provider instead of hard-coding one vendor's URL.
+PROVIDER_RENEWAL_URLS: dict[str, str] = {
+    "brave": "https://brave.com/search/api/",
+}
+
+
+def renewal_hint(provider_name: str) -> str:
+    """Return an actionable renewal pointer for a provider's low-credit warning."""
+    url = PROVIDER_RENEWAL_URLS.get(provider_name)
+    return f"Top up at {url}" if url else f"Renew the {provider_name} API plan"
+
 
 @dataclass
 class ProviderHealth:
@@ -306,8 +319,11 @@ class ProviderChain:
             # Pull per-call quota from the provider if it tracks it (duck-typed).
             # Only BraveProvider sets this attribute; header-less providers do not,
             # so absence correctly signals "unknown" rather than "zero".
+            # The provider's live counter is the freshest source of truth; surface
+            # it when present (header-less providers never set it, so absence
+            # correctly reads as "unknown", not "zero").
             provider_remaining = getattr(p, "remaining_credits", None)
-            if provider_remaining is not None and "remaining_credits" not in health:
+            if provider_remaining is not None:
                 health["remaining_credits"] = provider_remaining
             result[p.name] = health
         return result
@@ -392,7 +408,7 @@ class ProviderChain:
                         LOGGER.warning(
                             f"LOW CREDIT WARNING — {provider.name} has {provider_remaining} API credits "
                             f"remaining (threshold: {LOW_CREDIT_THRESHOLD}). "
-                            f"Renew at https://brave.com/search/api/ to avoid search outages "
+                            f"{renewal_hint(provider.name)} to avoid search outages "
                             f"[correlation_id={correlation_id}]"
                         )
 
