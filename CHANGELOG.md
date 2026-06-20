@@ -4,7 +4,9 @@ All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
-## [Unreleased]
+## [2026.6.4] - 2026-06-20
+
+Field telemetry can now be shipped off-box to a central log store, completing the path from a local scrape to a Grafana dashboard.
 
 ### Added
 
