@@ -4,6 +4,12 @@ All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
+## [Unreleased]
+
+### Added
+
+- **Remote telemetry shipping (configurable log sink)**: supacrawl can now ship each field-telemetry event to an external log store in addition to the local `events.jsonl`, so a central dashboard (Grafana reading Loki) can see quality and usage across runs. Opt-in with `supacrawl config set metrics_remote_url <loki-push-url>` plus an optional `SUPACRAWL_METRICS_TOKEN` bearer token. Loki is the first backend (behind a `RemoteSink` interface, leaving room for OTLP); events are grouped into low-cardinality streams (`{job="supacrawl", kind=...}`) with all detail in the JSON line for LogQL `| json`. Pushes are batched, best-effort, and fail-open with a short timeout — a slow or down endpoint never delays or fails a scrape, and the local log stays authoritative. Privacy carries over from the local sink (domain-only unless `metrics_full_url`). See `docs/configuration.md`.
+
 ## [2026.6.3] - 2026-06-20
 
 The GUI-backend-foundation release: supacrawl now persists field telemetry, exposes a typed settings schema and store a control-plane dashboard can build against, and learns per-domain across every scrape path — plus a more trustworthy benchmark.

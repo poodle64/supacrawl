@@ -270,6 +270,19 @@ class SupacrawlConfig(BaseModel):
             help="Log full URLs and search queries instead of just the registrable domain. Off by default for privacy.",
         ),
     )
+    metrics_remote_url: str | None = Field(
+        default=None,
+        title="Remote log endpoint",
+        json_schema_extra=_ui(
+            group="telemetry",
+            order=30,
+            widget="url",
+            visible_when={"metrics": True},
+            help="Also ship each event to this log store (a Grafana Loki push URL, "
+            "e.g. https://host/loki/api/v1/push). Best-effort; the local log is unaffected. "
+            "Set the auth token via the SUPACRAWL_METRICS_TOKEN environment variable.",
+        ),
+    )
 
     # --- Cache -----------------------------------------------------------
     cache_dir: str | None = Field(
@@ -296,6 +309,7 @@ _SECRET_ENV: dict[str, str] = {
     "openai_api_key": "OPENAI_API_KEY",
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "proxy": "SUPACRAWL_PROXY",
+    "metrics_token": "SUPACRAWL_METRICS_TOKEN",
 }
 
 
@@ -318,6 +332,7 @@ class SupacrawlSecrets(BaseModel):
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
     proxy: str | None = None
+    metrics_token: str | None = None
 
     @classmethod
     def from_env(cls) -> "SupacrawlSecrets":

@@ -31,7 +31,7 @@ supacrawl config path                # where the store lives
 
 ## Runtime adoption status
 
-The settings schema, the store, and the `config` CLI are complete. Runtime consumption is being adopted incrementally: the **`strategy_memory`, `metrics`, and `metrics_full_url`** toggles are read from the resolved config (store + environment) on every CLI and MCP run today. The remaining knobs (browser, anti-bot, search, locale, cache) are exposed in the schema and persisted in the store for a control-plane GUI; their adoption into each command's option resolution is rolling out. Until then, set those via their environment variables or per-command flags.
+The settings schema, the store, and the `config` CLI are complete. Runtime consumption is being adopted incrementally: the **`strategy_memory`, `metrics`, `metrics_full_url`, and `metrics_remote_url`** settings are read from the resolved config (store + environment) on every CLI and MCP run today. The remaining knobs (browser, anti-bot, search, locale, cache) are exposed in the schema and persisted in the store for a control-plane GUI; their adoption into each command's option resolution is rolling out. Until then, set those via their environment variables or per-command flags.
 
 ## Settings
 
@@ -56,6 +56,7 @@ Every setting is a standing default; a per-request flag or API argument still ov
 | memory | `strategy_memory` | `SUPACRAWL_STRATEGY_MEMORY` | `true` | Per-domain strategy learning. |
 | telemetry | `metrics` | `SUPACRAWL_METRICS` | `true` | Record one quality/usage event per scrape/search. |
 | telemetry | `metrics_full_url` | `SUPACRAWL_METRICS_FULL_URL` | `false` | Log full URLs, not just the domain. Off for privacy. |
+| telemetry | `metrics_remote_url` | `SUPACRAWL_METRICS_REMOTE_URL` | _(none)_ | Also ship each event to a remote log store (Loki push URL). See below. |
 | cache | `cache_dir` | `SUPACRAWL_CACHE_DIR` | _(default location)_ | Where cached content lives. |
 
 ## Secrets
@@ -66,7 +67,25 @@ Credentials are **environment-only**. They are never written to the store and ne
 supacrawl config secrets   # presence only, never the value
 ```
 
-Honoured: `CAPTCHA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `EXA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `SUPACRAWL_PROXY` (treated as a secret because a proxy URL can carry credentials).
+Honoured: `CAPTCHA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `EXA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `SUPACRAWL_PROXY` (a proxy URL can carry credentials), and `SUPACRAWL_METRICS_TOKEN` (bearer token for the remote log endpoint).
+
+## Shipping telemetry to a remote store (Grafana / Loki)
+
+supacrawl always writes telemetry to the local `events.jsonl` (the durable record). It can **also** ship each event to a remote log store so a central dashboard — typically Grafana reading [Loki](https://grafana.com/oss/loki/) — can see quality and usage across runs. This is opt-in: set one URL (and, if the endpoint needs auth, one token).
+
+```bash
+supacrawl config set metrics_remote_url https://loki-push.example/loki/api/v1/push
+export SUPACRAWL_METRICS_TOKEN=<bearer-token>   # only if the endpoint requires auth
+```
+
+How it behaves:
+
+- **Loki is the first backend.** The URL points straight at Loki's push API. Events are grouped into one stream per kind under the low-cardinality labels `{job="supacrawl", kind="scrape|search"}`; everything else (domain, verdict, score, latency) travels in the JSON line, queried in Grafana with LogQL `| json`. (The shipper sits behind a small interface, so an OTLP backend can be added later without changing how you configure it.)
+- **Best-effort, fail-open.** A push has a short timeout and never raises — if the endpoint is slow or down, the event is dropped and the local JSONL is unaffected. A scrape never hangs or fails because of telemetry.
+- **Batched.** Events are buffered and shipped in batches (and once more at process exit), not one HTTP call per scrape.
+- **Privacy carries over.** Only what the local log contains is shipped — domain-only unless you opt into `metrics_full_url`. Keep it domain-only if you scrape sensitive sites.
+
+The Grafana-side panels (score trend, verdict mix, escalation rate, per-domain) are all LogQL queries over `{job="supacrawl"} | json`; supacrawl ships the data, the dashboard derives the views.
 
 ## The settings schema (for a GUI)
 

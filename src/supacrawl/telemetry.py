@@ -28,6 +28,7 @@ nothing unless a sink is passed. Disable everywhere with ``SUPACRAWL_METRICS=0``
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import logging
@@ -38,6 +39,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from supacrawl.remote_sink import RemoteSink, build_remote_sink
+
 if TYPE_CHECKING:
     from supacrawl.models import ScrapeResult
 
@@ -45,6 +48,11 @@ LOGGER = logging.getLogger(__name__)
 
 # Bump only on a breaking change to the event shape; readers branch on it.
 SCHEMA_VERSION = 1
+
+# Buffer this many events before pushing a batch to the remote sink (in addition
+# to a flush at process exit). Keeps a long-running MCP server shipping steadily
+# without a per-event round-trip; the local JSONL is written immediately either way.
+_REMOTE_FLUSH_THRESHOLD = 25
 
 
 def _registrable_domain(url: str) -> str | None:
@@ -75,7 +83,13 @@ class MetricsSink:
 
     DEFAULT_METRICS_DIR = Path.home() / ".supacrawl" / "metrics"
 
-    def __init__(self, metrics_dir: Path | None = None, *, full_url: bool = False) -> None:
+    def __init__(
+        self,
+        metrics_dir: Path | None = None,
+        *,
+        full_url: bool = False,
+        remote: RemoteSink | None = None,
+    ) -> None:
         """Initialise the sink.
 
         Args:
@@ -83,6 +97,9 @@ class MetricsSink:
                 ``~/.supacrawl/metrics`` or ``SUPACRAWL_METRICS_DIR``.
             full_url: When True, log full URLs and full search-query text instead
                 of just the registrable domain / a query hash.
+            remote: Optional remote sink. When set, each event is also buffered
+                and shipped to it (in batches and at process exit), best-effort —
+                the local JSONL is always written first and remains authoritative.
         """
         if metrics_dir is not None:
             self.metrics_dir = metrics_dir
@@ -91,6 +108,8 @@ class MetricsSink:
             self.metrics_dir = Path(env_dir) if env_dir else self.DEFAULT_METRICS_DIR
         self.path = self.metrics_dir / "events.jsonl"
         self._full_url = full_url
+        self._remote = remote
+        self._buffer: list[dict[str, Any]] = []
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
@@ -103,16 +122,22 @@ class MetricsSink:
         full URLs/queries. Used by the CLI and MCP wiring so field telemetry is on
         out of the box for the primary entry points while remaining opt-out and local.
         """
-        from supacrawl.config import load_config
+        from supacrawl.config import SupacrawlSecrets, load_config
 
         config = load_config()
         if not config.metrics:
             return None
+        remote = build_remote_sink(config.metrics_remote_url, token=SupacrawlSecrets.from_env().metrics_token)
         try:
-            return cls(full_url=config.metrics_full_url)
+            sink = cls(full_url=config.metrics_full_url, remote=remote)
         except OSError as exc:  # unwritable home — degrade silently to no telemetry
             LOGGER.debug("Telemetry unavailable (%s); not recording events", exc)
             return None
+        if remote is not None:
+            # Ship whatever is buffered when the process exits (covers the CLI,
+            # where a run's events would otherwise never reach the threshold).
+            atexit.register(sink.flush)
+        return sink
 
     def _append(self, event: dict[str, Any]) -> None:
         try:
@@ -120,6 +145,23 @@ class MetricsSink:
                 fh.write(json.dumps(event, separators=(",", ":")) + "\n")
         except OSError as exc:
             LOGGER.debug("Failed to write telemetry event: %s", exc)
+        if self._remote is not None:
+            self._buffer.append(event)
+            if len(self._buffer) >= _REMOTE_FLUSH_THRESHOLD:
+                self.flush()
+
+    def flush(self) -> None:
+        """Ship any buffered events to the remote sink and clear the buffer.
+
+        Best-effort: the remote push never raises, and the buffer is cleared
+        regardless so a persistently-unreachable endpoint cannot grow it without
+        bound. The durable record is the local JSONL, written on each event.
+        """
+        if self._remote is None or not self._buffer:
+            return
+        batch = self._buffer
+        self._buffer = []
+        self._remote.push(batch)
 
     def record_scrape(self, *, url: str, result: "ScrapeResult", latency_ms: int) -> None:
         """Append one scrape event derived from the final result.
