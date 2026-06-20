@@ -11,7 +11,36 @@ import pytest
 # StrategyStore with a tmp dir, which bypasses this env default.
 os.environ.setdefault("SUPACRAWL_STRATEGY_MEMORY", "0")
 
+# Search-related env vars that a developer's direnv cascade (source_up) may inject
+# into the test process.  Each search test class that tests default/keyless behaviour
+# must run against a clean slate so assertions about "no key configured" hold
+# regardless of what the ambient environment has set.
+_SEARCH_ENV_VARS = (
+    "BRAVE_API_KEY",
+    "SERPER_API_KEY",
+    "SERPAPI_API_KEY",
+    "TAVILY_API_KEY",
+    "EXA_API_KEY",
+    "SEARXNG_URL",
+    "SUPACRAWL_SEARCH_PROVIDERS",
+    "SUPACRAWL_LOCALE",
+    "SUPACRAWL_SEARCH_RATE_LIMIT",
+)
+
 from supacrawl.benchmark.models import CaseMetrics, CaseResult  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def clean_search_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove search-related env vars that a direnv cascade may inject.
+
+    Tests that assert default/keyless search behaviour must run against a clean
+    environment, not the developer's real credentials.  Tests that need a specific
+    env var set it themselves via ``monkeypatch.setenv`` or ``patch.dict``, which
+    compose correctly with this fixture.
+    """
+    for var in _SEARCH_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
 
 
 def make_case_result(

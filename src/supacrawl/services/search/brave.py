@@ -1,4 +1,10 @@
-"""Brave Search provider implementation."""
+"""Brave Search provider implementation.
+
+Per-provider credit/quota capability:
+  Brave: exposes X-RateLimit-Remaining and X-RateLimit-Limit on every response.
+         We read and cache the remaining count; a low-credit warning fires when
+         it drops below LOW_CREDIT_THRESHOLD (providers.py).
+"""
 
 import logging
 
@@ -16,12 +22,19 @@ class BraveProvider:
     """Brave Search API provider.
 
     Requires a BRAVE_API_KEY. Supports web, image, and news search.
+
+    Credit tracking: reads X-RateLimit-Remaining from each response and stores
+    it as ``remaining_credits``.  The ProviderChain picks this up after each
+    successful call and surfaces it via supacrawl_health.
     """
 
     def __init__(self, api_key: str | None, http_client: httpx.AsyncClient | None = None) -> None:
         self._api_key = api_key
         self._owns_client = http_client is None
         self._http_client = http_client
+        # Populated from X-RateLimit-Remaining on each response.
+        # None until the first successful response; absent on header-less responses.
+        self.remaining_credits: int | None = None
 
     @property
     def name(self) -> str:
@@ -47,6 +60,22 @@ class BraveProvider:
             "X-Subscription-Token": self._require_api_key(),
         }
 
+    def _update_quota(self, response: httpx.Response) -> None:
+        """Cache remaining credits from X-RateLimit-Remaining response header.
+
+        A missing header (or a response object without headers, e.g. in tests)
+        leaves the cached value unchanged — it does not reset to None.
+        """
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            return
+        raw = headers.get("X-RateLimit-Remaining")
+        if raw is not None:
+            try:
+                self.remaining_credits = int(raw)
+            except ValueError:
+                pass  # Malformed header — leave previous value intact
+
     def _apply_freshness(self, params: dict[str, str | int], filters: SearchFilters) -> None:
         """Add Brave freshness param for recency filtering."""
         if filters.start_date and filters.end_date:
@@ -69,6 +98,7 @@ class BraveProvider:
             params=params,
         )
         response.raise_for_status()
+        self._update_quota(response)
 
         data = response.json()
         results: list[SearchResultItem] = []
@@ -102,6 +132,7 @@ class BraveProvider:
             params=params,
         )
         response.raise_for_status()
+        self._update_quota(response)
 
         data = response.json()
         results: list[SearchResultItem] = []
@@ -142,6 +173,7 @@ class BraveProvider:
             params=params,
         )
         response.raise_for_status()
+        self._update_quota(response)
 
         data = response.json()
         results: list[SearchResultItem] = []

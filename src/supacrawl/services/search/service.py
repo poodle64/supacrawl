@@ -191,10 +191,20 @@ class SearchService:
         self._brave_api_key = brave_api_key or os.getenv("BRAVE_API_KEY")
         self._locale_config = locale_config
 
-        # Build the provider chain
+        # Build the shared HTTP client eagerly so providers that accept one
+        # (DuckDuckGo, SearXNG) receive browser-realistic headers from the start.
+        self._http_client: httpx.AsyncClient = httpx.AsyncClient(
+            timeout=30.0,
+            headers=self._build_headers(),
+        )
+
+        # Build the provider chain, sharing the HTTP client so all providers
+        # that accept it make requests with the same browser header profile.
         if providers is not None:
             # Explicit multi-provider chain
-            self._chain = build_provider_chain(providers, brave_api_key=self._brave_api_key)
+            self._chain = build_provider_chain(
+                providers, brave_api_key=self._brave_api_key, http_client=self._http_client
+            )
         elif provider is not None:
             # Legacy single-provider mode
             if provider == "duckduckgo":
@@ -204,10 +214,12 @@ class SearchService:
                     DeprecationWarning,
                     stacklevel=2,
                 )
-            self._chain = build_provider_chain([provider], brave_api_key=self._brave_api_key)
+            self._chain = build_provider_chain(
+                [provider], brave_api_key=self._brave_api_key, http_client=self._http_client
+            )
         else:
             # Auto-detect from env or defaults
-            self._chain = build_provider_chain(brave_api_key=self._brave_api_key)
+            self._chain = build_provider_chain(brave_api_key=self._brave_api_key, http_client=self._http_client)
 
         # Resolve effective provider name (for backwards compat)
         active = self._chain.active_providers
@@ -233,7 +245,6 @@ class SearchService:
                 effective_rate = _PROVIDER_RATE_LIMITS.get(self._provider, 10.0)
 
         self._rate_limiter = _RateLimiter(effective_rate)
-        self._http_client: httpx.AsyncClient | None = None
 
         LOGGER.debug(
             f"Search rate limit: {effective_rate} req/s (primary={self._provider}, burst={self._rate_limiter.burst})"
@@ -244,8 +255,21 @@ class SearchService:
         """Access the provider chain (for health reporting)."""
         return self._chain
 
+    def _has_keyed_provider(self) -> bool:
+        """Whether any available provider is backed by an API key.
+
+        DuckDuckGo is the only keyless provider and is used as a last-resort
+        fallback; if it is the only thing available, the chain is effectively
+        unconfigured and an empty result should fail loudly rather than silently.
+        """
+        return any(p.name != "duckduckgo" and p.is_available() for p in self._chain.providers)
+
     def _build_headers(self) -> dict[str, str]:
-        """Build browser-realistic HTTP headers."""
+        """Build browser-realistic HTTP headers.
+
+        Called at init time (before the client is created) to populate the
+        shared httpx.AsyncClient that is passed to every provider.
+        """
         headers = dict(_BROWSER_HEADERS)
 
         locale = self._locale_config
@@ -260,19 +284,12 @@ class SearchService:
         return headers
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client with realistic browser headers."""
-        if self._http_client is None:
-            self._http_client = httpx.AsyncClient(
-                timeout=30.0,
-                headers=self._build_headers(),
-            )
+        """Return the shared HTTP client (created at init with browser headers)."""
         return self._http_client
 
     async def close(self) -> None:
         """Close HTTP client and all providers."""
-        if self._http_client:
-            await self._http_client.aclose()
-            self._http_client = None
+        await self._http_client.aclose()
         await self._chain.close()
 
     async def __aenter__(self) -> "SearchService":
@@ -359,6 +376,22 @@ class SearchService:
                         web_results, scrape_options, correlation_id, progress_callback
                     )
                 all_results = web_results + other_results
+
+            # Out-of-the-box honesty (#132): a search that returns nothing while no
+            # API-keyed provider is available is the keyless-DuckDuckGo bot-wall
+            # case, not a genuine no-match. Fail loudly with the remedy rather than
+            # handing back a silent empty list that an agent cannot interpret.
+            if not all_results and not self._has_keyed_provider():
+                return SearchResult(
+                    success=False,
+                    data=[],
+                    error=(
+                        "Search returned no results and no search-provider API key is configured. "
+                        "Out of the box supacrawl falls back to DuckDuckGo, which is aggressively bot-walled "
+                        "and frequently returns nothing. Set BRAVE_API_KEY (free tier: "
+                        "https://brave.com/search/api/) — see .env.example — for reliable search."
+                    ),
+                )
 
             log_with_correlation(
                 LOGGER,

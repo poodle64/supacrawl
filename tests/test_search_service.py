@@ -295,6 +295,32 @@ class TestDefaultProviderSelection:
         assert service._brave_api_key == "test-key"
 
 
+@pytest.mark.asyncio
+class TestKeylessLoudFailure:
+    """A keyless chain that returns nothing must fail loudly, not silently (#132)."""
+
+    async def test_empty_keyless_result_is_loud(self):
+        # No key configured -> brave unavailable, only the DuckDuckGo fallback is
+        # active. An empty DDG response must surface an actionable error.
+        service = SearchService(brave_api_key=None)
+        assert service._has_keyed_provider() is False
+        service._chain.search = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        result = await service.search("anything", limit=3)
+        assert result.success is False
+        assert result.error is not None and "BRAVE_API_KEY" in result.error
+        assert "brave.com/search/api" in result.error
+
+    async def test_empty_keyed_result_is_not_loud(self):
+        # With a real key configured, an empty result is a genuine no-match, not a
+        # block — it must stay a clean success, not a false alarm.
+        service = SearchService(brave_api_key="test-key")
+        assert service._has_keyed_provider() is True
+        service._chain.search = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        result = await service.search("anything", limit=3)
+        assert result.success is True
+        assert result.data == []
+
+
 class TestDuckDuckGoCaptchaDetection:
     """Tests for DuckDuckGo CAPTCHA/bot detection handling."""
 

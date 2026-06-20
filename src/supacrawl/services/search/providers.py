@@ -32,6 +32,11 @@ class ProviderStatus(str, Enum):
     UNAVAILABLE = "unavailable"  # Quota exhausted or hard failure
 
 
+# Brave emits a warning when remaining credits drop below this threshold.
+# The Brave free tier provides 2 000 queries/month; 100 is a reasonable heads-up.
+LOW_CREDIT_THRESHOLD: int = 100
+
+
 @dataclass
 class ProviderHealth:
     """In-memory health state for a single provider within a session."""
@@ -47,6 +52,10 @@ class ProviderHealth:
     last_error: str | None = None
     requests_made: int = 0
     last_alert_time: float | None = None  # None = never alerted (monotonic clock makes 0.0 unsafe on fresh hosts)
+    # Per-call quota reported by the provider in response headers (Brave only).
+    # None means the provider does not expose quota via headers (Serper, Tavily,
+    # SerpAPI, Exa) — a missing value is NOT the same as "plenty left".
+    remaining_credits: int | None = None
 
     def record_success(self) -> None:
         """Record a successful request."""
@@ -85,14 +94,21 @@ class ProviderHealth:
         """Record that an alert was emitted, resetting the debounce window."""
         self.last_alert_time = time.monotonic()
 
+    def record_quota(self, remaining: int) -> None:
+        """Cache the remaining-credit count reported by a provider response header."""
+        self.remaining_credits = remaining
+
     def to_dict(self) -> dict:
         """Serialise to dict for health endpoint."""
-        return {
+        result: dict = {
             "status": self.status.value,
             "requests_made": self.requests_made,
             "consecutive_failures": self.consecutive_failures,
             "last_error": self.last_error,
         }
+        if self.remaining_credits is not None:
+            result["remaining_credits"] = self.remaining_credits
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -276,11 +292,23 @@ class ProviderChain:
         return [p for p in self.providers if p.is_available() and not self._health[p.name].should_skip]
 
     def get_health(self) -> dict[str, dict]:
-        """Get health status for all providers (for health endpoint)."""
+        """Get health status for all providers (for health endpoint).
+
+        For providers that expose remaining quota in response headers (currently
+        Brave only), ``remaining_credits`` is included when a value has been
+        observed.  A missing field means the provider does not expose quota via
+        headers — not "plenty left".
+        """
         result = {}
         for p in self.providers:
             health = self._health[p.name].to_dict()
             health["available"] = p.is_available()
+            # Pull per-call quota from the provider if it tracks it (duck-typed).
+            # Only BraveProvider sets this attribute; header-less providers do not,
+            # so absence correctly signals "unknown" rather than "zero".
+            provider_remaining = getattr(p, "remaining_credits", None)
+            if provider_remaining is not None and "remaining_credits" not in health:
+                health["remaining_credits"] = provider_remaining
             result[p.name] = health
         return result
 
@@ -353,6 +381,21 @@ class ProviderChain:
                     return []
 
                 health.record_success()
+
+                # Sync remaining-quota from the provider into health so it is
+                # visible via get_health() / supacrawl_health.  Only providers
+                # that expose quota headers (currently Brave) set this attribute.
+                provider_remaining = getattr(provider, "remaining_credits", None)
+                if provider_remaining is not None:
+                    health.record_quota(provider_remaining)
+                    if provider_remaining < LOW_CREDIT_THRESHOLD:
+                        LOGGER.warning(
+                            f"LOW CREDIT WARNING — {provider.name} has {provider_remaining} API credits "
+                            f"remaining (threshold: {LOW_CREDIT_THRESHOLD}). "
+                            f"Renew at https://brave.com/search/api/ to avoid search outages "
+                            f"[correlation_id={correlation_id}]"
+                        )
+
                 return results
 
             except NotImplementedError:
