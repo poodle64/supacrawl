@@ -243,10 +243,15 @@ async def supacrawl_search(
         )
 
     Note:
-        - Brave Search (default) requires BRAVE_API_KEY environment variable
-        - DuckDuckGo is a deprecated fallback — unreliable due to bot detection
-        - Scraping is only applied to "web" source type results
-        - Metadata fetch uses lightweight HEAD requests (fast, no page content)
+        - Search requires a provider API key. Brave is recommended (free tier,
+          get a key at https://brave.com/search/api/). Set BRAVE_API_KEY — see
+          .env.example. Without any key, supacrawl falls back to DuckDuckGo,
+          which is aggressively bot-walled; a keyless search that returns nothing
+          raises an actionable error rather than returning an empty list.
+        - Multiple providers are tried in order. Providers without API keys are
+          skipped. Configure the chain with SUPACRAWL_SEARCH_PROVIDERS.
+        - Scraping is only applied to "web" source type results.
+        - Metadata fetch uses lightweight HEAD requests (fast, no page content).
     """
     # Generate correlation ID for request tracking
     correlation_id = get_correlation_id() or generate_correlation_id()

@@ -122,9 +122,28 @@ Fields not listed here (e.g. `skipTlsVerification`, `blockAds`, `removeBase64Ima
     "branding": null,
     "changeTracking": null,
     "structuredData": null
+  },
+  "quality": {
+    "verdict": "ok",
+    "score": 95,
+    "reasons": [],
+    "suggestion": null,
+    "attempts": 1,
+    "escalated": false
   }
 }
 ```
+
+`success` is honest: HTTP >= 400 responses, bot/CAPTCHA interstitials, garbled PDFs, and empty pages are reported `success=false` even when a response body was returned. The `quality` field is always present:
+
+| Field | Description |
+| --- | --- |
+| `verdict` | `ok`, `thin`, `js_shell`, `paywall`, `bot_challenge`, `captcha`, `error_status`, `garbled_pdf`, or `empty` |
+| `score` | 0-100 completeness within the verdict |
+| `reasons` | Why this verdict and score were assigned |
+| `suggestion` | Concrete next step when verdict is not `ok` |
+| `attempts` | Number of strategies tried (auto-escalation may try several) |
+| `escalated` | Whether auto-escalation fired beyond the first attempt |
 
 **Example:**
 
@@ -319,6 +338,8 @@ curl -s http://localhost:8308/map \
 ### POST /search
 
 Search the web synchronously. Results are bucketed by source type (web, images, news).
+
+**A search provider API key is required.** Set `BRAVE_API_KEY` (free tier at [brave.com/search/api](https://brave.com/search/api/)) before starting the server. Without any key, the server falls back to DuckDuckGo; if DuckDuckGo returns nothing, the endpoint returns `success=false` with an actionable error message rather than an empty result set. See `.env.example`.
 
 **Request body:**
 

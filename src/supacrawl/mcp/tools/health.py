@@ -164,16 +164,22 @@ def _get_version_info() -> dict[str, str]:
 
 
 async def supacrawl_health(api_client: SupacrawlServices) -> dict:
-    """Get Supacrawl server health status.
+    """Get Supacrawl server health status, search provider state, and credit levels.
 
-    Returns server version, API version, and capabilities.
-    Use this for health checks and to verify connectivity.
+    Use this to verify connectivity, check which search provider is active,
+    and detect low-credit conditions before they cause search failures.
 
     Returns:
-        Dictionary containing version information:
-        - api_version: API version number
-        - server_version: Server software version
-        - capabilities: Server capabilities
+        Dictionary containing:
+        - status: "healthy" | "degraded"
+        - components.search: active provider, configured providers, brave_api_key_configured,
+          and — when provider health data is available — per-provider remaining_credits
+          and last_error. A "warning" key is added when credits are low or DuckDuckGo
+          fallback is in use (set BRAVE_API_KEY to fix).
+        - components.browser: engine, headless, stealth, timeout settings
+        - components.llm: configured provider and model (for json/summary formats)
+        - components.cache: path, entry count, size
+        - version: supacrawl library and MCP server versions
     """
     try:
         service_status = api_client.get_service_status()

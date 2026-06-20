@@ -11,10 +11,11 @@ The `supacrawl` CLI provides commands for web scraping, URL mapping, search, and
 - `scrape` - Scrape a single URL to markdown
 - `crawl` - Crawl a website from a starting URL
 - `map` - Map URLs from a website
-- `search` - Search the web using Brave Search (or DuckDuckGo fallback)
+- `search` - Search the web (requires provider API key; see [search](#search))
 - `llm-extract` - Extract structured data using LLM
 - `agent` - Run autonomous web agent
 - `cache` - Manage the local scrape cache
+- `strategy` - Inspect and reset per-domain strategy memory
 - `serve` - Start the REST API server
 
 ## Command Reference
@@ -254,6 +255,8 @@ $ supacrawl map https://example.com --ignore-query-params
 
 Search the web with multi-provider fallback. Supports 6 providers: Brave, Tavily, Serper, SerpAPI, Exa, and DuckDuckGo. Providers are tried in order; if one fails (rate limit, quota, CAPTCHA), the next is tried automatically.
 
+**A search provider API key is required for reliable results.** Brave is recommended (free tier: ~1,000 searches/month, get a key at [brave.com/search/api](https://brave.com/search/api/)). Without any key, supacrawl falls back to DuckDuckGo; if DuckDuckGo returns nothing (it is aggressively bot-walled), the command exits non-zero with an actionable error telling you to set `BRAVE_API_KEY`. See `.env.example`.
+
 **Usage:**
 
 ```bash
@@ -428,6 +431,39 @@ $ supacrawl cache clear -y
 
 $ supacrawl cache prune
 # Remove expired entries
+```
+
+### strategy
+
+Inspect and manage the per-domain strategy memory. Supacrawl remembers which browser engine, wait time, and stealth setting produced a clean result for each domain you visit, and seeds the next request to that domain with it. The memory is local, opt-out only (`SUPACRAWL_STRATEGY_MEMORY=0`), and improves results silently over time.
+
+**Usage:**
+
+```bash
+supacrawl strategy COMMAND
+```
+
+**Subcommands:**
+
+- `list` — Show every learned domain and its champion strategy
+- `show DOMAIN` — Show the detailed strategy for one domain (e.g. `example.com`)
+- `forget DOMAIN` — Reset the strategy for one domain
+- `clear` — Forget all learned strategies
+
+**Example:**
+
+```bash
+$ supacrawl strategy list
+# Show all learned domains
+
+$ supacrawl strategy show example-airline.com
+# Strategy details: engine, wait_for, quality score, sample count
+
+$ supacrawl strategy forget example-airline.com
+# Reset strategy for one domain
+
+$ supacrawl strategy clear
+# Clear all learned strategies
 ```
 
 ### serve

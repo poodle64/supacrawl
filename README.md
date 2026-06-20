@@ -51,6 +51,14 @@ supacrawl llm-extract https://example.com/pricing -p "Extract pricing tiers"
 supacrawl agent "Find the pricing for all plans on example.com"
 ```
 
+**Get maximum value on first run:**
+
+- Set `BRAVE_API_KEY` to enable web search (free tier at [brave.com/search/api](https://brave.com/search/api/))
+- Quality signal, auto-escalation, and per-domain memory all work with zero extra config
+- Install `supacrawl[stealth]` and `supacrawl[camoufox]` to let the escalation ladder reach the hardest bot-protected sites
+
+See [Configuration](#configuration) for `.env.example` setup.
+
 ## MCP Server
 
 Supacrawl includes an embedded [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server, giving AI assistants like Claude, Cursor, and VS Code Copilot direct access to web scraping.
@@ -120,11 +128,11 @@ Pass environment variables via your MCP client config to customise behaviour:
       "command": "supacrawl-mcp",
       "args": ["--transport", "stdio"],
       "env": {
+        "BRAVE_API_KEY": "your-key-here",
         "SUPACRAWL_ENGINE": "camoufox",
         "SUPACRAWL_STEALTH": "true",
         "SUPACRAWL_LOCALE": "en-AU",
         "SUPACRAWL_TIMEZONE": "Australia/Sydney",
-        "BRAVE_API_KEY": "your-key-here",
         "TAVILY_API_KEY": "your-key-here",
         "SUPACRAWL_SEARCH_PROVIDERS": "brave,tavily"
       }
@@ -133,7 +141,35 @@ Pass environment variables via your MCP client config to customise behaviour:
 }
 ```
 
+> **`BRAVE_API_KEY` is required for search to work.** Without it, supacrawl falls back to DuckDuckGo, which is aggressively bot-walled; a keyless search that returns nothing fails loudly with an actionable error instead of returning an empty list. Get a free key (1,000 searches/month) at [brave.com/search/api](https://brave.com/search/api/).
+
 All [configuration](#configuration) environment variables apply. The MCP server also supports `SUPACRAWL_LOG_LEVEL` (default: `INFO`). Search providers fall back automatically when one hits a rate limit or quota.
+
+### Quality Signal
+
+Every scrape result includes a `quality` field with a `verdict` (`ok`, `thin`, `js_shell`, `paywall`, `bot_challenge`, `captcha`, `error_status`, `garbled_pdf`, `empty`), a 0-100 score, and a `suggestion` when the result is not clean. `success` is honest: bot blocks, CAPTCHAs, HTTP errors, and empty pages are reported `success=False`. Read `quality.verdict` before consuming the result.
+
+### Adaptive Anti-bot
+
+Supacrawl auto-escalates through stealth engines (Patchright, then Camoufox, then Camoufox+HTTP/1.1) on a poor quality verdict — no per-request engine or stealth flags needed. Hard sites just work on defaults within a bounded number of attempts. Install the extras to unlock the full ladder:
+
+```bash
+pip install supacrawl[mcp,stealth]    # Tier 2: Patchright
+pip install supacrawl[mcp,camoufox]   # Tier 3: Camoufox (Akamai/Cloudflare)
+```
+
+### Per-Domain Memory
+
+Supacrawl remembers the strategy (engine, wait time, stealth) that produced a clean result for each domain and seeds subsequent requests with it — on by default, no configuration needed. Inspect or reset it with:
+
+```bash
+supacrawl strategy list                # every learned domain
+supacrawl strategy show example.com    # one domain's strategy
+supacrawl strategy forget example.com  # reset one domain
+supacrawl strategy clear               # reset all
+```
+
+Disable with `SUPACRAWL_STRATEGY_MEMORY=0`.
 
 ### Troubleshooting
 
@@ -195,16 +231,17 @@ See [docs/api-reference.md](docs/api-reference.md) for full endpoint documentati
 
 ## Commands
 
-| Command             | Description                             |
-| ------------------- | --------------------------------------- |
-| `scrape <url>`      | Scrape single page to markdown          |
-| `crawl <url>`       | Crawl website, save to directory        |
-| `map <url>`         | Discover URLs from sitemap/links        |
-| `search <query>`    | Web search with multi-provider fallback |
-| `llm-extract <url>` | Extract structured data with LLM        |
-| `agent <prompt>`    | Autonomous agent for complex tasks      |
-| `serve`             | Start the REST API server               |
-| `cache`             | Cache management (clear, stats, prune)  |
+| Command             | Description                                            |
+| ------------------- | ------------------------------------------------------ |
+| `scrape <url>`      | Scrape single page to markdown                         |
+| `crawl <url>`       | Crawl website, save to directory                       |
+| `map <url>`         | Discover URLs from sitemap/links                       |
+| `search <query>`    | Web search with multi-provider fallback                |
+| `llm-extract <url>` | Extract structured data with LLM                       |
+| `agent <prompt>`    | Autonomous agent for complex tasks                     |
+| `serve`             | Start the REST API server                              |
+| `cache`             | Cache management (clear, stats, prune)                 |
+| `strategy`          | Per-domain strategy memory (list, show, forget, clear) |
 
 Run `supacrawl <command> --help` for options.
 
@@ -247,11 +284,18 @@ Required for `llm-extract`, `agent`, and `--summarize`:
 
 ### Search
 
-Supacrawl supports multiple search providers with automatic fallback. If the primary provider hits a rate limit or quota, the next provider in the chain is tried automatically.
+**Search requires a provider API key.** Brave is recommended (free tier: ~1,000 searches/month). Without any key, supacrawl falls back to DuckDuckGo, which is aggressively bot-walled; a keyless search that returns nothing fails loudly with an actionable error. Copy `.env.example` to `.env` and set `BRAVE_API_KEY`.
+
+```bash
+# Get a free key at https://brave.com/search/api/
+BRAVE_API_KEY=BSA...
+```
+
+If the primary provider hits a rate limit or quota, the next provider in the chain is tried automatically.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `BRAVE_API_KEY` | - | Brave Search API key (recommended). Free tier: ~1,000 searches/month. Get one at [brave.com/search/api](https://brave.com/search/api/) |
+| `BRAVE_API_KEY` | - | **Required for reliable search.** Free tier: ~1,000 searches/month. Get one at [brave.com/search/api](https://brave.com/search/api/) |
 | `TAVILY_API_KEY` | - | [Tavily](https://tavily.com/) API key. Supports web and news search |
 | `SERPER_API_KEY` | - | [Serper.dev](https://serper.dev/) API key. Google Search results |
 | `SERPAPI_API_KEY` | - | [SerpAPI](https://serpapi.com/) API key. Google Search results |
@@ -259,9 +303,7 @@ Supacrawl supports multiple search providers with automatic fallback. If the pri
 | `SUPACRAWL_SEARCH_PROVIDERS` | `brave` | Comma-separated provider chain with fallback order (e.g., `brave,tavily,serper`) |
 | `SUPACRAWL_SEARCH_RATE_LIMIT` | - | Override default rate limit (requests/second). Provider defaults: Brave 1/s, DuckDuckGo 0.5/s |
 
-Providers are tried in order. Set API keys for each provider you want to use; providers without keys are skipped. If no keys are configured, DuckDuckGo is used as a last-resort fallback.
-
-> **Note**: DuckDuckGo is a deprecated fallback. It has no official API and actively blocks automated access with CAPTCHA challenges. Configure at least one API-keyed provider for reliable search.
+Providers are tried in order; providers without keys are skipped. DuckDuckGo is a last-resort fallback only — it has no official API and is aggressively bot-walled.
 
 ### Caching
 

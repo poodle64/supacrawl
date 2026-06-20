@@ -68,14 +68,41 @@ async def supacrawl_scrape(
     - You need screenshots or PDFs of a page
     - You need to extract structured data (json format) from a single page
 
+    **Quality signal — read this first:**
+    Every result includes a `quality` field:
+    ```
+    {
+      "verdict": "ok" | "thin" | "js_shell" | "paywall" | "bot_challenge" |
+                 "captcha" | "error_status" | "garbled_pdf" | "empty",
+      "score": 0-100,
+      "reasons": [...],
+      "suggestion": "...",   // present when verdict is not "ok"
+      "attempts": 1,
+      "escalated": false
+    }
+    ```
+    `success` is honest: HTTP >= 400, bot/CAPTCHA interstitials, garbled PDFs,
+    and empty pages are reported `success=False`. Check `quality.verdict` and
+    `quality.score` to decide whether to accept, retry, or escalate. A non-ok
+    verdict always carries `quality.suggestion` with a concrete next step.
+
+    **Anti-bot and hard sites:**
+    Do NOT manually set `engine`, `stealth`, or `wait_for` for hard sites.
+    Supacrawl auto-escalates through Patchright → Camoufox → Camoufox+HTTP/1.1
+    with extended waits on a poor verdict. Hard sites just work on defaults
+    within a bounded budget. Use `escalate=False` only if you want to suppress
+    this and keep the first-attempt result.
+
+    **Per-domain memory:**
+    Supacrawl remembers the winning strategy per domain and seeds subsequent
+    requests with it automatically. No configuration needed.
+
     **Common patterns:**
-    - For JS-heavy sites (SPAs, React, Vue): set wait_for=3000 or higher
     - For clean article text: use only_main_content=True (default)
     - For full page including nav/footer: use only_main_content=False
-    - If content is minimal/empty, try increasing wait_for (page may need time to load)
-    - If resources (images, CSS) must fully load: set wait_until="load"
     - For login-protected content: use actions to click buttons/fill forms first
     - For infinite scroll pages: use actions with scroll + wait sequences
+    - To assert content is present: use expect (escalates until assertion met or budget exhausted)
 
     **Prefer other tools when:**
     - You don't know the URL → use supacrawl_search first
@@ -139,11 +166,13 @@ async def supacrawl_scrape(
             - "fast": Text extraction only (no OCR)
             - "ocr": Force OCR (requires supacrawl[pdf-ocr])
             - "off": Disable PDF parsing (render PDF in browser as before)
-        engine: Browser engine to use for this request. Overrides server default.
-            - "playwright" (default): Standard Chromium with basic stealth scripts
+        engine: Pin the browser engine for this request. Normally you do NOT need
+            this — supacrawl auto-escalates through engines on a poor verdict.
+            Only set this if you have a specific reason to force one engine:
+            - "playwright": Standard Chromium with basic stealth scripts
             - "patchright": Patched Chromium for better anti-detection
             - "camoufox": Patched Firefox for bypassing Akamai/Cloudflare
-            When not set, uses SUPACRAWL_ENGINE or auto-selects based on stealth config.
+            When not set, uses SUPACRAWL_ENGINE or auto-selects based on verdict.
         headers: Custom HTTP headers sent with every request on this page (e.g.
             {"Authorization": "Bearer token", "Cookie": "session=abc"}).
             Only header KEYS are logged; values are never persisted or written to logs.
@@ -169,16 +198,16 @@ async def supacrawl_scrape(
             must be sure the data it asked for is actually present.
 
     Returns:
-        Firecrawl-compatible scrape result:
+        Scrape result:
         {
-            "success": true,
+            "success": true,       // False for HTTP>=400, bot blocks, CAPTCHAs, empty pages
             "data": {
                 "markdown": "...",
                 "html": "...",
                 "screenshot": "base64...",
                 "llm_extraction": {...},  // For json format
-                "summary": "...",  // For summary format
-                "branding": {...},  // For branding format
+                "summary": "...",         // For summary format
+                "branding": {...},        // For branding format
                 "metadata": {
                     "title": "...",
                     "description": "...",
@@ -186,15 +215,24 @@ async def supacrawl_scrape(
                 },
                 "links": [...],
                 "images": [...]
+            },
+            "quality": {
+                "verdict": "ok",   // ok/thin/js_shell/paywall/bot_challenge/captcha/
+                                   // error_status/garbled_pdf/empty
+                "score": 95,       // 0-100 completeness within the verdict
+                "reasons": [...],
+                "suggestion": null, // Concrete next step when verdict is not "ok"
+                "attempts": 1,      // How many strategies were tried
+                "escalated": false  // Whether auto-escalation fired
             }
         }
 
     Note:
+        - Check quality.verdict before using the result. A verdict of "ok" with
+          score >= 70 is a clean result. Non-ok verdicts carry quality.suggestion.
         - The json and summary formats require an LLM. Configure with:
           SUPACRAWL_LLM_PROVIDER (ollama/openai/anthropic)
           SUPACRAWL_LLM_MODEL (e.g., qwen3:8b, gpt-4o-mini)
-        - Anti-bot protection is automatic. For heavily protected sites,
-          enable stealth mode in config or use a proxy.
     """
     # Generate correlation ID for request tracking
     correlation_id = get_correlation_id() or generate_correlation_id()
