@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 
 from supacrawl.cli._common import app, parse_header_string, parse_headers_env
+from supacrawl.exceptions import SupacrawlError
 from supacrawl.models import DEFAULT_MOBILE_DEVICE, QualityVerdict
 
 
@@ -487,7 +488,20 @@ def scrape_url(
         )
         return result
 
-    result = asyncio.run(run())
+    # Top-level guard: the service returns clean failure results rather than
+    # raising, but a browser launch error or an interrupt must still exit with a
+    # friendly message and a non-zero code, never a raw traceback.
+    try:
+        result = asyncio.run(run())
+    except KeyboardInterrupt:
+        click.echo("Aborted.", err=True)
+        raise SystemExit(130) from None
+    except SupacrawlError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from e
+    except Exception as e:  # noqa: BLE001 — a CLI must never surface a raw traceback
+        click.echo(f"Error: scrape failed: {e}", err=True)
+        raise SystemExit(1) from e
 
     # Surface the runtime quality signal on stderr so a human (and any piped
     # tooling) can see when content came back thin, shell-like, or behind a wall

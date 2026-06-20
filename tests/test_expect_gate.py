@@ -158,8 +158,10 @@ class TestBrowserPathExpectGate:
         assert result.data.markdown and "Widget" in result.data.markdown
 
     async def test_browser_path_fails_first_class_without_patchright(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # No stealth retry possible -> honest, first-class failure (not a skeleton).
+        # No stronger engine installed -> honest, first-class failure (not a skeleton),
+        # with a remediation that points at the stealth extras.
         monkeypatch.setattr("supacrawl.services.scrape._is_patchright_available", lambda: False)
+        monkeypatch.setattr("supacrawl.services.scrape._is_camoufox_available", lambda: False)
         service = ScrapeService(browser=_mock_browser(PRICE_HTML))
         result = await service.scrape("https://x.example", formats=["markdown"], http_first=False, expect=".absent-xyz")
         assert result.success is False

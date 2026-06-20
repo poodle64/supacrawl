@@ -22,9 +22,9 @@ CAPTCHA Solving (optional, requires third-party service):
 import base64
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser
@@ -36,6 +36,7 @@ from supacrawl.exceptions import ProviderError, generate_correlation_id
 from supacrawl.models import (
     ActionsOutput,
     QualityAssessment,
+    QualityVerdict,
     ScrapeActionResult,
     ScrapeData,
     ScrapeMetadata,
@@ -87,6 +88,31 @@ _MIN_HTML_LENGTH_FOR_QUALITY_CHECK = 200
 # Kept deliberately low: legitimate markup-heavy articles run 3-50+ words/KB, so
 # only near-empty or garbled pages (well under 1 word/KB) are flagged.
 _LOW_DENSITY_WORDS_PER_KB = 1.0
+
+# --- Adaptive auto-escalation (#129) ---------------------------------------
+# Verdicts where a stronger fetch (stealth engine, longer hydration wait) could
+# plausibly recover real content. A genuine 404 (ERROR_STATUS), a paywall, or a
+# merely-short page are NOT here: escalating them only burns latency.
+_ESCALATABLE_VERDICTS: frozenset[QualityVerdict] = frozenset(
+    {
+        QualityVerdict.BOT_CHALLENGE,
+        QualityVerdict.CAPTCHA,
+        QualityVerdict.JS_SHELL,
+        QualityVerdict.EMPTY,
+    }
+)
+# Maximum number of *extra* attempts beyond the first (the escalation budget).
+# The default ladder is playwright → patchright → camoufox → camoufox+HTTP/1.1,
+# so three escalations cover the full ladder.
+_MAX_ESCALATIONS = 3
+# Hydration wait (ms) injected on every escalated attempt: a stronger engine
+# usually also needs time for client-side content to render.
+_ESCALATION_WAIT_MS = 5000
+# only_main_content recovery: when the main-content selector yields fewer than
+# this many words, re-extract the full page and prefer it if it is this many
+# times richer (and above the floor) — the selector likely matched a tiny wrapper.
+_THIN_MAIN_FLOOR = 50
+_THIN_FALLBACK_RATIO = 3
 
 
 def _is_patchright_available() -> bool:
@@ -426,6 +452,113 @@ def _generate_unified_diff(
     return ChangeTrackingDiff(text="".join(diff_lines))
 
 
+class _Rung(NamedTuple):
+    """One escalation rung: the strategy deltas for the next attempt.
+
+    ``None`` fields mean "keep the caller's value"; non-None fields override it.
+    """
+
+    engine: str | None
+    stealth: bool
+    prefs: dict[str, Any] | None
+    wait_for: int
+    only_main_content: bool | None
+    expand_iframes: str | None
+    actions: list[Any] | None
+    label: str
+
+
+def _next_escalation(
+    *,
+    engine: str | None,
+    stealth: bool,
+    prefs: dict[str, Any] | None,
+    pinned: bool,
+    http2_error: bool,
+    platform: Any | None,
+) -> _Rung | None:
+    """Compute the next-stronger strategy, or None when the ladder is exhausted.
+
+    Default ladder (no engine pinned): playwright → patchright (stealth) →
+    camoufox → camoufox with HTTP/1.1. A pinned engine is respected — only the
+    HTTP/2 TLS fallback may switch it, since a TLS rejection means the pinned
+    engine literally cannot connect. A detected site-builder platform short-
+    circuits straight to its tuned engine.
+
+    Args:
+        engine: The engine the just-finished attempt used (None == playwright).
+        stealth: Whether that attempt ran with stealth (== Patchright on Chromium).
+        prefs: Firefox prefs that attempt used (set means HTTP/1.1 already forced).
+        pinned: Whether the caller pinned the engine (respected outside HTTP/2).
+        http2_error: Whether the attempt failed with an HTTP/2 protocol error.
+        platform: A detected site-builder platform descriptor, or None.
+
+    Returns:
+        The next :class:`_Rung`, or None when nothing stronger is installed/left.
+    """
+    camoufox = _is_camoufox_available()
+    patchright = _is_patchright_available()
+
+    # HTTP/2 TLS rejection: jump to Camoufox (Firefox stack), then HTTP/1.1.
+    if http2_error and camoufox:
+        if engine != "camoufox":
+            return _Rung("camoufox", stealth, None, _ESCALATION_WAIT_MS, None, None, None, "camoufox (HTTP/2 fallback)")
+        if not prefs:
+            return _Rung(
+                "camoufox",
+                stealth,
+                {"network.http.http2.enabled": False},
+                _ESCALATION_WAIT_MS,
+                None,
+                None,
+                None,
+                "camoufox + HTTP/1.1",
+            )
+        return None
+
+    # A pinned engine is a deliberate choice; do not switch it on the generic ladder.
+    if pinned:
+        return None
+
+    # A known site builder: escalate straight to its tuned engine/settings.
+    if platform is not None and platform.engine and platform.engine != (engine or "playwright"):
+        return _Rung(
+            platform.engine,
+            stealth,
+            None,
+            platform.wait_for if platform.wait_for is not None else _ESCALATION_WAIT_MS,
+            platform.only_main_content,
+            platform.expand_iframes,
+            platform.actions,
+            f"platform:{platform.name}",
+        )
+
+    # Generic stealth/engine ladder.
+    if engine in (None, "playwright") and not stealth:
+        if patchright:
+            return _Rung(None, True, None, _ESCALATION_WAIT_MS, None, None, None, "patchright (stealth)")
+        if camoufox:
+            return _Rung("camoufox", False, None, _ESCALATION_WAIT_MS, None, None, None, "camoufox")
+        return None
+    if engine in (None, "playwright") and stealth:
+        # Already on Patchright (stealth Chromium); the next rung is Camoufox.
+        if camoufox:
+            return _Rung("camoufox", False, None, _ESCALATION_WAIT_MS, None, None, None, "camoufox")
+        return None
+    if engine == "camoufox" and not prefs:
+        return _Rung(
+            "camoufox",
+            stealth,
+            {"network.http.http2.enabled": False},
+            _ESCALATION_WAIT_MS,
+            None,
+            None,
+            None,
+            "camoufox + HTTP/1.1",
+        )
+    return None
+
+
 class ScrapeService:
     """Scrape a single URL and extract content.
 
@@ -572,6 +705,8 @@ class ScrapeService:
         query: str | None = None,
         http_first: bool = True,
         expect: str | None = None,
+        escalate: bool = True,
+        _escalation_level: int = 0,
     ) -> ScrapeResult:
         """Scrape a URL and return content.
 
@@ -645,6 +780,15 @@ class ScrapeService:
                     selector-shaped expectation, and an unmet assertion after a
                     stealth + longer-wait retry returns success=False rather than a
                     pre-hydration skeleton.
+            escalate: Adaptive auto-escalation (default True). On a poor quality
+                    verdict (block/CAPTCHA/JS-shell/empty) or an HTTP/2 TLS
+                    rejection, supacrawl automatically walks the stealth/engine
+                    ladder (Patchright → Camoufox → Camoufox+HTTP/1.1) with a
+                    longer hydration wait, within a bounded budget, and keeps the
+                    best-scoring attempt — no per-site options required. Set False
+                    to take a single cheap attempt (cost/latency control).
+            _escalation_level: Internal recursion depth for the escalation ladder;
+                    callers leave this at 0.
 
         Returns:
             ScrapeResult with scraped content
@@ -759,11 +903,63 @@ class ScrapeService:
             if fast_result is not None:
                 return fast_result
 
-        try:
-            # Determine effective engine and proxy for this request
-            effective_engine = engine or self._engine
-            effective_proxy = proxy or self._proxy
+        # Determine effective engine and proxy for this request
+        effective_engine = engine or self._engine
+        effective_proxy = proxy or self._proxy
 
+        # Closure that re-runs this scrape one rung deeper in the escalation
+        # ladder with a stronger strategy (engine / stealth / longer wait),
+        # capturing the caller's other options so only the deltas change.
+        async def _retry(
+            *,
+            engine: str | None,
+            stealth: bool,
+            firefox_user_prefs: dict[str, Any] | None,
+            retry_wait_for: int,
+            retry_only_main_content: bool | None = None,
+            retry_expand_iframes: str | None = None,
+            retry_actions: list[Any] | None = None,
+        ) -> ScrapeResult:
+            next_service = ScrapeService(
+                converter=self._converter,
+                locale_config=self._locale_config,
+                cache_dir=self._cache.cache_dir if self._cache else None,
+                stealth=stealth,
+                proxy=self._proxy,
+                solve_captcha=self._solve_captcha,
+                headless=self._headless,
+                engine=engine,
+                firefox_user_prefs=firefox_user_prefs,
+            )
+            return await next_service.scrape(
+                url=url,
+                formats=formats,
+                only_main_content=(only_main_content if retry_only_main_content is None else retry_only_main_content),
+                wait_for=max(wait_for, retry_wait_for),
+                timeout=timeout,
+                screenshot_full_page=screenshot_full_page,
+                actions=(actions if retry_actions is None else retry_actions),
+                json_schema=json_schema,
+                json_prompt=json_prompt,
+                include_tags=include_tags,
+                exclude_tags=exclude_tags,
+                max_age=max_age,
+                wait_until=wait_until,
+                change_tracking_modes=change_tracking_modes,
+                expand_iframes=(expand_iframes if retry_expand_iframes is None else retry_expand_iframes),  # type: ignore[arg-type]
+                device=device,
+                parse_pdf=parse_pdf,
+                engine=engine,
+                headers=headers,
+                content_mode=content_mode,
+                query=query,
+                http_first=False,
+                expect=expect,
+                escalate=escalate,
+                _escalation_level=_escalation_level + 1,
+            )
+
+        try:
             # Create browser if needed, or use a temporary one for an engine/proxy override
             browser = self._browser
             owns_browser = self._owns_browser
@@ -835,117 +1031,19 @@ class ScrapeService:
                         query=query,
                     )
 
-                # Check for bot detection and auto-retry with stealth if available
-                if not self._stealth and _looks_like_bot_block(page_content.status_code, page_content.html, markdown):
-                    if _is_patchright_available():
-                        LOGGER.info(f"Bot detection suspected for {url}, retrying with stealth mode")
-                        # Close current browser and retry with stealth
-                        if owns_browser and browser:
-                            await browser.__aexit__(None, None, None)
-
-                        # Create stealth service and retry
-                        stealth_service = ScrapeService(
-                            converter=self._converter,
-                            locale_config=self._locale_config,
-                            cache_dir=self._cache.cache_dir if self._cache else None,
-                            stealth=True,
-                            proxy=self._proxy,
-                            solve_captcha=self._solve_captcha,
-                            headless=self._headless,
-                        )
-                        return await stealth_service.scrape(
-                            url=url,
-                            formats=formats,
-                            only_main_content=only_main_content,
-                            wait_for=wait_for,
-                            timeout=timeout,
-                            screenshot_full_page=screenshot_full_page,
-                            actions=actions,
-                            json_schema=json_schema,
-                            json_prompt=json_prompt,
-                            include_tags=include_tags,
-                            exclude_tags=exclude_tags,
-                            max_age=max_age,
-                            wait_until=wait_until,
-                            change_tracking_modes=change_tracking_modes,
-                            expand_iframes=expand_iframes,
-                            device=device,
-                            parse_pdf=parse_pdf,
-                            headers=headers,
-                            content_mode=content_mode,
-                            query=query,
-                            # Already committed to the browser; don't re-run the
-                            # HTTP-first probe on the stealth retry.
-                            http_first=False,
-                            expect=expect,
-                        )
-                    else:
-                        LOGGER.warning(f"Bot detection suspected for {url}.{_stealth_hint(bot_suspected=True)}")
-
-                # Platform detection: if content is thin and a known platform
-                # is detected, retry with the platform's optimal settings.
-                # Only check when markdown was actually computed (avoids false
-                # positives for screenshot-only or rawHtml-only requests).
-                if markdown is not None and len(markdown.split()) < 50:
-                    platform = detect_platform(page_content.html)
-                    if platform is not None:
-                        # Only retry if the caller hasn't already set the
-                        # platform's key settings (avoid infinite loops).
-                        already_tuned = engine == platform.engine and expand_iframes == platform.expand_iframes
-                        if not already_tuned:
-                            LOGGER.info(
-                                "Thin content (%d words) on %s platform for %s; retrying with tuned settings",
-                                len(markdown.split()),
-                                platform.name,
-                                url,
-                            )
-                            if owns_browser and browser:
-                                await browser.__aexit__(None, None, None)
-
-                            platform_service = ScrapeService(
-                                converter=self._converter,
-                                locale_config=self._locale_config,
-                                cache_dir=self._cache.cache_dir if self._cache else None,
-                                stealth=self._stealth,
-                                proxy=self._proxy,
-                                solve_captcha=self._solve_captcha,
-                                headless=self._headless,
-                                engine=platform.engine or engine,
-                                firefox_user_prefs=self._firefox_user_prefs,
-                            )
-                            return await platform_service.scrape(
-                                url=url,
-                                formats=formats,
-                                only_main_content=(
-                                    platform.only_main_content
-                                    if platform.only_main_content is not None
-                                    else only_main_content
-                                ),
-                                wait_for=platform.wait_for if platform.wait_for is not None else wait_for,
-                                timeout=timeout,
-                                screenshot_full_page=screenshot_full_page,
-                                actions=platform.actions or actions,
-                                json_schema=json_schema,
-                                json_prompt=json_prompt,
-                                include_tags=include_tags,
-                                exclude_tags=exclude_tags,
-                                max_age=max_age,
-                                wait_until=wait_until,
-                                change_tracking_modes=change_tracking_modes,
-                                expand_iframes=(
-                                    platform.expand_iframes if platform.expand_iframes is not None else expand_iframes
-                                ),
-                                device=device,
-                                parse_pdf=parse_pdf,
-                                engine=platform.engine or engine,
-                                headers=headers,
-                                content_mode=content_mode,
-                                query=query,
-                                # Platform tuning requires a real browser render;
-                                # skip the HTTP-first probe on this retry.
-                                http_first=False,
-                                expect=expect,
-                            )
+                # only_main_content recovery: when main-content extraction is
+                # anomalously sparse relative to the full page, the selector likely
+                # matched a tiny wrapper and dropped the real content — re-extract
+                # the fuller page so content is not silently lost.
+                if markdown is not None and only_main_content and not include_tags:
+                    markdown = self._recover_thin_main_content(
+                        html=page_content.html,
+                        main_markdown=markdown,
+                        url=url,
+                        exclude_tags=exclude_tags,
+                        content_mode=content_mode,
+                        query=query,
+                    )
 
                 # Check for CAPTCHA and solve if enabled
                 captcha_detected = self._looks_like_captcha(page_content.html)
@@ -984,98 +1082,7 @@ class ScrapeService:
                                 f"CAPTCHA detected for {url} - content extraction may be incomplete.{_captcha_hint()}"
                             )
 
-                # Content-quality check: catch binary/garbage responses that
-                # slip through _looks_like_bot_block because they have HTTP 200.
-                # Only run when _looks_like_bot_block did NOT already flag the
-                # request (to avoid double-flagging).
-                quality_reason = _assess_content_quality(page_content.html, markdown)
-                content_quality_warnings: list[str] | None = None
-                if quality_reason is not None:
-                    if quality_reason.startswith("HARD:"):
-                        LOGGER.warning("Content quality hard failure for %s: %s", url, quality_reason)
-                        correlation_id = generate_correlation_id()
-                        return ScrapeResult(
-                            success=False,
-                            error=(f"{quality_reason[len('HARD: ') :]} [correlation_id={correlation_id}]"),
-                        )
-                    else:
-                        # SOFT: keep success=True but surface via warnings, with a
-                        # concrete remediation for recovering the missing content.
-                        soft_msg = quality_reason[len("SOFT: ") :]
-                        LOGGER.debug("Content quality soft warning for %s: %s", url, soft_msg)
-                        content_quality_warnings = [f"{soft_msg} {thin_content_hint(only_main_content)}"]
-
-                # Expect-content gate: the caller asserted specific content but it
-                # is not present. Treat as a soft failure — escalate once to stealth
-                # with a longer hydration wait, then report a first-class failure
-                # rather than returning a pre-hydration skeleton.
-                if expect is not None and not self._expect_satisfied(page_content.html, markdown, expect):
-                    explicit_engine = engine is not None or self._engine is not None
-                    # Escalate to stealth + a longer hydration wait only when the
-                    # caller has not pinned an engine (pinning to e.g. camoufox is a
-                    # deliberate choice the stealth switch must not silently override)
-                    # and patchright is actually installed.
-                    if not self._stealth and not explicit_engine and _is_patchright_available():
-                        LOGGER.info(
-                            "Expected content %r absent for %s; retrying with stealth + longer wait", expect, url
-                        )
-                        if owns_browser and browser:
-                            await browser.__aexit__(None, None, None)
-                        expect_service = ScrapeService(
-                            converter=self._converter,
-                            locale_config=self._locale_config,
-                            cache_dir=self._cache.cache_dir if self._cache else None,
-                            stealth=True,
-                            proxy=self._proxy,
-                            solve_captcha=self._solve_captcha,
-                            headless=self._headless,
-                        )
-                        return await expect_service.scrape(
-                            url=url,
-                            formats=formats,
-                            only_main_content=only_main_content,
-                            wait_for=max(wait_for, 5000),
-                            timeout=timeout,
-                            screenshot_full_page=screenshot_full_page,
-                            actions=actions,
-                            json_schema=json_schema,
-                            json_prompt=json_prompt,
-                            include_tags=include_tags,
-                            exclude_tags=exclude_tags,
-                            max_age=max_age,
-                            wait_until=wait_until,
-                            change_tracking_modes=change_tracking_modes,
-                            expand_iframes=expand_iframes,
-                            device=device,
-                            parse_pdf=parse_pdf,
-                            headers=headers,
-                            content_mode=content_mode,
-                            query=query,
-                            http_first=False,
-                            expect=expect,
-                        )
-
-                    # No (further) escalation available — report a first-class
-                    # failure whose remediation reflects what was actually tried.
-                    correlation_id = generate_correlation_id()
-                    if self._stealth:
-                        remediation = "Try a larger wait_for or --engine camoufox."
-                    elif explicit_engine:
-                        remediation = "Try a larger wait_for, or drop the engine override to allow a stealth retry."
-                    elif not _is_patchright_available():
-                        remediation = "Install supacrawl[stealth] to enable a stealth retry, or increase wait_for."
-                    else:
-                        remediation = "Try a larger wait_for or --engine camoufox."
-                    return ScrapeResult(
-                        success=False,
-                        error=(
-                            f"Expected content not found: {expect!r}. The page loaded but the "
-                            f"asserted content never appeared. {remediation} "
-                            f"[correlation_id={correlation_id}]"
-                        ),
-                    )
-
-                return await self._assemble_result(
+                this_result = await self._assemble_result(
                     url=url,
                     page_content=page_content,
                     browser=browser,
@@ -1091,12 +1098,21 @@ class ScrapeService:
                     json_prompt=json_prompt,
                     capture_screenshot=capture_screenshot,
                     capture_pdf=capture_pdf,
-                    content_quality_warnings=content_quality_warnings,
+                    content_quality_warnings=None,
                     wants_change_tracking=wants_change_tracking,
                     previous_entry=previous_entry,
                     change_tracking_modes=change_tracking_modes,
                     max_age=max_age,
                     cache_variant=cache_variant,
+                )
+                expect_met = self._expect_satisfied(page_content.html, markdown, expect) if expect is not None else True
+                # Site-builder hint for escalation: a thin result on a known
+                # platform (Wix/Squarespace/Framer) escalates straight to that
+                # platform's tuned engine and settings rather than walking blind.
+                escalation_platform = (
+                    detect_platform(page_content.html)
+                    if (markdown is not None and len(markdown.split()) < _THIN_MAIN_FLOOR)
+                    else None
                 )
 
             finally:
@@ -1104,141 +1120,277 @@ class ScrapeService:
                     await browser.__aexit__(None, None, None)
 
         except Exception as e:
-            error_msg = str(e)
+            # A mid-fetch error (network, timeout, TLS/HTTP-2 rejection, browser
+            # crash) becomes a clean failure result with an honest verdict and an
+            # actionable hint — never a raw traceback escaping to the caller. An
+            # HTTP/2 protocol error is the one error the ladder can act on (jump
+            # to Camoufox's Firefox TLS stack), so flag it for the tail below.
+            http2_error = "ERR_HTTP2_PROTOCOL_ERROR" in str(e)
+            this_result = self._build_failure_result(
+                url=url,
+                error=e,
+                wants_change_tracking=wants_change_tracking,
+                previous_entry=previous_entry,
+            )
+            expect_met = False
+            escalation_platform = None
+        else:
+            http2_error = False
 
-            # Auto-retry with Camoufox on HTTP/2 protocol errors.
-            # Chromium-based browsers (Playwright/Patchright) can be rejected at the
-            # TLS level by aggressive bot detection (e.g. Akamai). Camoufox uses
-            # Firefox's TLS stack which has a different fingerprint.
-            #
-            # Two-stage fallback:
-            #   1. Chromium → Camoufox (different TLS fingerprint)
-            #   2. Camoufox → Camoufox with HTTP/2 disabled (forces HTTP/1.1)
-            #
-            # Stage 2 handles environments where even Firefox's TLS fingerprint
-            # is rejected over HTTP/2 (reported on some systems).
-            if "ERR_HTTP2_PROTOCOL_ERROR" in error_msg and _is_camoufox_available():
-                is_camoufox = self._engine == "camoufox" or engine == "camoufox"
+        # Adaptive auto-escalation: the cheap attempt above keys the decision. On
+        # a recoverable poor verdict (block/CAPTCHA/JS-shell/empty), an unmet
+        # `expect`, or an HTTP/2 TLS rejection, walk the stealth/engine ladder
+        # within a bounded budget and keep the best-scoring attempt.
+        return await self._escalate(
+            this_result,
+            url=url,
+            level=_escalation_level,
+            escalate=escalate,
+            expect=expect,
+            expect_met=expect_met,
+            http2_error=http2_error,
+            # A user-pinned engine is respected only at the top of the ladder;
+            # once escalation is in control (level > 0) it chose the engine itself.
+            pinned_engine=((engine is not None or self._engine is not None) if _escalation_level == 0 else False),
+            current_engine=effective_engine,
+            current_stealth=self._stealth,
+            current_prefs=self._firefox_user_prefs,
+            platform=escalation_platform,
+            retry=_retry,
+        )
 
-                if not is_camoufox:
-                    # Stage 1: Chromium failed → try Camoufox with standard HTTP/2
-                    LOGGER.info(
-                        "HTTP/2 protocol error for %s, retrying with Camoufox engine",
-                        url,
-                    )
-                    camoufox_service = ScrapeService(
-                        converter=self._converter,
-                        locale_config=self._locale_config,
-                        cache_dir=self._cache.cache_dir if self._cache else None,
-                        stealth=self._stealth,
-                        proxy=self._proxy,
-                        solve_captcha=self._solve_captcha,
-                        headless=self._headless,
-                        engine="camoufox",
-                    )
-                    return await camoufox_service.scrape(
-                        url=url,
-                        formats=formats,
-                        only_main_content=only_main_content,
-                        wait_for=wait_for,
-                        timeout=timeout,
-                        screenshot_full_page=screenshot_full_page,
-                        actions=actions,
-                        json_schema=json_schema,
-                        json_prompt=json_prompt,
-                        include_tags=include_tags,
-                        exclude_tags=exclude_tags,
-                        max_age=max_age,
-                        wait_until=wait_until,
-                        change_tracking_modes=change_tracking_modes,
-                        expand_iframes=expand_iframes,
-                        device=device,
-                        parse_pdf=parse_pdf,
-                        headers=headers,
-                        http_first=False,
-                        expect=expect,
-                    )
+    def _recover_thin_main_content(
+        self,
+        *,
+        html: str,
+        main_markdown: str,
+        url: str,
+        exclude_tags: list[str] | None,
+        content_mode: float,
+        query: str | None,
+    ) -> str:
+        """Re-extract the full page when only_main_content yielded too little.
 
-                # Stage 2: Camoufox also failed → retry with HTTP/2 disabled.
-                # Guard: if we already have firefox_user_prefs set, don't recurse.
-                if not self._firefox_user_prefs:
-                    LOGGER.info(
-                        "HTTP/2 protocol error for %s with Camoufox, retrying with HTTP/2 disabled",
-                        url,
-                    )
-                    h1_service = ScrapeService(
-                        converter=self._converter,
-                        locale_config=self._locale_config,
-                        cache_dir=self._cache.cache_dir if self._cache else None,
-                        stealth=self._stealth,
-                        proxy=self._proxy,
-                        solve_captcha=self._solve_captcha,
-                        headless=self._headless,
-                        engine="camoufox",
-                        firefox_user_prefs={"network.http.http2.enabled": False},
-                    )
-                    return await h1_service.scrape(
-                        url=url,
-                        formats=formats,
-                        only_main_content=only_main_content,
-                        wait_for=wait_for,
-                        timeout=timeout,
-                        screenshot_full_page=screenshot_full_page,
-                        actions=actions,
-                        json_schema=json_schema,
-                        json_prompt=json_prompt,
-                        include_tags=include_tags,
-                        exclude_tags=exclude_tags,
-                        max_age=max_age,
-                        wait_until=wait_until,
-                        change_tracking_modes=change_tracking_modes,
-                        expand_iframes=expand_iframes,
-                        device=device,
-                        parse_pdf=parse_pdf,
-                        headers=headers,
-                        http_first=False,
-                        expect=expect,
-                    )
+        When the main-content selector matched a tiny wrapper, the real content
+        is dropped. If the full-page extraction is materially richer (and above
+        the floor), prefer it; otherwise the page is simply short and the focused
+        extraction is kept (so a genuinely small page does not gain nav chrome).
 
-            # Attach an agent-readable, honest remediation hint. Anti-bot failures
-            # get the availability-aware stealth hint (engine switching can help);
-            # every other failure mode (timeout, DNS, connection, TLS, 4xx/5xx) gets
-            # a concrete next action, and a failure with no useful remediation gets
-            # none rather than speculative advice.
-            low_error = error_msg.lower()
-            if not self._stealth and any(
-                pattern in low_error for pattern in ["403", "429", "blocked", "denied", "err_http2_protocol_error"]
-            ):
-                bot_suspected = any(pattern in low_error for pattern in ["403", "429", "blocked", "denied"])
-                error_msg += _stealth_hint(bot_suspected=bot_suspected)
-            else:
-                hint = remediation_hint(error_msg)
-                if hint:
-                    error_msg += f" [HINT: {hint}]"
+        Args:
+            html: Raw page HTML.
+            main_markdown: The only_main_content markdown already produced.
+            url: Page URL (base for link resolution).
+            exclude_tags: Caller's exclude selectors, reapplied to the full page.
+            content_mode: Precision/recall dial.
+            query: Optional BM25 relevance query.
 
-            LOGGER.error(f"Scrape failed for {url}: {e}", exc_info=True)
+        Returns:
+            The richer markdown when recovery helps, else ``main_markdown``.
+        """
+        main_words = len(main_markdown.split())
+        if main_words >= _THIN_MAIN_FLOOR:
+            return main_markdown
+        full = self._converter.convert(
+            html,
+            base_url=url,
+            only_main_content=False,
+            include_tags=None,
+            exclude_tags=exclude_tags,
+            content_mode=content_mode,
+            query=query,
+        )
+        full_words = len(full.split())
+        if full_words >= max(_THIN_MAIN_FLOOR, main_words * _THIN_FALLBACK_RATIO):
+            LOGGER.info(
+                "only_main_content recovered %d->%d words for %s via full-page fallback",
+                main_words,
+                full_words,
+                url,
+            )
+            return full
+        return main_markdown
 
-            # If change tracking is active and we have a previous version,
-            # report "removed" status (URL no longer accessible)
-            if wants_change_tracking and previous_entry is not None:
-                from supacrawl.models import ChangeTrackingData
+    def _build_failure_result(
+        self,
+        *,
+        url: str,
+        error: BaseException,
+        wants_change_tracking: bool,
+        previous_entry: Any | None,
+    ) -> ScrapeResult:
+        """Turn a mid-fetch exception into a clean ScrapeResult with a verdict.
 
-                return ScrapeResult(
-                    success=False,
-                    error=error_msg,
-                    data=ScrapeData(  # type: ignore[call-arg]
-                        metadata=ScrapeMetadata(source_url=url),
-                        change_tracking=ChangeTrackingData(
-                            previous_scrape_at=previous_entry.cached_at,
-                            change_status="removed",
-                        ),
-                    ),
-                )
+        Adds an availability-aware stealth hint for anti-bot failures and a
+        concrete remediation for everything else, maps the error to a quality
+        verdict so an agent still gets a structured signal, and preserves the
+        change-tracking "removed" status.
+
+        Args:
+            url: The URL that failed.
+            error: The raised exception.
+            wants_change_tracking: Whether change tracking was requested.
+            previous_entry: The prior cache entry, when change tracking is on.
+
+        Returns:
+            A ``success=False`` :class:`ScrapeResult` carrying the verdict and hint.
+        """
+        error_msg = str(error)
+        low_error = error_msg.lower()
+        bot_suspected = any(p in low_error for p in ["403", "429", "blocked", "denied"])
+        if not self._stealth and (bot_suspected or "err_http2_protocol_error" in low_error):
+            error_msg += _stealth_hint(bot_suspected=bot_suspected)
+        else:
+            hint = remediation_hint(error_msg)
+            if hint:
+                error_msg += f" [HINT: {hint}]"
+
+        LOGGER.error("Scrape failed for %s: %s", url, error, exc_info=True)
+
+        verdict = QualityVerdict.BOT_CHALLENGE if bot_suspected else QualityVerdict.EMPTY
+        quality = QualityAssessment(verdict=verdict, score=0, reasons=[str(error)[:200]])
+
+        if wants_change_tracking and previous_entry is not None:
+            from supacrawl.models import ChangeTrackingData
 
             return ScrapeResult(
                 success=False,
                 error=error_msg,
+                quality=quality,
+                data=ScrapeData(  # type: ignore[call-arg]
+                    metadata=ScrapeMetadata(source_url=url),
+                    change_tracking=ChangeTrackingData(
+                        previous_scrape_at=previous_entry.cached_at,
+                        change_status="removed",
+                    ),
+                ),
             )
+        return ScrapeResult(success=False, error=error_msg, quality=quality)
+
+    async def _escalate(
+        self,
+        result: ScrapeResult,
+        *,
+        url: str,
+        level: int,
+        escalate: bool,
+        expect: str | None,
+        expect_met: bool,
+        http2_error: bool,
+        pinned_engine: bool,
+        current_engine: str | None,
+        current_stealth: bool,
+        current_prefs: dict[str, Any] | None,
+        platform: Any | None,
+        retry: Callable[..., Awaitable[ScrapeResult]],
+    ) -> ScrapeResult:
+        """Decide whether to try a stronger strategy, and keep the best attempt.
+
+        Keys off the runtime quality verdict (#128): a recoverable block/shell/
+        empty verdict, an unmet ``expect`` assertion, or an HTTP/2 TLS rejection
+        triggers the next rung of the ladder, bounded by the escalation budget.
+        The deeper attempt is run via ``retry`` (a closure capturing the original
+        request), and the better-scoring of the two results is returned.
+
+        Args:
+            result: This attempt's assembled result.
+            url: The URL (for logging).
+            level: This attempt's escalation depth.
+            escalate: Whether escalation is enabled at all.
+            expect: The caller's content assertion, if any.
+            expect_met: Whether ``expect`` was satisfied on this attempt.
+            http2_error: Whether this attempt failed with an HTTP/2 error.
+            pinned_engine: Whether the caller pinned the engine.
+            current_engine / current_stealth / current_prefs: This attempt's strategy.
+            platform: A detected site-builder platform, or None.
+            retry: Closure that re-runs the scrape one rung deeper.
+
+        Returns:
+            The best :class:`ScrapeResult` across this attempt and any escalation.
+        """
+        # Overlay the expect assertion: a page that loaded but never showed the
+        # asserted content is a failure regardless of the content verdict.
+        result = self._overlay_expect(result, expect=expect, expect_met=expect_met)
+        if result.quality is not None:
+            result.quality.attempts = level + 1
+            result.quality.escalated = level > 0
+
+        has_response = result.data is not None
+        verdict = result.quality.verdict if result.quality else None
+        wants_escalation = http2_error or (
+            has_response and ((verdict in _ESCALATABLE_VERDICTS) or (expect is not None and not expect_met))
+        )
+        if not escalate or not wants_escalation or level >= _MAX_ESCALATIONS:
+            return result
+
+        rung = _next_escalation(
+            engine=current_engine,
+            stealth=current_stealth,
+            prefs=current_prefs,
+            pinned=pinned_engine,
+            http2_error=http2_error,
+            platform=platform,
+        )
+        if rung is None:
+            return result
+
+        LOGGER.info("Auto-escalating %s (level %d -> %d): %s", url, level, level + 1, rung.label)
+        escalated = await retry(
+            engine=rung.engine,
+            stealth=rung.stealth,
+            firefox_user_prefs=rung.prefs,
+            retry_wait_for=rung.wait_for,
+            retry_only_main_content=rung.only_main_content,
+            retry_expand_iframes=rung.expand_iframes,
+            retry_actions=rung.actions,
+        )
+        best = self._pick_best(result, escalated)
+        if best.quality is not None:
+            deepest = escalated.quality.attempts if escalated.quality else level + 2
+            best.quality.attempts = max(best.quality.attempts, deepest)
+            best.quality.escalated = best.quality.attempts > 1
+        return best
+
+    @staticmethod
+    def _overlay_expect(result: ScrapeResult, *, expect: str | None, expect_met: bool) -> ScrapeResult:
+        """Flip a success to a failure when an ``expect`` assertion went unmet.
+
+        Args:
+            result: The assembled result.
+            expect: The content assertion, or None.
+            expect_met: Whether the assertion held.
+
+        Returns:
+            The result, with ``success`` and ``error`` rewritten when ``expect``
+            was set but never appeared.
+        """
+        if expect is None or expect_met or not result.success:
+            return result
+        correlation_id = generate_correlation_id()
+        # An availability-aware remediation: point at the stealth extras when no
+        # stronger engine is installed, otherwise suggest a longer wait.
+        if not _is_patchright_available() and not _is_camoufox_available():
+            remediation = "Install supacrawl[stealth] to enable a stealth retry, or increase wait_for."
+        else:
+            remediation = "Try a larger wait_for or a stronger engine."
+        result.success = False
+        result.error = (
+            f"Expected content not found: {expect!r}. The page loaded but the asserted content never "
+            f"appeared after escalation. {remediation} [correlation_id={correlation_id}]"
+        )
+        return result
+
+    @staticmethod
+    def _pick_best(a: ScrapeResult, b: ScrapeResult) -> ScrapeResult:
+        """Pick the better of two attempts.
+
+        A usable (success) result always beats a failure; among equals, the higher
+        quality score wins, with ties kept on ``b`` (the later, stronger attempt).
+        """
+        if a.success != b.success:
+            return a if a.success else b
+        score_a = a.quality.score if a.quality else (50 if a.success else 0)
+        score_b = b.quality.score if b.quality else (50 if b.success else 0)
+        return b if score_b >= score_a else a
 
     def _http_first_eligible(
         self,

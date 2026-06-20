@@ -77,12 +77,12 @@ class TestMapExceptionRemediation:
 
 
 @pytest.mark.asyncio
-class TestSoftWarningCarriesRemediation:
-    """A thin page is served with a warning that includes a recovery action."""
+class TestThinContentVerdictCarriesRemediation:
+    """A thin page is served with a quality verdict that includes a recovery action."""
 
-    async def test_low_density_page_warning_has_hint(self) -> None:
+    async def test_low_density_page_verdict_has_hint(self) -> None:
         # Large markup, almost no text: structurally valid (not a JS shell) but
-        # low density -> SOFT content-quality warning on the browser path.
+        # low density -> a THIN quality verdict on the browser path (#128).
         html = "<html><body>" + ("<div></div>" * 500) + "<p>hello world test</p></body></html>"
         browser = MagicMock()
         browser.engine = "playwright"
@@ -108,6 +108,10 @@ class TestSoftWarningCarriesRemediation:
         service = ScrapeService(browser=browser)
         result = await service.scrape("https://x.example", formats=["markdown"], http_first=False)
 
+        # The runtime quality signal (#128) carries the thin-content verdict and a
+        # concrete recovery suggestion in place of the old free-text SOFT warning.
         assert result.success
-        assert result.warnings is not None
-        assert any("only_main_content=False" in w for w in result.warnings)
+        assert result.quality is not None
+        assert result.quality.verdict.value == "thin"
+        assert result.quality.suggestion is not None
+        assert "only_main_content=False" in result.quality.suggestion

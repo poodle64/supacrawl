@@ -874,9 +874,15 @@ class BrowserManager:
                 action_results_list = await runner.run(page, actions)
                 LOGGER.debug(f"Executed {len(action_results_list)} actions")
 
-            # Expand iframe content inline before extracting HTML
+            # Expand iframe content inline before extracting HTML. This is
+            # best-effort: a detached frame, a cross-origin navigation mid-expand,
+            # or an unexpected frame state (seen on Reddit) must not crash the
+            # whole fetch — fall back to the un-expanded page instead.
             if expand_iframes != "none":
-                await self._expand_iframes(page, mode=expand_iframes)
+                try:
+                    await self._expand_iframes(page, mode=expand_iframes)
+                except Exception as exc:
+                    LOGGER.debug("Iframe expansion failed for %s, continuing without it: %s", url, exc)
 
             # Extract HTML and title
             html = await page.content()
