@@ -29,6 +29,7 @@ from supacrawl.utils import log_with_correlation
 
 if TYPE_CHECKING:
     from supacrawl.services.scrape import ScrapeService
+    from supacrawl.telemetry import MetricsSink
 
 LOGGER = logging.getLogger(__name__)
 
@@ -172,6 +173,7 @@ class SearchService:
         brave_api_key: str | None = None,
         rate_limit: float | None = None,
         locale_config: LocaleConfig | None = None,
+        telemetry: "MetricsSink | None" = None,
     ):
         """Initialise search service.
 
@@ -186,10 +188,14 @@ class SearchService:
                 BRAVE_API_KEY environment variable.
             rate_limit: Requests per second (overrides provider default).
             locale_config: Optional locale configuration for Accept-Language.
+            telemetry: Optional field telemetry sink (#137). When provided, one
+                event per search (provider, result count, success, latency) is
+                appended to the local metrics log. None == no telemetry.
         """
         self._scrape_service = scrape_service
         self._brave_api_key = brave_api_key or os.getenv("BRAVE_API_KEY")
         self._locale_config = locale_config
+        self._telemetry = telemetry
 
         # Build the shared HTTP client eagerly so providers that accept one
         # (DuckDuckGo, SearXNG) receive browser-realistic headers from the start.
@@ -331,6 +337,8 @@ class SearchService:
         if sources is None:
             sources = ["web"]
 
+        telemetry_started = time.monotonic() if self._telemetry is not None else None
+
         try:
             log_with_correlation(
                 LOGGER,
@@ -366,7 +374,9 @@ class SearchService:
                         f"Rate limit queue timeout for source={source}",
                         correlation_id=correlation_id,
                     )
-                    return SearchResult(success=False, data=[], error=msg)
+                    return self._record_search_telemetry(
+                        SearchResult(success=False, data=[], error=msg), query, telemetry_started
+                    )
 
                 all_results.extend(results)
 
@@ -385,7 +395,7 @@ class SearchService:
             # case, not a genuine no-match. Fail loudly with the remedy rather than
             # handing back a silent empty list that an agent cannot interpret.
             if not all_results and not self._has_keyed_provider():
-                return SearchResult(
+                loud = SearchResult(
                     success=False,
                     data=[],
                     error=(
@@ -395,6 +405,7 @@ class SearchService:
                         "https://brave.com/search/api/) — see .env.example — for reliable search."
                     ),
                 )
+                return self._record_search_telemetry(loud, query, telemetry_started)
 
             log_with_correlation(
                 LOGGER,
@@ -403,7 +414,7 @@ class SearchService:
                 correlation_id=correlation_id,
             )
 
-            return SearchResult(success=True, data=all_results)
+            return self._record_search_telemetry(SearchResult(success=True, data=all_results), query, telemetry_started)
 
         except Exception as e:
             msg = _describe_error(e)
@@ -414,7 +425,26 @@ class SearchService:
                 correlation_id=correlation_id,
                 error=msg,
             )
-            return SearchResult(success=False, data=[], error=msg)
+            return self._record_search_telemetry(
+                SearchResult(success=False, data=[], error=msg), query, telemetry_started
+            )
+
+    def _record_search_telemetry(self, result: SearchResult, query: str, started: float | None) -> SearchResult:
+        """Emit a field telemetry event for a search, returning it unchanged.
+
+        A no-op when telemetry is disabled (``started`` is None). Telemetry errors
+        never affect the search result.
+        """
+        if started is not None and self._telemetry is not None:
+            latency_ms = int((time.monotonic() - started) * 1000)
+            self._telemetry.record_search(
+                query=query,
+                provider=self._provider,
+                result_count=len(result.data),
+                success=result.success,
+                latency_ms=latency_ms,
+            )
+        return result
 
     async def _scrape_results(
         self,

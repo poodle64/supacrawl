@@ -153,9 +153,12 @@ def search(
             scrape_service = ScrapeService()
             scrape_options = ScrapeOptions(formats=["markdown"], only_main_content=True)
 
+        from supacrawl.telemetry import MetricsSink
+
         service = SearchService(
             scrape_service=scrape_service,
             providers=provider,  # Accepts comma-separated string or None
+            telemetry=MetricsSink.default(),
         )
 
         try:

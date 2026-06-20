@@ -9,6 +9,7 @@ into modules by functionality:
 - agent: Search, extraction, and agent commands (search, llm-extract, agent)
 - cache: Cache management subcommands (cache stats/clear/prune)
 - strategy: Per-domain strategy memory (strategy list/show/forget/clear)
+- metrics: Field telemetry log (metrics summary/tail/path/prune)
 - serve: REST API server
 - skill: Install the agent skill (install-skill)
 """
@@ -22,6 +23,7 @@ from supacrawl.cli import (
     cache,  # noqa: F401
     crawl,  # noqa: F401
     map,  # noqa: F401
+    metrics,  # noqa: F401
     scrape,  # noqa: F401
     serve,  # noqa: F401
     skill,  # noqa: F401

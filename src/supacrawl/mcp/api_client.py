@@ -181,7 +181,13 @@ async def create_supacrawl_services() -> SupacrawlServices:
     # by default for the MCP server — the primary entry point — so repeated hits
     # to a domain are seeded with the strategy that last worked. Disable with
     # SUPACRAWL_STRATEGY_MEMORY=0.
+    # Field telemetry (#137) is likewise on by default for the MCP server so
+    # scrape/search quality and usage are tracked over time. Disable with
+    # SUPACRAWL_METRICS=0.
     from supacrawl.services.strategy_memory import StrategyStore
+    from supacrawl.telemetry import MetricsSink
+
+    telemetry = MetricsSink.default()
 
     scrape_service = ScrapeService(
         browser=browser_manager,
@@ -193,6 +199,7 @@ async def create_supacrawl_services() -> SupacrawlServices:
         headless=settings.headless,
         engine=settings.engine,
         strategy_store=StrategyStore.default(),
+        telemetry=telemetry,
     )
     map_service = MapService(browser=browser_manager)
     crawl_service = CrawlService(
@@ -210,6 +217,7 @@ async def create_supacrawl_services() -> SupacrawlServices:
         brave_api_key=os.getenv("BRAVE_API_KEY"),
         rate_limit=settings.search_rate_limit,
         locale_config=locale_config,
+        telemetry=telemetry,
     )
 
     logger.info("Supacrawl services initialised")

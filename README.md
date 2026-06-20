@@ -171,6 +171,19 @@ supacrawl strategy clear               # reset all
 
 Disable with `SUPACRAWL_STRATEGY_MEMORY=0`.
 
+### Field Telemetry
+
+Supacrawl appends one event per scrape and search — quality verdict, score, escalation, latency, domain — to a local, append-only log (`~/.supacrawl/metrics/events.jsonl`), so you can track how scraping is going over time. On by default; only the registrable domain is logged (not full URLs).
+
+```bash
+supacrawl metrics summary        # success/escalation rates, verdict mix, busiest domains
+supacrawl metrics tail -n 20     # the most recent events
+supacrawl metrics path           # where the log lives
+supacrawl metrics prune --keep-days 90
+```
+
+Disable with `SUPACRAWL_METRICS=0`; log full URLs/queries with `SUPACRAWL_METRICS_FULL_URL=1`. The log is the data seam a separate dashboard would consume — the CLI emits, a GUI reads.
+
 ### Troubleshooting
 
 If scrapes return empty or minimal content, use `supacrawl_diagnose` to identify the cause (CDN protection, JS framework, bot detection). Common fixes: set `wait_for=3000` for JS-heavy sites (enables SPA stability polling), use `wait_until="load"` or `"networkidle"` if resources must fully load, enable `SUPACRAWL_STEALTH=true` for bot-protected sites, or try `only_main_content=false` if the wrong content is extracted.
@@ -242,6 +255,7 @@ See [docs/api-reference.md](docs/api-reference.md) for full endpoint documentati
 | `serve`             | Start the REST API server                              |
 | `cache`             | Cache management (clear, stats, prune)                 |
 | `strategy`          | Per-domain strategy memory (list, show, forget, clear) |
+| `metrics`           | Field telemetry log (summary, tail, path, prune)       |
 
 Run `supacrawl <command> --help` for options.
 

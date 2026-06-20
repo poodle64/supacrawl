@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Field telemetry sink** (Closes #137): supacrawl appends one event per scrape and search — quality verdict, score, attempts, escalation, latency, status, and the registrable domain — to a local, append-only log at `~/.supacrawl/metrics/events.jsonl`, so quality and usage can be tracked over time. On by default for the CLI and MCP server (opt-out `SUPACRAWL_METRICS=0`); domain-only by default for privacy, full URLs/queries opt-in via `SUPACRAWL_METRICS_FULL_URL=1`; the event schema is versioned. Inspect with `supacrawl metrics summary | tail | path | prune`. A `MetricsReader` is the clean read API a separate observability dashboard would consume — the CLI emits, a GUI reads.
+
 ## [2026.6.2] - 2026-06-20
 
 The self-improving, MCP-first release (Closes #135). supacrawl now tells the calling agent honestly how good each result is, tries harder automatically when a result is poor, and remembers per domain what worked — so defaults quietly become excellent for the sites you actually use.

@@ -5,11 +5,12 @@ from pathlib import Path
 
 import pytest
 
-# Keep per-domain strategy memory (#130) off by default in tests so a test that
-# drives the CLI/MCP scrape path cannot write to the developer's real
-# ~/.supacrawl/strategies. Tests that exercise the store pass an explicit
-# StrategyStore with a tmp dir, which bypasses this env default.
+# Keep per-domain strategy memory (#130) and field telemetry (#137) off by default
+# in tests so a test that drives the CLI/MCP scrape path cannot write to the
+# developer's real ~/.supacrawl/. Tests that exercise them pass an explicit
+# store / sink with a tmp dir, which bypasses these env defaults.
 os.environ.setdefault("SUPACRAWL_STRATEGY_MEMORY", "0")
+os.environ.setdefault("SUPACRAWL_METRICS", "0")
 
 # Search-related env vars that a developer's direnv cascade (source_up) may inject
 # into the test process.  Each search test class that tests default/keyless behaviour

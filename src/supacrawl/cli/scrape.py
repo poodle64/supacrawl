@@ -382,6 +382,7 @@ def scrape_url(
 
     from supacrawl.services.scrape import ScrapeService
     from supacrawl.services.strategy_memory import StrategyStore
+    from supacrawl.telemetry import MetricsSink
 
     # Auto-add format based on output extension if not explicitly provided
     formats_list = list(formats)
@@ -463,6 +464,7 @@ def scrape_url(
             solve_captcha=solve_captcha,
             engine=engine,
             strategy_store=StrategyStore.default(),
+            telemetry=MetricsSink.default(),
         )
         result = await service.scrape(
             url=url,

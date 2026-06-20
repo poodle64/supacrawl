@@ -22,6 +22,7 @@ CAPTCHA Solving (optional, requires third-party service):
 import base64
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser
 
     from supacrawl.services.strategy_memory import StrategyChoice, StrategyStore
+    from supacrawl.telemetry import MetricsSink
 
 from bs4 import BeautifulSoup
 
@@ -624,6 +626,7 @@ class ScrapeService:
         engine: str | None = None,
         firefox_user_prefs: dict[str, Any] | None = None,
         strategy_store: "StrategyStore | None" = None,
+        telemetry: "MetricsSink | None" = None,
     ):
         """Initialize scrape service.
 
@@ -649,6 +652,11 @@ class ScrapeService:
                 that domain (short-circuiting the escalation ladder) and the
                 outcome of each attempt is recorded back. None == stateless (the
                 CLI and MCP wiring enable it by default; library callers opt in).
+            telemetry: Optional field telemetry sink (#137). When provided, one
+                event per top-level scrape (verdict, score, attempts, escalated,
+                latency) is appended to the local metrics log for observability
+                over time. None == no telemetry (enabled by default at the CLI and
+                MCP boundaries; opt-out via SUPACRAWL_METRICS=0).
         """
         self._browser = browser
         self._converter = converter or MarkdownConverter()
@@ -662,6 +670,7 @@ class ScrapeService:
         self._firefox_user_prefs = firefox_user_prefs
         self._cache = CacheManager(cache_dir) if cache_dir else None
         self._strategy_store = strategy_store
+        self._telemetry = telemetry
         self._captcha_solver: Any = None  # Lazy-loaded CaptchaSolver
 
     async def close(self) -> None:
@@ -805,6 +814,11 @@ class ScrapeService:
         formats = formats or ["markdown"]
         wants_change_tracking = "changeTracking" in formats
 
+        # Field telemetry (#137): time the whole top-level scrape. None on escalated
+        # sub-calls (level > 0) and when no sink is configured, so a single event is
+        # emitted per user-facing scrape with end-to-end latency.
+        telemetry_started = time.monotonic() if (_escalation_level == 0 and self._telemetry is not None) else None
+
         # Change tracking requires markdown to compute content hash
         if wants_change_tracking and "markdown" not in formats:
             formats = [*formats, "markdown"]
@@ -839,7 +853,7 @@ class ScrapeService:
                 # Mark as cache hit
                 if result.data and result.data.metadata:
                     result.data.metadata.cache_hit = True
-                return result
+                return self._record_telemetry(result, url, telemetry_started)
 
         # PDF detection: if parse_pdf is enabled, check if URL points to a PDF
         # and route to the PDF extraction pipeline instead of the browser.
@@ -869,7 +883,7 @@ class ScrapeService:
                     is_pdf = await detect_pdf_content_type(url)
 
             if is_pdf:
-                return await self._scrape_pdf(
+                pdf_result = await self._scrape_pdf(
                     url=url,
                     mode=parse_pdf,
                     formats=formats,
@@ -881,6 +895,7 @@ class ScrapeService:
                     previous_entry=previous_entry,
                     change_tracking_modes=change_tracking_modes,
                 )
+                return self._record_telemetry(pdf_result, url, telemetry_started)
 
         # Determine effective engine and proxy for this request
         effective_engine = engine or self._engine
@@ -957,7 +972,7 @@ class ScrapeService:
                             only_main_content=only_main_content,
                             result=fast_result,
                         )
-                    return fast_result
+                    return self._record_telemetry(fast_result, url, telemetry_started)
 
         # Closure that re-runs this scrape one rung deeper in the escalation
         # ladder with a stronger strategy (engine / stealth / longer wait),
@@ -1206,7 +1221,7 @@ class ScrapeService:
         # a recoverable poor verdict (block/CAPTCHA/JS-shell/empty), an unmet
         # `expect`, or an HTTP/2 TLS rejection, walk the stealth/engine ladder
         # within a bounded budget and keep the best-scoring attempt.
-        return await self._escalate(
+        final_result = await self._escalate(
             this_result,
             url=url,
             level=_escalation_level,
@@ -1227,6 +1242,30 @@ class ScrapeService:
             record_wait_for=wait_for,
             record_only_main=only_main_content,
         )
+        return self._record_telemetry(final_result, url, telemetry_started)
+
+    def _record_telemetry(self, result: ScrapeResult, url: str, started: float | None) -> ScrapeResult:
+        """Emit a field telemetry event for a top-level scrape, returning the
+        result unchanged.
+
+        A no-op when telemetry is disabled or this is an escalated sub-call
+        (``started`` is None), so exactly one event is recorded per user-facing
+        scrape, with end-to-end latency. Errors in telemetry never affect the
+        scrape result.
+
+        Args:
+            result: The final scrape result.
+            url: The scraped URL.
+            started: ``time.monotonic()`` captured at the start of the top-level
+                scrape, or None to skip recording.
+
+        Returns:
+            ``result`` unchanged (pass-through so call sites stay one line).
+        """
+        if started is not None and self._telemetry is not None:
+            latency_ms = int((time.monotonic() - started) * 1000)
+            self._telemetry.record_scrape(url=url, result=result, latency_ms=latency_ms)
+        return result
 
     def _recover_thin_main_content(
         self,
