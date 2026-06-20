@@ -4,7 +4,9 @@ All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
-## [Unreleased]
+## [2026.6.3] - 2026-06-20
+
+The GUI-backend-foundation release: supacrawl now persists field telemetry, exposes a typed settings schema and store a control-plane dashboard can build against, and learns per-domain across every scrape path — plus a more trustworthy benchmark.
 
 ### Changed
 
