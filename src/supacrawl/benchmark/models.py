@@ -112,6 +112,9 @@ class CaseMetrics(BaseModel):
     token_f1: float | None = None
     rouge_l: float | None = None
     noise: float | None = None
+    # True when the reference under-captured (a renderer shell) so the comparison
+    # metrics above were discarded; the case scored on reference-free signals.
+    reference_degenerate: bool = False
 
     # Structure retained in the markdown
     link_density: float | None = None

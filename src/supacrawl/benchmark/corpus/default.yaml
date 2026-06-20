@@ -164,9 +164,12 @@ cases:
     url: https://web-scraping.dev/antibot/easy
     category: antibot
     title: web-scraping.dev easy anti-bot
-    why: Stable, deterministic anti-bot gate; tests default evasion on easy mode.
+    why: >-
+      Anti-bot capability probe. The endpoint returns HTTP 403 to the full escalation ladder (playwright→patchright→camoufox→camoufox+HTTP/1.1), camoufox included, while a benign path on the same host (web-scraping.dev/ products) scrapes cleanly — so it is a genuine evasion ceiling, not IP throttle. Kept as a probe (the bot_challenge verdict + honest failure are the signal we want), not a regression-index case, so an unbeatable wall does not permanently drag the headline. Re-evaluate if a tier-4 engine lands. Same class as antibot-live-reviews.
+
     difficulty: 4
     antibot: true
+    stable: false
     probes: [antibot]
 
   - id: antibot-live-reviews

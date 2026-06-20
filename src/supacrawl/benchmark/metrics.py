@@ -124,6 +124,46 @@ def char_coverage(extracted_chars: int, reference_chars: int) -> float:
     return min(1.0, extracted_chars / reference_chars)
 
 
+# Minimum reference size (words) below which the reference renderer is assumed to
+# have under-captured rather than the page being genuinely short. Paired with the
+# ratio test below so a genuinely tiny page (output and reference both small and
+# in agreement) is still scored against its reference.
+REFERENCE_DEGENERATE_WORD_FLOOR = 50
+# Output-to-reference word ratio above which — combined with a tiny reference —
+# the reference is treated as degenerate: the scrape extracted far more than the
+# reference captured, so the reference renderer, not the scrape, is the outlier.
+REFERENCE_DEGENERATE_RATIO = 3.0
+
+
+def reference_is_degenerate(markdown_words: int, reference_words: int | None) -> bool:
+    """Whether the reference capture is too thin to trust for reference-based metrics.
+
+    The independent reference renderer (vanilla headless Chromium, no stealth)
+    intermittently captures only a shell on JS-hydrated or lightly bot-protected
+    pages. When it does, ``token_f1`` and ``noise`` — which compare the scrape
+    against that shell — punish a correct, fuller extraction for content the
+    reference simply missed. This predicate detects that case so the caller can
+    fall back to the reference-free signals (anchors, structure, spacing).
+
+    A reference is degenerate when it is small in absolute terms AND the scrape
+    extracted substantially more, which together indicate the reference
+    under-captured rather than the page being genuinely short (where output and
+    reference are both small and agree).
+
+    Args:
+        markdown_words: Word count of the scrape's markdown output.
+        reference_words: Word count of the reference capture, or ``None``.
+
+    Returns:
+        ``True`` when reference-based metrics should be discarded for this case.
+    """
+    if reference_words is None:
+        return False
+    if reference_words >= REFERENCE_DEGENERATE_WORD_FLOOR:
+        return False
+    return markdown_words > reference_words * REFERENCE_DEGENERATE_RATIO
+
+
 def composite_quality(
     *,
     success: bool,

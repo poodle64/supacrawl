@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Benchmark trustworthiness**: the scrape-quality benchmark no longer lets the independent reference renderer's failures masquerade as scrape regressions. When the renderer under-captures a page (it intermittently grabs only a shell on JS-hydrated pages) the reference-based metrics (token-F1, noise) are discarded for that case and it scores on the trustworthy reference-free signals (coverage, anchors, structure, spacing) — recovering a perfectly-scraped static page from a spurious 57.7 to 91.7. The `web-scraping.dev/antibot/easy` case is reclassified as a capability probe (it returns HTTP 403 to the full stealth ladder, camoufox included, while a benign path on the same host scrapes cleanly — a genuine evasion ceiling, not a regression), so an unbeatable wall no longer drags the headline.
+
 ### Added
 
 - **Field telemetry sink** (Closes #137): supacrawl appends one event per scrape and search — quality verdict, score, attempts, escalation, latency, status, and the registrable domain — to a local, append-only log at `~/.supacrawl/metrics/events.jsonl`, so quality and usage can be tracked over time. On by default for the CLI and MCP server (opt-out `SUPACRAWL_METRICS=0`); domain-only by default for privacy, full URLs/queries opt-in via `SUPACRAWL_METRICS_FULL_URL=1`; the event schema is versioned. Inspect with `supacrawl metrics summary | tail | path | prune`. A `MetricsReader` is the clean read API a separate observability dashboard would consume — the CLI emits, a GUI reads.

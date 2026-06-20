@@ -122,6 +122,7 @@ def _case_row(run: RunResult, case: CaseResult) -> dict:
         "token_f1": m.token_f1,
         "rouge_l": m.rouge_l,
         "noise": m.noise,
+        "reference_degenerate": m.reference_degenerate,
         "link_density": m.link_density,
         "headings": m.headings,
         "code_blocks": m.code_blocks,

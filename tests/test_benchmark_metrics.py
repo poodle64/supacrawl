@@ -10,6 +10,7 @@ import pytest
 from supacrawl.benchmark.metrics import (
     char_coverage,
     composite_quality,
+    reference_is_degenerate,
     rouge_l,
     token_prf,
 )
@@ -181,6 +182,75 @@ def test_char_coverage_zero_reference() -> None:
 @pytest.mark.unit
 def test_char_coverage_zero_extracted() -> None:
     assert char_coverage(0, 100) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# reference_is_degenerate — guard against a renderer that under-captured
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_reference_degenerate_tiny_ref_full_scrape() -> None:
+    # The books.toscrape regression: scrape got 266 words, reference only 11.
+    # The reference under-captured, so its comparison metrics must be discarded.
+    assert reference_is_degenerate(266, 11) is True
+
+
+@pytest.mark.unit
+def test_reference_not_degenerate_when_both_small_and_agree() -> None:
+    # A genuinely tiny page (example.com): output and reference both ~19 words
+    # and in agreement — the reference is valid, not degenerate.
+    assert reference_is_degenerate(19, 19) is False
+
+
+@pytest.mark.unit
+def test_reference_not_degenerate_with_healthy_reference() -> None:
+    # A large reference is trustworthy even if the scrape got somewhat less.
+    assert reference_is_degenerate(85, 341) is False
+    assert reference_is_degenerate(4234, 4238) is False
+
+
+@pytest.mark.unit
+def test_reference_not_degenerate_when_none() -> None:
+    # No reference (PDF / failed capture) is handled upstream, not here.
+    assert reference_is_degenerate(7113, None) is False
+
+
+@pytest.mark.unit
+def test_reference_degenerate_at_ratio_boundary() -> None:
+    # Tiny reference but the scrape did not extract substantially more: the page
+    # really is short, so do not discard the reference.
+    assert reference_is_degenerate(30, 11) is False  # 30 <= 11 * 3
+    assert reference_is_degenerate(34, 11) is True  # 34 > 11 * 3
+
+
+@pytest.mark.unit
+def test_reference_degenerate_lifts_composite_to_reference_free_signals() -> None:
+    # With the reference-based metrics nulled (the runner's behaviour on a
+    # degenerate reference), a clean scrape scores on coverage + anchors +
+    # spacing instead of being punished by a garbage token_f1 / noise.
+    punished = composite_quality(
+        success=True,
+        char_coverage_value=1.0,
+        token_f1=0.08,
+        noise=0.96,
+        expect_hit=1.0,
+        expect_absent_ok=None,
+        link_density_value=0.0,
+        word_spacing_value=1.0,
+    )
+    recovered = composite_quality(
+        success=True,
+        char_coverage_value=1.0,
+        token_f1=None,
+        noise=None,
+        expect_hit=1.0,
+        expect_absent_ok=None,
+        link_density_value=0.0,
+        word_spacing_value=1.0,
+    )
+    assert recovered > punished
+    assert recovered > 85.0
 
 
 # ---------------------------------------------------------------------------

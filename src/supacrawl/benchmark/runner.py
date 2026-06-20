@@ -20,6 +20,7 @@ from supacrawl.benchmark.judge import judge_case
 from supacrawl.benchmark.metrics import (
     char_coverage,
     composite_quality,
+    reference_is_degenerate,
     rouge_l,
     token_prf,
 )
@@ -145,6 +146,16 @@ def _score_case(
         precision, _, _ = token_prf(ext_tokens, gold_tokens)
         noise = 1.0 - precision if ext_tokens else None
 
+    # When the reference renderer under-captured (a shell), its comparison
+    # metrics would punish a correct, fuller extraction for content it missed.
+    # Discard them and let the case score on the reference-free signals
+    # (char coverage, anchors, structure, spacing).
+    reference_degenerate = reference_is_degenerate(md_words, ref_words)
+    if reference_degenerate:
+        token_f1 = None
+        rouge_l_val = None
+        noise = None
+
     quality = composite_quality(
         success=output.success,
         char_coverage_value=char_cov,
@@ -169,6 +180,7 @@ def _score_case(
         token_f1=token_f1,
         rouge_l=rouge_l_val,
         noise=noise,
+        reference_degenerate=reference_degenerate,
         link_density=ld if output.success else None,
         headings=structure["headings"],
         code_blocks=structure["code_blocks"],
