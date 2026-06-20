@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2026.6.2] - 2026-06-20
+
+The self-improving, MCP-first release (Closes #135). supacrawl now tells the calling agent honestly how good each result is, tries harder automatically when a result is poor, and remembers per domain what worked — so defaults quietly become excellent for the sites you actually use.
+
+### Added
+
+- **Runtime quality signal** (Closes #128): every scrape result carries a structured `quality` field — a verdict (`ok` / `thin` / `js_shell` / `paywall` / `bot_challenge` / `captcha` / `error_status` / `garbled_pdf` / `empty`), a 0–100 score, the reasons behind it, and a concrete `suggestion` when the result is poor — so an agent can decide to accept, retry, or escalate without re-deriving quality from the raw bytes. The signal shares one definition of "good" with the offline benchmark (a shared `supacrawl.quality` module both consume). Surfaced through the MCP tool result, the REST response, and the CLI.
+- **Adaptive auto-escalation** (Closes #129): on a recoverable poor verdict (block / CAPTCHA / JS-shell / empty), an unmet `--expect`, or an HTTP/2 TLS rejection, supacrawl automatically walks the stealth/engine ladder — Playwright → Patchright → Camoufox → Camoufox+HTTP/1.1 — with a longer hydration wait, within a bounded budget, keeping the best-scoring attempt. Hard sites just work on defaults; no per-request `engine`/`stealth`/`wait_for` needed. A single `escalate` flag caps it. A detected site-builder (Wix/Squarespace/Framer/Foleon) short-circuits to its tuned engine; a user-pinned engine is respected.
+- **Per-domain strategy memory** (Closes #130): supacrawl records, per registrable domain, the cheapest strategy that produced a clean result and seeds the next hit there — the first example-airline.com scrape learns "camoufox + ~5s wait"; the next starts there. A cost-aware champion bandit (EWMA quality, cheaper-equal demotion, clearly-better upgrade, epsilon-greedy downward exploration, instant champion crash on a hard block, TTL decay) lives in a single local JSON document under `~/.supacrawl/strategies/`. On by default for the CLI and MCP server, opt-out with `SUPACRAWL_STRATEGY_MEMORY=0`; inspect and reset with `supacrawl strategy list | show | forget | clear`. With an empty or disabled store, behaviour is identical to the stateless ladder.
+- **Search credit/quota visibility** (Closes #136): `supacrawl_health` surfaces per-provider remaining credits (Brave's `X-RateLimit-Remaining`) and the last error; a low-credit warning is emitted below a threshold; the provider chain fails over to the next configured provider on an out-of-credits/blocked error and surfaces the reason. No local usage counter (it is blind to other consumers of the same key).
+- **Experiential improvement loop** (Closes #131): the `improve-supacrawl` workflow makes every "improve supacrawl" session compound — read the lessons registry, measure with the benchmark, target the weakest real signal, fix the root cause, confirm a lift with no regression, sharpen the bench when it is blind, and record a dated lesson.
+
+### Changed
+
+- **Search works out of the box or fails loudly** (Closes #132): with no provider key, a keyless search that returns nothing now fails loudly with an actionable error naming `BRAVE_API_KEY` and the free-tier URL — instead of a silent `{success: true, data: []}`. The DuckDuckGo fallback gets the shared browser-realistic header profile. A genuine no-match from a keyed provider stays a clean success.
+- **Benchmark hardening** (Closes #134): the independent reference renderer settles hydration before capturing (polling the main-content length until it stabilises), and large PDF cases run in their own concurrency lane with a one-shot isolated retry so they no longer truncate to 0 words under load.
+- **Documentation and MCP tool descriptions** (Closes #133): README / CLI / API docs and the MCP tool descriptions now state that search needs a provider key out of the box, describe the quality field and honest `success`, explain that supacrawl auto-escalates (no manual engine/stealth needed), and document per-domain memory and credit visibility.
+
+### Fixed
+
+- **Honest `success`** (Closes #128): an HTTP ≥ 400 response (including an Amazon `/dp/` soft-404 shell), a recognised bot/CAPTCHA interstitial, garbled PDF text, or an empty page is now reported `success=false` with an actionable reason — it was previously reported `success=true`. Hard-fail results are never cached.
+- **Clean errors, never a crash** (Closes #129): a mid-fetch error (network, timeout, TLS rejection, a detached iframe on Reddit) returns a clean `success=false` with a hint rather than a raw traceback; the CLI guards `asyncio.run` so a launch error or interrupt exits cleanly.
+- **`only_main_content` over-pruning** (Closes #129): when the main-content selector matches a tiny wrapper, supacrawl recovers the fuller page instead of silently dropping the real content.
+
 ## [2026.6.1] - 2026-06-15
 
 ### Added
