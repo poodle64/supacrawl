@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from supacrawl.cli._common import app, parse_header_string, parse_headers_env
-from supacrawl.models import DEFAULT_MOBILE_DEVICE
+from supacrawl.models import DEFAULT_MOBILE_DEVICE, QualityVerdict
 
 
 @app.command("scrape", help="Scrape a single URL to markdown.")
@@ -488,6 +488,17 @@ def scrape_url(
         return result
 
     result = asyncio.run(run())
+
+    # Surface the runtime quality signal on stderr so a human (and any piped
+    # tooling) can see when content came back thin, shell-like, or behind a wall
+    # even on a nominal success. Failures carry the same detail in the error.
+    if result.quality and result.quality.verdict != QualityVerdict.OK:
+        note = f"Quality: {result.quality.verdict.value} (score {result.quality.score})"
+        if result.quality.attempts > 1:
+            note += f", {result.quality.attempts} attempts"
+        if result.quality.suggestion:
+            note += f" — {result.quality.suggestion}"
+        click.echo(note, err=True)
 
     # Handle errors
     if not result.success:

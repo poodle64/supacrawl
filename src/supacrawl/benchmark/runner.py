@@ -20,15 +20,8 @@ from supacrawl.benchmark.judge import judge_case
 from supacrawl.benchmark.metrics import (
     char_coverage,
     composite_quality,
-    count_structure,
-    link_density,
     rouge_l,
-    strip_markdown,
-    substring_absent_rate,
-    substring_hit_rate,
     token_prf,
-    tokenize,
-    word_spacing,
 )
 from supacrawl.benchmark.models import (
     BenchCase,
@@ -41,6 +34,15 @@ from supacrawl.benchmark.models import (
 from supacrawl.benchmark.providers.base import ProviderOutput, ScraperProvider
 from supacrawl.benchmark.providers.supacrawl import SupacrawlProvider
 from supacrawl.benchmark.reference import ReferenceCapture, ReferenceRenderer
+from supacrawl.quality import (
+    count_structure,
+    link_density,
+    strip_markdown,
+    substring_absent_rate,
+    substring_hit_rate,
+    tokenize,
+    word_spacing,
+)
 
 LOGGER = logging.getLogger(__name__)
 

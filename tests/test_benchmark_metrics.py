@@ -10,12 +10,14 @@ import pytest
 from supacrawl.benchmark.metrics import (
     char_coverage,
     composite_quality,
-    count_structure,
     rouge_l,
+    token_prf,
+)
+from supacrawl.quality import (
+    count_structure,
     strip_markdown,
     substring_absent_rate,
     substring_hit_rate,
-    token_prf,
     tokenize,
     word_spacing,
 )

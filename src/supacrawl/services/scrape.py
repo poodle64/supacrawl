@@ -33,7 +33,15 @@ from bs4 import BeautifulSoup
 
 from supacrawl.cache import CacheManager
 from supacrawl.exceptions import ProviderError, generate_correlation_id
-from supacrawl.models import ActionsOutput, ScrapeActionResult, ScrapeData, ScrapeMetadata, ScrapeResult
+from supacrawl.models import (
+    ActionsOutput,
+    QualityAssessment,
+    ScrapeActionResult,
+    ScrapeData,
+    ScrapeMetadata,
+    ScrapeResult,
+)
+from supacrawl.quality import assess_quality
 from supacrawl.services.browser import BrowserManager, PageContent, PageMetadata
 from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.detection import detect_bot_protection, estimate_js_requirement
@@ -178,6 +186,29 @@ def _assess_content_quality(html: str, markdown: str | None) -> str | None:
         return "SOFT: Response may be a bot challenge page; content quality is suspect (low text density)."
 
     return None
+
+
+def _quality_error(quality: QualityAssessment) -> str | None:
+    """Build an honest error string for a hard-fail quality verdict, else None.
+
+    When the runtime quality assessment flips ``success`` to False (HTTP >= 400
+    soft-404, bot challenge, CAPTCHA, garbled PDF, empty), the result needs a
+    human/agent-readable reason so the caller is not handed ``error=None``. A
+    usable verdict returns None — success is reported normally.
+
+    Args:
+        quality: The computed quality assessment for the result.
+
+    Returns:
+        An actionable error string, or None when the result is usable.
+    """
+    if quality.is_usable:
+        return None
+    detail = "; ".join(quality.reasons) or quality.verdict.value
+    message = f"Scrape returned no usable content ({quality.verdict.value}): {detail}."
+    if quality.suggestion:
+        message += f" {quality.suggestion}"
+    return message
 
 
 def _is_camoufox_available() -> bool:
@@ -1588,9 +1619,26 @@ class ScrapeService:
                 if json_comparison:
                     change_tracking.json_changes = json_comparison
 
+        # Runtime quality assessment: an honest, structured verdict + 0-100 score
+        # over the result, sharing its vocabulary with the offline benchmark. A
+        # hard-fail verdict (HTTP >= 400 soft-404, bot challenge, CAPTCHA, empty)
+        # flips success to False so a caller never passes a block page downstream.
+        quality_text = markdown
+        if quality_text is None and page_content.html:
+            quality_text = BeautifulSoup(page_content.html, "html.parser").get_text(" ", strip=True)
+        quality = assess_quality(
+            status_code=page_content.status_code,
+            html=page_content.html,
+            markdown=markdown,
+            visible_text=quality_text if markdown is None else None,
+        )
+        quality_error = _quality_error(quality)
+
         result = ScrapeResult(
-            success=True,
+            success=quality.is_usable,
+            error=quality_error,
             warnings=content_quality_warnings,
+            quality=quality,
             data=ScrapeData(  # type: ignore[call-arg]
                 markdown=markdown,
                 html=html,
@@ -1632,11 +1680,13 @@ class ScrapeService:
 
         # Store in cache if max_age > 0 and cache is configured
         # When change tracking is active, auto-enable caching so future
-        # comparisons have a previous version to diff against.
+        # comparisons have a previous version to diff against. A hard-fail result
+        # (block page, soft-404, empty) is never cached: caching it would serve a
+        # stale block on the next hit and clobber a good previous version.
         effective_max_age = max_age
         if wants_change_tracking and effective_max_age <= 0:
             effective_max_age = 365 * 24 * 3600  # 1 year default for change tracking
-        if effective_max_age > 0 and self._cache:
+        if effective_max_age > 0 and self._cache and result.success:
             self._cache.set(
                 url,
                 result.model_dump(),
@@ -1709,8 +1759,14 @@ class ScrapeService:
                 change_tracking_modes=change_tracking_modes,
             )
 
+        # PDF quality: catch garbled (fused-word) extraction and empty PDFs
+        # honestly rather than reporting a clean success over unusable text.
+        quality = assess_quality(status_code=200, html=None, markdown=markdown, is_pdf=True)
+
         result = ScrapeResult(
-            success=True,
+            success=quality.is_usable,
+            error=_quality_error(quality),
+            quality=quality,
             data=ScrapeData(  # type: ignore[call-arg]
                 markdown=markdown if "markdown" in formats or "json" in formats or "summary" in formats else None,
                 metadata=ScrapeMetadata(
@@ -1728,11 +1784,11 @@ class ScrapeService:
             ),
         )
 
-        # Cache the result
+        # Cache the result (never cache an unusable extraction)
         effective_max_age = max_age
         if wants_change_tracking and effective_max_age <= 0:
             effective_max_age = 365 * 24 * 3600
-        if effective_max_age > 0 and self._cache:
+        if effective_max_age > 0 and self._cache and result.success:
             self._cache.set(
                 url,
                 result.model_dump(),

@@ -1,89 +1,26 @@
-"""Pure scoring functions for the scrape-quality benchmark.
+"""Reference-based scoring functions for the scrape-quality benchmark.
 
 Every function here is deterministic and side-effect free: given the same text
 it returns the same numbers, which is what makes run-over-run comparison valid.
 Nothing in this module performs I/O, touches the network, or imports a browser.
 
-The metric vocabulary draws on established main-content-extraction benchmarks
-(token-overlap F1 in the SQuAD sense, ROUGE-L longest-common-subsequence) plus a
-language-agnostic character-coverage proxy so that non-Latin pages, where
-whitespace tokenisation breaks down, still yield a meaningful completeness
-signal.
+These are the metrics that compare the scraper's output against an independent
+browser capture (the "gold" reference): token-overlap F1 in the SQuAD sense,
+ROUGE-L longest-common-subsequence, and a language-agnostic character-coverage
+proxy. The *reference-free* primitives (tokenisation, word-spacing, link
+density, structure counts, anchor hit rates) live in ``supacrawl.quality`` so
+the live runtime quality assessor and this offline benchmark share one
+definition of "good".
 """
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 
 # ROUGE-L runs an O(n*m) dynamic program; cap the sequences it sees so a very
 # long page cannot make a run pathologically slow. The cap is generous enough to
 # cover article-length content.
 _ROUGE_TOKEN_CAP = 4000
-
-# Word-spacing sanity. A token longer than this many characters that is pure
-# ASCII letters is almost certainly a fused word run from a PDF-extraction
-# spacing defect ("Thedominantsequencetransduction") rather than a genuine word.
-# Non-Latin scripts tokenise into long runs legitimately, so only all-ASCII
-# alphabetic tokens count. A page whose fused share reaches the full-penalty
-# ratio scores 0 on the spacing dimension; below the minimum token count there
-# is too little prose to judge.
-_WORD_SPACING_LONG_TOKEN_CHARS = 30
-_WORD_SPACING_FULL_PENALTY_RATIO = 0.05
-_WORD_SPACING_MIN_TOKENS = 50
-
-_WORD_RE = re.compile(r"\w+", re.UNICODE)
-
-# Markdown syntax stripped before tokenising so that formatting characters do
-# not masquerade as content tokens.
-_MD_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
-_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_MD_CODE_FENCE_RE = re.compile(r"```[^\n]*")
-_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
-
-# Structure counters operate on raw markdown.
-_HEADING_LINE_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S", re.MULTILINE)
-_FENCE_RE = re.compile(r"^\s{0,3}```", re.MULTILINE)
-_TABLE_ROW_RE = re.compile(r"^\s{0,3}\|.*\|\s*$", re.MULTILINE)
-_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
-_LINK_RE = re.compile(r"(?<!\!)\[[^\]]*\]\([^)]*\)")
-
-
-def strip_markdown(text: str) -> str:
-    """Reduce markdown to its visible prose for tokenising.
-
-    Images are dropped entirely, links collapse to their anchor text, and code
-    fence markers and heading hashes are removed. The result is not meant to be
-    read; it is an intermediate for word tokenisation.
-
-    Args:
-        text: Markdown source.
-
-    Returns:
-        Plain-ish text with markdown scaffolding removed.
-    """
-    text = _MD_IMAGE_RE.sub(" ", text)
-    text = _MD_LINK_RE.sub(r"\1", text)
-    text = _MD_CODE_FENCE_RE.sub(" ", text)
-    text = _MD_HEADING_RE.sub("", text)
-    return text
-
-
-def tokenize(text: str, *, markdown: bool = False) -> list[str]:
-    """Lowercase word-token a string.
-
-    Args:
-        text: Source text.
-        markdown: When True, strip markdown scaffolding first.
-
-    Returns:
-        Lowercased word tokens. For languages without whitespace word
-        boundaries (e.g. CJK) this under-segments; character-level metrics carry
-        the completeness signal for those pages instead.
-    """
-    if markdown:
-        text = strip_markdown(text)
-    return [match.group(0).lower() for match in _WORD_RE.finditer(text)]
 
 
 def token_prf(extracted: list[str], gold: list[str]) -> tuple[float, float, float]:
@@ -185,113 +122,6 @@ def char_coverage(extracted_chars: int, reference_chars: int) -> float:
     if reference_chars <= 0:
         return 0.0
     return min(1.0, extracted_chars / reference_chars)
-
-
-def substring_hit_rate(text: str, needles: list[str]) -> float | None:
-    """Fraction of anchor substrings present in ``text`` (case-insensitive).
-
-    Args:
-        text: Haystack (typically the scraper markdown).
-        needles: Curated anchor substrings.
-
-    Returns:
-        Fraction in ``[0, 1]``, or ``None`` when no anchors were supplied.
-    """
-    if not needles:
-        return None
-    haystack = text.lower()
-    hits = sum(1 for needle in needles if needle.lower() in haystack)
-    return hits / len(needles)
-
-
-def substring_absent_rate(text: str, needles: list[str]) -> float | None:
-    """Fraction of boilerplate substrings correctly absent (case-insensitive).
-
-    Args:
-        text: Haystack (typically the scraper markdown).
-        needles: Substrings that good output should not contain.
-
-    Returns:
-        Fraction in ``[0, 1]`` (1 means none of the boilerplate leaked), or
-        ``None`` when no anchors were supplied.
-    """
-    if not needles:
-        return None
-    haystack = text.lower()
-    absent = sum(1 for needle in needles if needle.lower() not in haystack)
-    return absent / len(needles)
-
-
-def count_structure(markdown: str) -> dict[str, int]:
-    """Count structural markdown elements.
-
-    Code fences are counted in pairs (an opening and closing fence make one
-    block); table rows are counted whole, then the customary header/separator
-    pair is netted out so a simple table reports its body row count.
-
-    Args:
-        markdown: Markdown source.
-
-    Returns:
-        Mapping with ``headings``, ``code_blocks``, ``tables``, ``images`` and
-        ``links`` counts.
-    """
-    fences = len(_FENCE_RE.findall(markdown))
-    table_rows = len(_TABLE_ROW_RE.findall(markdown))
-    return {
-        "headings": len(_HEADING_LINE_RE.findall(markdown)),
-        "code_blocks": fences // 2,
-        "tables": max(0, table_rows - 2) if table_rows else 0,
-        "images": len(_IMAGE_RE.findall(markdown)),
-        "links": len(_LINK_RE.findall(markdown)),
-    }
-
-
-def link_density(link_count: int, word_count: int) -> float:
-    """Links per 1000 words.
-
-    A high density on a content page is a strong tell that navigation menus or
-    link farms were not stripped.
-
-    Args:
-        link_count: Number of markdown links.
-        word_count: Number of word tokens.
-
-    Returns:
-        Links per 1000 words; 0 when there are no words.
-    """
-    if word_count <= 0:
-        return 0.0
-    return link_count * 1000.0 / word_count
-
-
-def word_spacing(markdown: str) -> float | None:
-    """Score how well inter-word spacing survived, penalising fused word runs.
-
-    A recurring PDF-extraction defect collapses adjacent words into a single
-    token ("Thedominantsequencetransduction") when the source font's space
-    glyph is narrower than the extractor's gap threshold. This metric flags that
-    by measuring the share of tokens that are improbably long runs of ASCII
-    letters. Non-Latin scripts (CJK, Arabic) legitimately tokenise into long
-    runs under whitespace tokenisation, so only all-ASCII alphabetic tokens
-    count, and very short bodies return ``None`` (too little signal to judge).
-
-    Args:
-        markdown: Scraper markdown output.
-
-    Returns:
-        Score in ``[0, 1]`` — 1.0 when spacing is clean, falling to 0.0 once a
-        full-penalty share of tokens are fused — or ``None`` when there is too
-        little prose to judge.
-    """
-    tokens = tokenize(markdown, markdown=True)
-    if len(tokens) < _WORD_SPACING_MIN_TOKENS:
-        return None
-    fused = sum(
-        1 for token in tokens if len(token) > _WORD_SPACING_LONG_TOKEN_CHARS and token.isascii() and token.isalpha()
-    )
-    ratio = fused / len(tokens)
-    return max(0.0, 1.0 - ratio / _WORD_SPACING_FULL_PENALTY_RATIO)
 
 
 def composite_quality(

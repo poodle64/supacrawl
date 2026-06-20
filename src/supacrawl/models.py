@@ -345,6 +345,65 @@ class StructuredData(BaseModel):
     next_data: dict[str, Any] | None = None  # Next.js __NEXT_DATA__ hydration payload
 
 
+class QualityVerdict(str, Enum):
+    """Classification of how usable a scrape result is.
+
+    The taxonomy is gate-then-grade: the verdict is resolved first from cheap
+    structural signals (status code, challenge fingerprints, content density),
+    then a 0-100 score grades fidelity within that verdict. The verdict tells a
+    calling agent *what kind* of result it got; the score tells it *how good*.
+
+    Verdicts split into usable (content was returned) and hard-fail (no usable
+    content). Hard-fail verdicts force ``success=False`` so an agent never passes
+    a block page or soft-404 downstream into a RAG collection.
+    """
+
+    OK = "ok"  # clean, usable content
+    THIN = "thin"  # very little content; may be all there is, or under-extracted
+    JS_SHELL = "js_shell"  # a pre-hydration skeleton; real content is injected client-side
+    PAYWALL = "paywall"  # a login/subscription wall; the wall page is what was returned
+    BOT_CHALLENGE = "bot_challenge"  # an anti-bot interstitial (Cloudflare/Akamai/DataDome/etc.)
+    CAPTCHA = "captcha"  # an explicit CAPTCHA challenge
+    ERROR_STATUS = "error_status"  # an HTTP >= 400 response (including soft-404 shells)
+    GARBLED_PDF = "garbled_pdf"  # PDF text extracted but spacing/encoding is corrupt
+    EMPTY = "empty"  # no content could be extracted at all
+
+
+# Verdicts that mean no usable content was returned, so ``success`` must be False.
+HARD_FAIL_VERDICTS: frozenset[QualityVerdict] = frozenset(
+    {
+        QualityVerdict.BOT_CHALLENGE,
+        QualityVerdict.CAPTCHA,
+        QualityVerdict.ERROR_STATUS,
+        QualityVerdict.GARBLED_PDF,
+        QualityVerdict.EMPTY,
+    }
+)
+
+
+class QualityAssessment(BaseModel):
+    """Structured, honest signal of how good a scrape result is.
+
+    Surfaced on every ``ScrapeResult`` so an MCP/REST/CLI caller can decide to
+    accept, retry, or escalate without re-deriving quality from the raw content.
+    Shares its metric vocabulary with the offline benchmark (``benchmark.metrics``)
+    so the same definition of "good" governs both the fitness function and the
+    live signal.
+    """
+
+    verdict: QualityVerdict
+    score: int = Field(ge=0, le=100)  # 0-100 confidence/completeness within the verdict
+    reasons: list[str] = Field(default_factory=list)  # why this verdict/score was reached
+    suggestion: str | None = None  # a concrete next action when the result is poor
+    attempts: int = 1  # how many strategies were tried (set by auto-escalation)
+    escalated: bool = False  # whether auto-escalation moved beyond the cheapest strategy
+
+    @property
+    def is_usable(self) -> bool:
+        """Whether the result carries usable content (verdict is not a hard fail)."""
+        return self.verdict not in HARD_FAIL_VERDICTS
+
+
 class ScrapeData(BaseModel):
     """Scraped content from a page."""
 
@@ -372,12 +431,19 @@ class ScrapeResult(BaseModel):
     The `warnings` field contains content quality warnings when extraction
     succeeded but the result may be incomplete or problematic. Check warnings
     when `success=True` but content seems minimal or unexpected.
+
+    The `quality` field carries a structured verdict + 0-100 score describing how
+    usable the result is (clean page vs JS shell vs bot challenge vs soft-404).
+    `success` is honest about hard failures: an HTTP >= 400 response or a
+    recognised block/CAPTCHA interstitial is reported `success=False` even when a
+    response body was returned.
     """
 
     success: bool
     data: ScrapeData | None = None
     error: str | None = None
     warnings: list[str] | None = None
+    quality: QualityAssessment | None = None
 
 
 class CrawlEvent(BaseModel):
