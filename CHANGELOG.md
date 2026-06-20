@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- **Per-domain memory and telemetry across every scrape path**: per-domain strategy memory (#130) and the field telemetry sink (#137) now also flow through `crawl`, `batch`, and the `search`/`extract`/`agent` commands — previously only the single `scrape` path learned and recorded. A crawl now learns each domain's cheapest working strategy on the first page and seeds the rest, and every multi-page scrape contributes to the quality/usage log. On by default (opt-out `SUPACRAWL_STRATEGY_MEMORY=0` / `SUPACRAWL_METRICS=0`); the offline benchmark stays deliberately stateless.
 - **Field telemetry sink** (Closes #137): supacrawl appends one event per scrape and search — quality verdict, score, attempts, escalation, latency, status, and the registrable domain — to a local, append-only log at `~/.supacrawl/metrics/events.jsonl`, so quality and usage can be tracked over time. On by default for the CLI and MCP server (opt-out `SUPACRAWL_METRICS=0`); domain-only by default for privacy, full URLs/queries opt-in via `SUPACRAWL_METRICS_FULL_URL=1`; the event schema is versioned. Inspect with `supacrawl metrics summary | tail | path | prune`. A `MetricsReader` is the clean read API a separate observability dashboard would consume — the CLI emits, a GUI reads.
 
 ## [2026.6.2] - 2026-06-20

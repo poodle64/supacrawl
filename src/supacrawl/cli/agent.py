@@ -147,13 +147,17 @@ def search(
         scrape_service = None
         scrape_options = None
 
+        from supacrawl.services.strategy_memory import StrategyStore
+        from supacrawl.telemetry import MetricsSink
+
         if scrape:
             from supacrawl.services.scrape import ScrapeService
 
-            scrape_service = ScrapeService()
+            scrape_service = ScrapeService(
+                strategy_store=StrategyStore.default(),
+                telemetry=MetricsSink.default(),
+            )
             scrape_options = ScrapeOptions(formats=["markdown"], only_main_content=True)
-
-        from supacrawl.telemetry import MetricsSink
 
         service = SearchService(
             scrape_service=scrape_service,
@@ -246,7 +250,13 @@ def llm_extract(
             schema_dict = json.load(f)
 
     async def run():
-        scrape_service = ScrapeService()
+        from supacrawl.services.strategy_memory import StrategyStore
+        from supacrawl.telemetry import MetricsSink
+
+        scrape_service = ScrapeService(
+            strategy_store=StrategyStore.default(),
+            telemetry=MetricsSink.default(),
+        )
         service = ExtractService(scrape_service=scrape_service)
 
         try:
@@ -353,7 +363,13 @@ def agent_cmd(
             schema_dict = json.load(f)
 
     async def run():
-        scrape_service = ScrapeService()
+        from supacrawl.services.strategy_memory import StrategyStore
+        from supacrawl.telemetry import MetricsSink
+
+        scrape_service = ScrapeService(
+            strategy_store=StrategyStore.default(),
+            telemetry=MetricsSink.default(),
+        )
         search_service = SearchService(scrape_service=scrape_service)
         agent = AgentService(
             scrape_service=scrape_service,

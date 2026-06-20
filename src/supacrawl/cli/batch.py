@@ -271,6 +271,8 @@ def batch(
 
     async def run() -> BatchScrapeResult:
         from supacrawl.services.batch import run_batch_scrape
+        from supacrawl.services.strategy_memory import StrategyStore
+        from supacrawl.telemetry import MetricsSink
 
         result = await run_batch_scrape(
             urls=urls,
@@ -284,6 +286,8 @@ def batch(
             proxy=proxy,
             engine=engine,
             stealth=stealth,
+            strategy_store=StrategyStore.default(),
+            telemetry=MetricsSink.default(),
         )
         return result
 

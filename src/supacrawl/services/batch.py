@@ -13,11 +13,15 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from supacrawl.models import ScrapeResult
 from supacrawl.services.browser import BrowserManager
 from supacrawl.services.scrape import ScrapeService
+
+if TYPE_CHECKING:
+    from supacrawl.services.strategy_memory import StrategyStore
+    from supacrawl.telemetry import MetricsSink
 
 LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +81,8 @@ async def run_batch_scrape(
     stealth: bool = False,
     cache_dir: Path | None = None,
     locale_config: Any | None = None,
+    strategy_store: "StrategyStore | None" = None,
+    telemetry: "MetricsSink | None" = None,
     scrape_kwargs: dict[str, Any] | None = None,
     cancelled: asyncio.Event | None = None,
 ) -> BatchScrapeResult:
@@ -111,6 +117,13 @@ async def run_batch_scrape(
         cache_dir: Cache directory forwarded to the ``ScrapeService`` when it
             is created internally.
         locale_config: Optional ``LocaleConfig`` forwarded to the service.
+        strategy_store: Optional per-domain strategy memory (#130) forwarded to
+            an internally-created ``ScrapeService`` so each URL seeds and updates
+            its domain's learned strategy. Ignored when ``scrape_service`` is
+            supplied (the caller's service carries its own).
+        telemetry: Optional field telemetry sink (#137) forwarded to an
+            internally-created ``ScrapeService`` so per-URL quality/usage is
+            recorded.
         scrape_kwargs: Extra keyword arguments forwarded verbatim to
             ``ScrapeService.scrape`` for every URL (e.g. ``wait_for``,
             ``include_tags``, ``exclude_tags``, ``actions``).  These override
@@ -233,6 +246,8 @@ async def run_batch_scrape(
             stealth=stealth,
             proxy=proxy,
             engine=engine,
+            strategy_store=strategy_store,
+            telemetry=telemetry,
         )
     else:
         # scrape_service is non-None here by the owns_browser definition above.

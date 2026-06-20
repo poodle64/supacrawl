@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import AsyncGenerator, Literal
+from typing import TYPE_CHECKING, AsyncGenerator, Literal
 from urllib.parse import urlparse
 
 from supacrawl.discovery.robots import RobotsConfig, fetch_robots, is_url_allowed
@@ -14,6 +14,10 @@ from supacrawl.services.map import MapService
 from supacrawl.services.scrape import ScrapeService
 from supacrawl.services.throttle import HostRateLimiter, host_of
 from supacrawl.utils import normalise_url_for_dedupe
+
+if TYPE_CHECKING:
+    from supacrawl.services.strategy_memory import StrategyStore
+    from supacrawl.telemetry import MetricsSink
 
 
 def _url_origin(url: str) -> str:
@@ -83,6 +87,8 @@ class CrawlService:
         browser: BrowserManager | None = None,
         map_service: MapService | None = None,
         scrape_service: ScrapeService | None = None,
+        strategy_store: "StrategyStore | None" = None,
+        telemetry: "MetricsSink | None" = None,
     ):
         """Initialize crawl service.
 
@@ -91,10 +97,20 @@ class CrawlService:
                 uses it instead of creating its own (caller manages lifecycle).
             map_service: Optional shared MapService. Created internally if not provided.
             scrape_service: Optional shared ScrapeService. Created internally if not provided.
+            strategy_store: Optional per-domain strategy memory (#130). When the
+                crawl owns its ScrapeService (no ``scrape_service`` injected), it
+                is threaded into that service so a crawl learns each domain's
+                cheapest working strategy on the first page and seeds the rest.
+                Ignored when ``scrape_service`` is injected (the caller's service
+                already carries — or deliberately omits — its own store).
+            telemetry: Optional field telemetry sink (#137), threaded into a
+                crawl-owned ScrapeService so per-page quality/usage is recorded.
         """
         self._injected_browser = browser
         self._injected_map_service = map_service
         self._injected_scrape_service = scrape_service
+        self._strategy_store = strategy_store
+        self._telemetry = telemetry
         self._browser: BrowserManager | None = None
         self._map_service: MapService | None = None
         self._scrape_service: ScrapeService | None = None
@@ -196,6 +212,8 @@ class CrawlService:
                     browser=self._browser,
                     locale_config=locale_config,
                     cache_dir=cache_dir,
+                    strategy_store=self._strategy_store,
+                    telemetry=self._telemetry,
                 )
                 async for event in self._crawl_inner(
                     url=url,
@@ -237,6 +255,8 @@ class CrawlService:
                         browser=browser,
                         locale_config=locale_config,
                         cache_dir=cache_dir,
+                        strategy_store=self._strategy_store,
+                        telemetry=self._telemetry,
                     )
                     async for event in self._crawl_inner(
                         url=url,

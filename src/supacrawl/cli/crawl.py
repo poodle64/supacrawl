@@ -239,7 +239,13 @@ def crawl_cmd(
     async def run():
         from urllib.parse import urlparse
 
-        service = CrawlService()
+        from supacrawl.services.strategy_memory import StrategyStore
+        from supacrawl.telemetry import MetricsSink
+
+        service = CrawlService(
+            strategy_store=StrategyStore.default(),
+            telemetry=MetricsSink.default(),
+        )
 
         click.echo(f"Crawling {url}...", err=True)
 
