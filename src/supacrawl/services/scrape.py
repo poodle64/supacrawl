@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 if TYPE_CHECKING:
     from playwright.async_api import Browser
 
+    from supacrawl.services.strategy_memory import StrategyChoice, StrategyStore
+
 from bs4 import BeautifulSoup
 
 from supacrawl.cache import CacheManager
@@ -621,6 +623,7 @@ class ScrapeService:
         headless: bool | None = None,
         engine: str | None = None,
         firefox_user_prefs: dict[str, Any] | None = None,
+        strategy_store: "StrategyStore | None" = None,
     ):
         """Initialize scrape service.
 
@@ -641,6 +644,11 @@ class ScrapeService:
             firefox_user_prefs: Firefox about:config preferences for Camoufox.
                 Only used when engine="camoufox" and browser is created internally.
                 Example: {"network.http.http2.enabled": False} to force HTTP/1.1.
+            strategy_store: Optional per-domain strategy memory (#130). When
+                provided, a successful strategy for a domain seeds the next hit to
+                that domain (short-circuiting the escalation ladder) and the
+                outcome of each attempt is recorded back. None == stateless (the
+                CLI and MCP wiring enable it by default; library callers opt in).
         """
         self._browser = browser
         self._converter = converter or MarkdownConverter()
@@ -653,6 +661,7 @@ class ScrapeService:
         self._engine = engine
         self._firefox_user_prefs = firefox_user_prefs
         self._cache = CacheManager(cache_dir) if cache_dir else None
+        self._strategy_store = strategy_store
         self._captcha_solver: Any = None  # Lazy-loaded CaptchaSolver
 
     async def close(self) -> None:
@@ -873,11 +882,41 @@ class ScrapeService:
                     change_tracking_modes=change_tracking_modes,
                 )
 
+        # Determine effective engine and proxy for this request
+        effective_engine = engine or self._engine
+        effective_proxy = proxy or self._proxy
+
+        # Per-domain strategy memory (#130): on a fresh top-level hit to a domain
+        # we already learned, seed the attempt with the champion strategy so the
+        # escalation ladder starts where it last succeeded — zero configuration.
+        # Seeding applies only when this service owns its browser (the CLI/MCP
+        # path) and the caller has not pinned an engine; the result is still
+        # re-validated and re-recorded, so a stale champion self-corrects.
+        from supacrawl.services.strategy_memory import registrable_domain
+
+        memory_eligible = self._strategy_store is not None and self._memory_eligible(formats, actions, device)
+        memory_domain = registrable_domain(url) if memory_eligible else None
+        user_pinned = engine is not None or self._engine is not None
+        seed: StrategyChoice | None = None
+        if memory_domain and self._strategy_store is not None and not user_pinned and _escalation_level == 0:
+            seed = self._strategy_store.seed(memory_domain)
+
+        attempt_engine = effective_engine
+        attempt_stealth = self._stealth
+        if seed is not None:
+            attempt_engine = seed.engine
+            attempt_stealth = seed.stealth
+            wait_for = max(wait_for, seed.wait_for)
+            only_main_content = seed.only_main_content
+        # A seed that needs a real browser (stealth or a non-default engine) skips
+        # the HTTP-first probe — the champion is browser-based for a reason.
+        seed_requires_browser = bool(attempt_stealth or attempt_engine not in (None, "playwright"))
+
         # HTTP-first fast path: try a cheap httpx GET and skip the browser
         # entirely when the page needs no JavaScript and shows no bot challenge.
         # Any render-needed/bot signal returns None here and falls through to
         # the full browser path below.
-        if http_first and self._http_first_eligible(formats, actions, engine, device):
+        if http_first and not seed_requires_browser and self._http_first_eligible(formats, actions, engine, device):
             fast_result = await self._try_http_first(
                 url=url,
                 formats=formats,
@@ -901,11 +940,16 @@ class ScrapeService:
                 parse_pdf=parse_pdf,
             )
             if fast_result is not None:
+                if memory_domain and self._strategy_store is not None:
+                    self._strategy_store.record(
+                        memory_domain,
+                        engine=attempt_engine,
+                        stealth=attempt_stealth,
+                        wait_for=wait_for,
+                        only_main_content=only_main_content,
+                        result=fast_result,
+                    )
                 return fast_result
-
-        # Determine effective engine and proxy for this request
-        effective_engine = engine or self._engine
-        effective_proxy = proxy or self._proxy
 
         # Closure that re-runs this scrape one rung deeper in the escalation
         # ladder with a stronger strategy (engine / stealth / longer wait),
@@ -930,6 +974,7 @@ class ScrapeService:
                 headless=self._headless,
                 engine=engine,
                 firefox_user_prefs=firefox_user_prefs,
+                strategy_store=self._strategy_store,
             )
             return await next_service.scrape(
                 url=url,
@@ -973,15 +1018,27 @@ class ScrapeService:
             needs_proxy_override = (
                 proxy is not None and not owns_browser and browser is not None and browser.proxy != proxy
             )
+            # A learned seed (#130) may want a different engine/stealth than a
+            # shared browser; build a temporary one so the champion strategy is
+            # honoured without mutating the shared browser.
+            needs_seed_override = (
+                seed is not None
+                and not owns_browser
+                and browser is not None
+                and (attempt_engine != browser.engine or attempt_stealth)
+            )
 
-            if owns_browser or needs_engine_override or needs_proxy_override:
+            if owns_browser or needs_engine_override or needs_proxy_override or needs_seed_override:
+                # When this service owns its browser, the attempt strategy may be a
+                # learned seed (#130); attempt_engine/attempt_stealth fold that in
+                # (they equal the service defaults when there is no seed).
                 browser = BrowserManager(
                     headless=self._headless,
                     timeout_ms=timeout,
                     locale_config=self._locale_config,
-                    stealth=self._stealth,
+                    stealth=attempt_stealth,
                     proxy=effective_proxy,
-                    engine=effective_engine,
+                    engine=attempt_engine,
                     firefox_user_prefs=self._firefox_user_prefs,
                 )
                 await browser.__aenter__()
@@ -1152,11 +1209,15 @@ class ScrapeService:
             # A user-pinned engine is respected only at the top of the ladder;
             # once escalation is in control (level > 0) it chose the engine itself.
             pinned_engine=((engine is not None or self._engine is not None) if _escalation_level == 0 else False),
-            current_engine=effective_engine,
-            current_stealth=self._stealth,
+            current_engine=attempt_engine,
+            current_stealth=attempt_stealth,
             current_prefs=self._firefox_user_prefs,
             platform=escalation_platform,
             retry=_retry,
+            store=self._strategy_store,
+            record_domain=memory_domain,
+            record_wait_for=wait_for,
+            record_only_main=only_main_content,
         )
 
     def _recover_thin_main_content(
@@ -1282,6 +1343,10 @@ class ScrapeService:
         current_prefs: dict[str, Any] | None,
         platform: Any | None,
         retry: Callable[..., Awaitable[ScrapeResult]],
+        store: "StrategyStore | None" = None,
+        record_domain: str | None = None,
+        record_wait_for: int = 0,
+        record_only_main: bool = True,
     ) -> ScrapeResult:
         """Decide whether to try a stronger strategy, and keep the best attempt.
 
@@ -1313,6 +1378,20 @@ class ScrapeService:
         if result.quality is not None:
             result.quality.attempts = level + 1
             result.quality.escalated = level > 0
+
+        # Per-domain strategy memory (#130): fold this attempt's (strategy, outcome)
+        # into the domain's champion. Each rung records its own observation, so a
+        # blocked playwright + a clean camoufox on the same hit teach the store the
+        # right champion for next time.
+        if store is not None and record_domain:
+            store.record(
+                record_domain,
+                engine=current_engine,
+                stealth=current_stealth,
+                wait_for=record_wait_for,
+                only_main_content=record_only_main,
+                result=result,
+            )
 
         has_response = result.data is not None
         verdict = result.quality.verdict if result.quality else None
@@ -1391,6 +1470,18 @@ class ScrapeService:
         score_a = a.quality.score if a.quality else (50 if a.success else 0)
         score_b = b.quality.score if b.quality else (50 if b.success else 0)
         return b if score_b >= score_a else a
+
+    @staticmethod
+    def _memory_eligible(formats: Sequence[str], actions: list[Any] | None, device: str | None) -> bool:
+        """Whether per-domain strategy memory applies to this request.
+
+        Skipped for special-purpose work — screenshots, PDF capture, action
+        sequences, device emulation — where a learned content-scrape strategy is
+        irrelevant and could mislearn. Content scrapes (markdown/html/links) use it.
+        """
+        if "screenshot" in formats or "pdf" in formats:
+            return False
+        return not (actions or device is not None)
 
     def _http_first_eligible(
         self,

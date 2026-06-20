@@ -177,7 +177,12 @@ async def create_supacrawl_services() -> SupacrawlServices:
     if features:
         logger.info(f"Enabled features: {', '.join(features)}")
 
-    # Create supacrawl library services
+    # Create supacrawl library services. Per-domain strategy memory (#130) is on
+    # by default for the MCP server — the primary entry point — so repeated hits
+    # to a domain are seeded with the strategy that last worked. Disable with
+    # SUPACRAWL_STRATEGY_MEMORY=0.
+    from supacrawl.services.strategy_memory import StrategyStore
+
     scrape_service = ScrapeService(
         browser=browser_manager,
         locale_config=locale_config,
@@ -187,6 +192,7 @@ async def create_supacrawl_services() -> SupacrawlServices:
         solve_captcha=settings.solve_captcha,
         headless=settings.headless,
         engine=settings.engine,
+        strategy_store=StrategyStore.default(),
     )
     map_service = MapService(browser=browser_manager)
     crawl_service = CrawlService(

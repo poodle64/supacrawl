@@ -140,6 +140,46 @@ async def test_thin_main_content_falls_back_to_full_page() -> None:
     assert len(recovered.split()) >= 50
 
 
+async def test_strategy_memory_seeds_the_ladder(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    # The first hit climbs the ladder; the second hit to the same domain is
+    # seeded straight to the winning strategy, taking a single attempt (#130).
+    from supacrawl.services.strategy_memory import StrategyStore
+
+    def respond(engine: str | None, stealth: bool) -> tuple[str, int]:
+        if stealth or engine == "camoufox":
+            return _GOOD_HTML, 200
+        return _BLOCKED_HTML, 403
+
+    created = _patch_ladder(monkeypatch, respond)
+    store = StrategyStore(strategy_dir=tmp_path, explore_rate=0.0)
+
+    r1 = await ScrapeService(strategy_store=store).scrape(
+        "https://airline.example/a", formats=["markdown"], http_first=False
+    )
+    assert r1.success is True
+    assert len(created) >= 2  # the first hit had to escalate to find the winner
+
+    created.clear()
+    r2 = await ScrapeService(strategy_store=store).scrape(
+        "https://airline.example/b", formats=["markdown"], http_first=False
+    )
+    assert r2.success is True
+    assert len(created) == 1  # seeded straight to the champion — no ladder walk
+    assert r2.quality is not None
+    assert r2.quality.attempts == 1
+    assert r2.quality.escalated is False
+
+
+async def test_strategy_memory_disabled_is_identical(monkeypatch: pytest.MonkeyPatch) -> None:
+    # With no store, behaviour is the plain stateless ladder (no seeding/recording).
+    created = _patch_ladder(monkeypatch, lambda engine, stealth: (_GOOD_HTML, 200))
+    result = await ScrapeService(strategy_store=None).scrape(
+        "https://x.example", formats=["markdown"], http_first=False
+    )
+    assert result.success is True
+    assert len(created) == 1
+
+
 async def test_fetch_exception_yields_clean_failure_not_crash() -> None:
     # A mid-fetch exception must become success=False with a hint, never a crash.
     browser = MagicMock()

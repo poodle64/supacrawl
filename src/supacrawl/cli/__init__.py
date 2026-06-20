@@ -8,6 +8,7 @@ into modules by functionality:
 - map: URL discovery and mapping
 - agent: Search, extraction, and agent commands (search, llm-extract, agent)
 - cache: Cache management subcommands (cache stats/clear/prune)
+- strategy: Per-domain strategy memory (strategy list/show/forget/clear)
 - serve: REST API server
 - skill: Install the agent skill (install-skill)
 """
@@ -24,6 +25,7 @@ from supacrawl.cli import (
     scrape,  # noqa: F401
     serve,  # noqa: F401
     skill,  # noqa: F401
+    strategy,  # noqa: F401
 )
 from supacrawl.cli._common import app
 

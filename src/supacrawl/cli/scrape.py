@@ -381,6 +381,7 @@ def scrape_url(
         resolved_device = DEFAULT_MOBILE_DEVICE
 
     from supacrawl.services.scrape import ScrapeService
+    from supacrawl.services.strategy_memory import StrategyStore
 
     # Auto-add format based on output extension if not explicitly provided
     formats_list = list(formats)
@@ -461,6 +462,7 @@ def scrape_url(
             proxy=proxy,
             solve_captcha=solve_captcha,
             engine=engine,
+            strategy_store=StrategyStore.default(),
         )
         result = await service.scrape(
             url=url,

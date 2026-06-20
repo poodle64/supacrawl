@@ -1,10 +1,17 @@
 """Pytest configuration and shared fixtures for supacrawl tests."""
 
+import os
 from pathlib import Path
 
 import pytest
 
-from supacrawl.benchmark.models import CaseMetrics, CaseResult
+# Keep per-domain strategy memory (#130) off by default in tests so a test that
+# drives the CLI/MCP scrape path cannot write to the developer's real
+# ~/.supacrawl/strategies. Tests that exercise the store pass an explicit
+# StrategyStore with a tmp dir, which bypasses this env default.
+os.environ.setdefault("SUPACRAWL_STRATEGY_MEMORY", "0")
+
+from supacrawl.benchmark.models import CaseMetrics, CaseResult  # noqa: E402
 
 
 def make_case_result(
