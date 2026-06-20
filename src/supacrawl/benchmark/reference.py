@@ -14,6 +14,7 @@ Typical usage::
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from types import TracebackType
@@ -22,6 +23,14 @@ from typing import Any
 from pydantic import BaseModel
 
 LOGGER = logging.getLogger(__name__)
+
+# Hydration-settle constants.
+# After initial navigation, the renderer polls the main-content container's
+# text length until two consecutive reads agree (content has stopped growing)
+# or the settle window expires.  This ensures JS-hydrated pages (e.g. the ATO
+# CMS, Next.js shell renders) are captured after their content is injected.
+_SETTLE_POLL_MS = 300
+_SETTLE_TIMEOUT_S = 5.0
 
 # JS that collects structural element counts in a single evaluate call to
 # avoid the per-call overhead of repeated page.evaluate round trips.
@@ -54,6 +63,39 @@ _MAIN_TEXT_JS = """
 """
 
 _FULL_TEXT_JS = "() => document.body.innerText || ''"
+
+
+async def _settle_content(page: Any) -> None:
+    """Wait until the main-content container's text length stops growing.
+
+    Polls the best available content container (same selector cascade as
+    ``_MAIN_TEXT_JS``) every ``_SETTLE_POLL_MS`` milliseconds and returns
+    when two consecutive reads return the same length, or when
+    ``_SETTLE_TIMEOUT_S`` elapses — whichever comes first.  Never raises;
+    a poll failure is silently skipped so one bad evaluate call cannot abort
+    the whole capture.
+
+    Args:
+        page: A Playwright ``Page`` instance to poll.
+    """
+    deadline = asyncio.get_event_loop().time() + _SETTLE_TIMEOUT_S
+    # Use -1 as "no reading yet"; 0 is a valid (empty) reading that should NOT
+    # trigger early exit — an empty container means hydration has not fired yet.
+    prev_len = -1
+
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            text: str = await page.evaluate(_MAIN_TEXT_JS)
+            current_len = len(text)
+        except Exception:
+            current_len = -1
+
+        if current_len > 0 and current_len == prev_len:
+            # Two consecutive non-empty reads agree: content has stabilised.
+            return
+
+        prev_len = current_len
+        await asyncio.sleep(_SETTLE_POLL_MS / 1000.0)
 
 
 class ReferenceCapture(BaseModel):
@@ -162,6 +204,12 @@ class ReferenceRenderer:
                     return ReferenceCapture(error=f"Navigation failed: {nav_err}")
 
             status = response.status if response else None
+
+            # Hydration-settle: poll the main-content container until its text
+            # length stabilises across two consecutive reads, or the settle
+            # window expires.  This captures JS-hydrated shells that inject
+            # content after the navigation event fires.
+            await _settle_content(page)
 
             # Extract text and structural counts
             main_text: str = await page.evaluate(_MAIN_TEXT_JS)

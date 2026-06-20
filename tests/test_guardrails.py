@@ -19,6 +19,7 @@ E2E_TEST_FILES: set[str] = {
     "test_scrape_service.py",  # E2E service tests
     "test_crawl_service.py",  # E2E service tests
     "test_map_service.py",  # E2E service tests
+    "test_benchmark_reference.py",  # One @pytest.mark.e2e test drives a real Playwright render
 }
 
 # Forbidden imports for unit tests

@@ -182,12 +182,26 @@ cases:
   # --- Government / tax law / RAG ----------------------------------------
   # The operator's headline use case: harvesting Australian tax law into a RAG
   # collection. These probe gov-CMS HTML (tables + prose) and a frozen gov PDF.
-  # They are scored=false (capability probes, not regression index): the
-  # independent reference renderer is vanilla headless Chromium and the ATO CMS
-  # serves it only a ~15-word shell (supacrawl's own stealth/JS escalation gets
-  # the full content), so reference-based coverage/F1 are not trustworthy here.
-  # The reliable signal lives in the per-case detail: expect_hit (anchors),
-  # PIPES/tables (structure), and word_spacing — a regression collapses those.
+  # They remain scored=false (capability probes, not regression index).
+  #
+  # Decision rationale (re-evaluated after reference.py hydration-settle
+  # hardening in #134): the reference renderer now polls the main-content
+  # container until its text length stabilises across two consecutive reads
+  # (bounded by a 5 s settle window) before extracting — which in principle
+  # should capture JS-hydrated content rather than the pre-hydration shell.
+  # However, the ATO CMS sits behind Akamai bot protection that drops
+  # vanilla headless Chromium to a 15-word shell regardless of how long we
+  # wait: the shell is what Akamai serves to unrecognised browsers, not a
+  # timing gap.  The settle wait is insufficient for bot-gated pages; the
+  # fix would require anti-bot escalation in the reference renderer (outside
+  # #134 scope).  Until a live bench confirms the renderer captures the real
+  # page, flipping these to scored would silently set a misleading baseline.
+  # Keeping scored=false is the conservative, honest call.
+  #
+  # What CAN be scored here: expect_hit (anchors), structure metrics
+  # (tables, headings), and word_spacing.  A regression collapses those.
+  # To re-score: run a live bench after adding anti-bot escalation to the
+  # reference renderer and confirm reference_words > 500 for both cases.
   - id: gov-ato-tax-rates
     url: https://www.ato.gov.au/tax-rates-and-codes/tax-rates-australian-residents
     category: gov

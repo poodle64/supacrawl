@@ -227,6 +227,62 @@ def _save_artifacts(
     return artifacts
 
 
+async def _scrape_pdf_with_retry(
+    *,
+    case: BenchCase,
+    provider: ScraperProvider,
+    pdf_semaphore: asyncio.Semaphore,
+) -> ProviderOutput:
+    """Scrape a PDF case, retrying once in isolation if the first attempt yields 0 words.
+
+    Large PDFs occasionally truncate to 0 words when scraped concurrently with
+    an active browser reference renderer — a resource-contention failure, not a
+    genuine extraction failure.  A single isolated retry (holding ``pdf_semaphore``
+    for the full duration so no other cases run alongside) recovers reliably.
+    A genuinely empty PDF is not masked: a 0-word result after the retry is
+    still recorded and logged as a warning.
+
+    Args:
+        case: The PDF benchmark case.
+        provider: Scraper provider to use.
+        pdf_semaphore: Single-slot semaphore that serialises PDF scrapes so they
+            do not contend with concurrent browser captures.
+
+    Returns:
+        ``ProviderOutput`` from the best attempt.
+    """
+    async with pdf_semaphore:
+        output = await provider.scrape(case.url, content_type=case.content_type)
+
+        if output.success and not _has_words(output):
+            LOGGER.warning(
+                "PDF case %s yielded 0 words on first attempt — retrying in isolation",
+                case.id,
+            )
+            retry = await provider.scrape(case.url, content_type=case.content_type)
+            if _has_words(retry):
+                return retry
+            LOGGER.warning(
+                "PDF case %s still 0 words after isolated retry — recording as-is",
+                case.id,
+            )
+            return retry
+
+        return output
+
+
+def _has_words(output: ProviderOutput) -> bool:
+    """Return True when ``output`` contains at least one word.
+
+    Args:
+        output: Provider output to inspect.
+
+    Returns:
+        ``True`` when the markdown is non-empty after stripping whitespace.
+    """
+    return bool((output.markdown or "").split())
+
+
 async def _run_case(
     *,
     case: BenchCase,
@@ -234,64 +290,83 @@ async def _run_case(
     renderer: ReferenceRenderer | None,
     judge: bool,
     semaphore: asyncio.Semaphore,
+    pdf_semaphore: asyncio.Semaphore,
     run_dir: Path,
 ) -> CaseResult:
     """Run the benchmark for a single case.
+
+    HTML cases acquire ``semaphore`` (shared across all case types) and run
+    reference capture concurrently.  PDF cases instead acquire ``pdf_semaphore``
+    (a single-slot semaphore) so large PDF extractions do not race against
+    active browser pages and cause spurious 0-word truncation.
 
     Args:
         case: The benchmark case to run.
         provider: Scraper provider to use.
         renderer: Browser reference renderer, or ``None`` (skips reference).
         judge: Whether to run the LLM judge.
-        semaphore: Concurrency guard.
+        semaphore: Concurrency guard for HTML cases and reference captures.
+        pdf_semaphore: Single-slot concurrency guard for PDF cases.
         run_dir: Directory for this run's artefacts.
 
     Returns:
         ``CaseResult`` with metrics and artefact paths.
     """
-    async with semaphore:
+    output: ProviderOutput
+    reference: ReferenceCapture | None
+
+    if case.content_type == "pdf":
         LOGGER.info("Running case: %s (%s)", case.id, case.url)
-
-        output = await provider.scrape(case.url, content_type=case.content_type)
-
-        reference: ReferenceCapture | None = None
-        if renderer and case.content_type == "html":
-            reference = await renderer.capture(case.url)
-
-        judge_score: float | None = None
-        judge_rationale: str | None = None
-        if judge and output.success:
-            ref_text = reference.main_text if (reference and not reference.error) else None
-            judge_score, judge_rationale = await judge_case(
-                case=case,
-                markdown=output.markdown,
-                reference_text=ref_text,
-            )
-
-        metrics = _score_case(
+        output = await _scrape_pdf_with_retry(
             case=case,
-            output=output,
-            reference=reference,
-            judge_score=judge_score,
-            judge_rationale=judge_rationale,
+            provider=provider,
+            pdf_semaphore=pdf_semaphore,
         )
+        reference = None
+    else:
+        async with semaphore:
+            LOGGER.info("Running case: %s (%s)", case.id, case.url)
 
-        artifacts = _save_artifacts(
+            output = await provider.scrape(case.url, content_type=case.content_type)
+
+            reference = None
+            if renderer and case.content_type == "html":
+                reference = await renderer.capture(case.url)
+
+    judge_score: float | None = None
+    judge_rationale: str | None = None
+    if judge and output.success:
+        ref_text = reference.main_text if (reference and not reference.error) else None
+        judge_score, judge_rationale = await judge_case(
             case=case,
-            output=output,
-            reference=reference,
-            run_dir=run_dir,
+            markdown=output.markdown,
+            reference_text=ref_text,
         )
 
-        return CaseResult(
-            case_id=case.id,
-            category=case.category,
-            url=case.url,
-            difficulty=case.difficulty,
-            scored=case.is_scored,
-            metrics=metrics,
-            artifacts=artifacts,
-        )
+    metrics = _score_case(
+        case=case,
+        output=output,
+        reference=reference,
+        judge_score=judge_score,
+        judge_rationale=judge_rationale,
+    )
+
+    artifacts = _save_artifacts(
+        case=case,
+        output=output,
+        reference=reference,
+        run_dir=run_dir,
+    )
+
+    return CaseResult(
+        case_id=case.id,
+        category=case.category,
+        url=case.url,
+        difficulty=case.difficulty,
+        scored=case.is_scored,
+        metrics=metrics,
+        artifacts=artifacts,
+    )
 
 
 def _build_aggregate(results: list[CaseResult]) -> RunAggregate:
@@ -381,6 +456,9 @@ async def run_benchmark(
 
     run_dir = base_dir / "runs" / run_id
     semaphore = asyncio.Semaphore(concurrency)
+    # Single-slot semaphore for PDF cases: ensures large PDF scrapes run one
+    # at a time and do not contend with concurrent browser reference captures.
+    pdf_semaphore = asyncio.Semaphore(1)
 
     provider: ScraperProvider = SupacrawlProvider()
     try:
@@ -392,6 +470,7 @@ async def run_benchmark(
                     renderer=renderer,
                     judge=judge,
                     semaphore=semaphore,
+                    pdf_semaphore=pdf_semaphore,
                     run_dir=run_dir,
                 )
                 for case in cases
