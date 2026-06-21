@@ -134,9 +134,9 @@ class LokiSink:
     """Push events to a Grafana Loki ``/loki/api/v1/push`` endpoint.
 
     Events are grouped into one stream per ``kind`` (scrape/search) under the
-    low-cardinality labels ``{job="supacrawl", kind="..."}``; every other field
-    (domain, verdict, score, latency, ...) travels in the JSON log line for
-    LogQL ``| json`` queries.
+    low-cardinality labels ``{job, kind="..."}`` (``job`` defaults to
+    ``"supacrawl"`` and is configurable); every other field (domain, verdict,
+    score, latency, ...) travels in the JSON log line for LogQL ``| json`` queries.
 
     Auth precedence (mirrors Grafana Alloy / Promtail):
 
@@ -156,6 +156,7 @@ class LokiSink:
         username: str | None = None,
         password: str | None = None,
         tenant: str | None = None,
+        job: str = "supacrawl",
         timeout: float = _PUSH_TIMEOUT_S,
     ) -> None:
         """Initialise the sink.
@@ -171,6 +172,8 @@ class LokiSink:
             tenant: Value for the ``X-Scope-OrgID`` header used by self-hosted
                 multi-tenant Loki. Leave ``None`` for single-tenant or Grafana
                 Cloud deployments.
+            job: Loki stream label ``job`` applied to every shipped event
+                (queried as ``{job=...}``). Defaults to ``supacrawl``.
             timeout: Per-push timeout in seconds.
         """
         self._url = url
@@ -178,6 +181,7 @@ class LokiSink:
         self._username = username
         self._password = password
         self._tenant = tenant
+        self._job = job
         self._timeout = timeout
         self._endpoint = _safe_endpoint(url)
         self._healthy = True
@@ -250,7 +254,7 @@ class LokiSink:
             streams.setdefault(kind, []).append([_event_ns(event), line])
         return {
             "streams": [
-                {"stream": {"job": "supacrawl", "kind": kind}, "values": sorted(values, key=lambda v: v[0])}
+                {"stream": {"job": self._job, "kind": kind}, "values": sorted(values, key=lambda v: v[0])}
                 for kind, values in streams.items()
             ]
         }
@@ -352,7 +356,7 @@ class LokiSink:
         probe_payload = {
             "streams": [
                 {
-                    "stream": {"job": "supacrawl", "kind": "diagnostic"},
+                    "stream": {"job": self._job, "kind": "diagnostic"},
                     "values": [
                         [
                             str(int(datetime.now(timezone.utc).timestamp() * 1_000_000_000)),
@@ -393,6 +397,7 @@ def build_remote_sink(
     username: str | None = None,
     password: str | None = None,
     tenant: str | None = None,
+    job: str = "supacrawl",
 ) -> RemoteSink | None:
     """Construct the configured remote sink, or ``None`` when no URL is set.
 
@@ -410,10 +415,11 @@ def build_remote_sink(
         username: Optional HTTP basic-auth username (e.g. Grafana Cloud user ID).
         password: Optional HTTP basic-auth password (e.g. Grafana Cloud API token).
         tenant: Optional ``X-Scope-OrgID`` value for multi-tenant Loki.
+        job: Loki stream label ``job`` for shipped events. Defaults to ``supacrawl``.
 
     Returns:
         A ``RemoteSink`` when a URL is configured, else ``None``.
     """
     if not url:
         return None
-    return LokiSink(url, token=token, username=username, password=password, tenant=tenant)
+    return LokiSink(url, token=token, username=username, password=password, tenant=tenant, job=job)

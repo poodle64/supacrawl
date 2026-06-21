@@ -308,6 +308,19 @@ class SupacrawlConfig(BaseModel):
             "Leave unset for single-tenant deployments or Grafana Cloud.",
         ),
     )
+    metrics_job: str = Field(
+        default="supacrawl",
+        title="Remote log job label",
+        json_schema_extra=_ui(
+            group="telemetry",
+            order=60,
+            widget="text",
+            visible_when={"metrics": True},
+            help="The Loki stream label 'job' applied to shipped events (queried as "
+            "{job=...}). Defaults to 'supacrawl'; change it to fit your Loki labelling "
+            "or to distinguish multiple instances. A dashboard must filter on the same value.",
+        ),
+    )
 
     # --- Cache -----------------------------------------------------------
     cache_dir: str | None = Field(

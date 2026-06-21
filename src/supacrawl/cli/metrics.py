@@ -140,6 +140,7 @@ def metrics_replay_remote(since_days: int | None, dry_run: bool) -> None:
         username=config.metrics_remote_username,
         password=secrets.metrics_password,
         tenant=config.metrics_remote_tenant,
+        job=config.metrics_job,
     )
 
     if sink is None:
@@ -227,6 +228,7 @@ def metrics_test_remote() -> None:
         username=config.metrics_remote_username,
         password=secrets.metrics_password,
         tenant=config.metrics_remote_tenant,
+        job=config.metrics_job,
     )
 
     if sink is None:

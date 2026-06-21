@@ -14,6 +14,7 @@ Turns the off-box telemetry path into a clean, point-at-any-Loki client with fir
 - **`supacrawl metrics test-remote`**: probes the configured endpoint with one diagnostic event and reports the real HTTP status, latency, and a hint on failure (401/403 → auth, 404 → wrong path, 5xx → server/proxy) — so a misconfigured endpoint surfaces immediately instead of being swallowed by the fail-open sink.
 - **`supacrawl metrics replay-remote`**: backfills the local `events.jsonl` to the configured Loki in batches, reporting the ingestion result. Loki de-duplicates identical events so re-running is safe; `--since` limits the window and `--dry-run` previews. (Loki may reject events older than its ingestion window, noted in the command help.)
 - **Read-only control-plane HTTP endpoints** (`supacrawl serve`) for a separate UI plane — the engine exposes state, the UI is a separate front-end: `GET /supacrawl/config/schema` (the `x-ui` settings schema), `GET /supacrawl/config` (effective non-secret values plus a secret _presence_ map, never values), and `GET /supacrawl/metrics/summary?days=N`. Writes still go through the config store and credentials stay environment-only.
+- **Configurable Loki `job` label**: `metrics_job` / `SUPACRAWL_METRICS_JOB` (default `supacrawl`) sets the stream label applied to shipped events (`{job=...}`), so a deployment can fit its own Loki labelling or distinguish multiple instances.
 
 ### Changed
 

@@ -658,3 +658,12 @@ def test_push_surfaces_first_failure_then_stays_quiet(caplog: pytest.LogCaptureF
         post.return_value = MagicMock(status_code=204, text="")
         sink.push(events)
         assert "recovered" in caplog.text
+
+
+def test_job_label_defaults_to_supacrawl_and_is_configurable() -> None:
+    """The Loki stream `job` label defaults to 'supacrawl' but can be overridden."""
+    events = [{"kind": "scrape", "ts": "2026-06-21T00:00:00+00:00"}]
+    default_payload = LokiSink("https://h/loki/api/v1/push")._build_payload(events)
+    assert default_payload["streams"][0]["stream"]["job"] == "supacrawl"
+    custom_payload = LokiSink("https://h/loki/api/v1/push", job="my-scraper")._build_payload(events)
+    assert custom_payload["streams"][0]["stream"]["job"] == "my-scraper"

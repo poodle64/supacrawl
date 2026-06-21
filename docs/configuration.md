@@ -59,6 +59,7 @@ Every setting is a standing default; a per-request flag or API argument still ov
 | telemetry | `metrics_remote_url` | `SUPACRAWL_METRICS_REMOTE_URL` | _(none)_ | Also ship each event to a remote log store (Loki push URL). See below. |
 | telemetry | `metrics_remote_username` | `SUPACRAWL_METRICS_REMOTE_USERNAME` | _(none)_ | HTTP basic-auth username for the remote endpoint (Grafana Cloud: the numeric user ID). |
 | telemetry | `metrics_remote_tenant` | `SUPACRAWL_METRICS_REMOTE_TENANT` | _(none)_ | `X-Scope-OrgID` for multi-tenant Loki. Leave unset for single-tenant or Grafana Cloud. |
+| telemetry | `metrics_job` | `SUPACRAWL_METRICS_JOB` | `supacrawl` | The Loki stream `job` label for shipped events (queried as `{job=...}`). Change it to fit your labelling or distinguish instances; your dashboard filters on the same value. |
 | cache | `cache_dir` | `SUPACRAWL_CACHE_DIR` | _(default location)_ | Where cached content lives. |
 
 ## Secrets
@@ -95,7 +96,7 @@ Basic auth takes precedence over a bearer token when both are set. The password 
 
 How it behaves:
 
-- **Loki push API.** The URL points straight at `/loki/api/v1/push`. Events are grouped into one stream per kind under the low-cardinality labels `{job="supacrawl", kind="scrape|search"}`; everything else (domain, verdict, score, latency) travels in the JSON line, queried with LogQL `| json`. (The shipper sits behind a small `RemoteSink` interface, so an OTLP backend can be added later without changing how you configure it.)
+- **Loki push API.** The URL points straight at `/loki/api/v1/push`. Events are grouped into one stream per kind under the low-cardinality labels `{job="supacrawl", kind="scrape|search"}` (the `job` value is set by `metrics_job` / `SUPACRAWL_METRICS_JOB`, default `supacrawl`); everything else (domain, verdict, score, latency) travels in the JSON line, queried with LogQL `| json`. (The shipper sits behind a small `RemoteSink` interface, so an OTLP backend can be added later without changing how you configure it.)
 - **Best-effort, fail-open.** A push has a short timeout and never raises — if the endpoint is slow or down, the event is dropped and the local JSONL is unaffected. A scrape never hangs or fails because of telemetry. Because failures are silent by design, run `supacrawl metrics test-remote` after configuring an endpoint: it sends one diagnostic event and reports the real HTTP status (so a 401 or a wrong path surfaces immediately instead of being swallowed).
 - **Batched.** Events are buffered and shipped in batches (and once more at process exit), not one HTTP call per scrape.
 - **Privacy carries over.** Only what the local log contains is shipped — domain-only unless you opt into `metrics_full_url`. Keep it domain-only if you scrape sensitive sites.

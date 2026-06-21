@@ -138,6 +138,7 @@ class MetricsSink:
             username=config.metrics_remote_username,
             password=secrets.metrics_password,
             tenant=config.metrics_remote_tenant,
+            job=config.metrics_job,
         )
         try:
             sink = cls(full_url=config.metrics_full_url, remote=remote)
