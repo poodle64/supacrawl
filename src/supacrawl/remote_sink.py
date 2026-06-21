@@ -180,6 +180,7 @@ class LokiSink:
         self._tenant = tenant
         self._timeout = timeout
         self._endpoint = _safe_endpoint(url)
+        self._healthy = True
 
     @property
     def endpoint(self) -> str:
@@ -265,11 +266,39 @@ class LokiSink:
         payload = self._build_payload(events)
         try:
             resp = self._post(payload)
+            # Loki's error body is safe to log (it does not echo credentials).
             if resp.status_code >= 400:
-                # Loki's error body is safe to log (it does not echo credentials).
-                LOGGER.debug("Loki push rejected (%s): %s", resp.status_code, resp.text[:200])
+                self._note_failure(f"HTTP {resp.status_code}: {resp.text[:120]}")
+            else:
+                self._note_success()
         except Exception as exc:  # noqa: BLE001 — fail-open: telemetry must never break a scrape
-            LOGGER.debug("Loki push failed: %s", exc)
+            self._note_failure(str(exc)[:160])
+
+    def _note_failure(self, detail: str) -> None:
+        """Surface a push failure once (then stay quiet) so silent drops are visible.
+
+        The fail-open design means a misconfigured endpoint would otherwise drop
+        every event without a trace. The first failure — and any later recovery —
+        is logged at WARNING/INFO with the endpoint and a pointer to the fix;
+        repeated failures stay at DEBUG to avoid log spam. No credential appears here.
+        """
+        if self._healthy:
+            LOGGER.warning(
+                "Loki telemetry push to %s is failing (%s). Events are recorded locally but "
+                "not shipped — check the URL and SUPACRAWL_METRICS_TOKEN, then run "
+                "`supacrawl metrics test-remote`.",
+                self._endpoint,
+                detail,
+            )
+        else:
+            LOGGER.debug("Loki push still failing (%s): %s", self._endpoint, detail)
+        self._healthy = False
+
+    def _note_success(self) -> None:
+        """Log recovery once when pushes start succeeding again after a failure."""
+        if not self._healthy:
+            LOGGER.info("Loki telemetry push to %s recovered.", self._endpoint)
+        self._healthy = True
 
     def send_checked(self, events: list[dict[str, Any]]) -> RemoteProbeResult:
         """POST a batch of events and return a structured result — never raises.

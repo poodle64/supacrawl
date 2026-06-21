@@ -620,3 +620,41 @@ def test_build_headers_warns_on_half_configured_basic_auth(caplog: pytest.LogCap
         headers = sink._build_headers()
     assert "Basic auth requires both" in caplog.text
     assert headers["Authorization"] == "Bearer tok"  # falls back to bearer
+
+
+def test_metrics_sink_flushes_on_time_interval(tmp_path: Path) -> None:
+    """Buffered events ship once the flush interval elapses, even below the count threshold.
+
+    This is what makes a long-running MCP server's telemetry visible promptly rather
+    than only every 25 events.
+    """
+    import supacrawl.telemetry as telemetry_mod
+
+    remote = _FakeRemote()
+    sink = MetricsSink(metrics_dir=tmp_path, remote=remote)
+    sink.record_search(query="q", provider="brave", result_count=1, success=True, latency_ms=1)
+    assert remote.batches == []  # below threshold and timer just reset → buffered
+    # Simulate the flush interval elapsing, then record again → time-based flush fires.
+    sink._last_flush -= telemetry_mod._REMOTE_FLUSH_INTERVAL_S + 1
+    sink.record_search(query="q", provider="brave", result_count=1, success=True, latency_ms=1)
+    assert len(remote.batches) == 1
+    assert len(remote.batches[0]) == 2  # both buffered events shipped together
+
+
+def test_push_surfaces_first_failure_then_stays_quiet(caplog: pytest.LogCaptureFixture) -> None:
+    """A silent fail-open drop is now visible: the first failure warns (with a fix hint),
+    repeats stay quiet, and recovery logs once."""
+    import logging
+
+    sink = LokiSink("https://host/loki/api/v1/push", token="tok")
+    events = [{"kind": "scrape", "ts": "2026-06-21T00:00:00+00:00"}]
+    with patch.object(sink, "_post") as post, caplog.at_level(logging.INFO):
+        post.return_value = MagicMock(status_code=401, text="no auth")
+        sink.push(events)
+        assert caplog.text.count("is failing") == 1  # first failure is visible
+        assert "SUPACRAWL_METRICS_TOKEN" in caplog.text  # points at the fix
+        sink.push(events)
+        assert caplog.text.count("is failing") == 1  # repeat failure does not spam
+        post.return_value = MagicMock(status_code=204, text="")
+        sink.push(events)
+        assert "recovered" in caplog.text

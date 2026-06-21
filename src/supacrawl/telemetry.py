@@ -33,6 +33,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -49,10 +50,12 @@ LOGGER = logging.getLogger(__name__)
 # Bump only on a breaking change to the event shape; readers branch on it.
 SCHEMA_VERSION = 1
 
-# Buffer this many events before pushing a batch to the remote sink (in addition
-# to a flush at process exit). Keeps a long-running MCP server shipping steadily
-# without a per-event round-trip; the local JSONL is written immediately either way.
+# Ship buffered events to the remote sink when EITHER this many accumulate OR this
+# many seconds have elapsed since the last flush (plus a final flush at process exit).
+# The time bound keeps a long-running MCP server's telemetry visible in near-real-time
+# instead of only in 25-event batches; the local JSONL is written immediately either way.
 _REMOTE_FLUSH_THRESHOLD = 25
+_REMOTE_FLUSH_INTERVAL_S = 5.0
 
 
 def _registrable_domain(url: str) -> str | None:
@@ -110,6 +113,7 @@ class MetricsSink:
         self._full_url = full_url
         self._remote = remote
         self._buffer: list[dict[str, Any]] = []
+        self._last_flush = time.monotonic()
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
@@ -157,7 +161,8 @@ class MetricsSink:
             LOGGER.debug("Failed to write telemetry event: %s", exc)
         if self._remote is not None:
             self._buffer.append(event)
-            if len(self._buffer) >= _REMOTE_FLUSH_THRESHOLD:
+            elapsed = time.monotonic() - self._last_flush
+            if len(self._buffer) >= _REMOTE_FLUSH_THRESHOLD or elapsed >= _REMOTE_FLUSH_INTERVAL_S:
                 self.flush()
 
     def flush(self) -> None:
@@ -171,6 +176,7 @@ class MetricsSink:
             return
         batch = self._buffer
         self._buffer = []
+        self._last_flush = time.monotonic()
         self._remote.push(batch)
 
     def record_scrape(self, *, url: str, result: "ScrapeResult", latency_ms: int) -> None:

@@ -19,6 +19,10 @@ Turns the off-box telemetry path into a clean, point-at-any-Loki client with fir
 
 - Remote telemetry is host-neutral and discoverable: neutral example placeholders (`https://loki.example.com/...`), a commented telemetry block in `.env.example`, and a README "Field Telemetry" section plus a "Control plane and the UI seam" guide in `docs/configuration.md` (with an auth matrix incl. Grafana Cloud). No Loki host is hardcoded.
 
+### Fixed
+
+- **Telemetry ships promptly and fails loudly.** A long-running MCP server now flushes buffered events on a ~5-second interval (not only in 25-event batches or at process exit), so a dashboard reading Loki updates in near-real-time. A failing remote push — e.g. a missing or stale `SUPACRAWL_METRICS_TOKEN` — now logs a clear `WARNING` pointing at the fix and `supacrawl metrics test-remote`, instead of being silently dropped by the fail-open path.
+
 ### Security
 
 - Credentials embedded in `metrics_remote_url` (`https://user:pass@host/...`) are stripped from the `GET /supacrawl/config` response and from every log line and probe result, so a secret in the URL is never echoed.
