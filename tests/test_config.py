@@ -187,3 +187,49 @@ def test_secrets_configured_reports_presence_not_values(monkeypatch: pytest.Monk
     assert configured["tavily_api_key"] is False
     # The presence map must never carry the value itself.
     assert "super-secret-value" not in str(configured)
+
+
+@pytest.mark.unit
+def test_metrics_password_reported_in_secrets_presence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """metrics_password presence is reported by configured(); its value never leaks."""
+    monkeypatch.setenv("SUPACRAWL_METRICS_PASSWORD", "hunter2")
+    monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
+    secrets = SupacrawlSecrets.from_env()
+    configured = secrets.configured()
+    assert configured["metrics_password"] is True
+    assert configured["metrics_token"] is False
+    assert "hunter2" not in str(configured)
+
+
+# ---------------------------------------------------------------------------
+# New telemetry config fields
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_metrics_remote_username_in_config_schema() -> None:
+    """metrics_remote_username must appear in the GUI schema with x-ui metadata."""
+    schema = config_schema()
+    assert "metrics_remote_username" in schema["properties"]
+    ui = schema["properties"]["metrics_remote_username"]["x-ui"]
+    assert ui["group"] == "telemetry"
+    assert ui["widget"] == "text"
+    assert "help" in ui
+
+
+@pytest.mark.unit
+def test_metrics_remote_tenant_in_config_schema() -> None:
+    """metrics_remote_tenant must appear in the GUI schema with x-ui metadata."""
+    schema = config_schema()
+    assert "metrics_remote_tenant" in schema["properties"]
+    ui = schema["properties"]["metrics_remote_tenant"]["x-ui"]
+    assert ui["group"] == "telemetry"
+    assert ui["widget"] == "text"
+
+
+@pytest.mark.unit
+def test_new_telemetry_fields_not_in_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """metrics_remote_username and metrics_remote_tenant live in config, not secrets."""
+    secret_fields = set(SupacrawlSecrets.model_fields)
+    assert "metrics_remote_username" not in secret_fields
+    assert "metrics_remote_tenant" not in secret_fields

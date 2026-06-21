@@ -127,7 +127,14 @@ class MetricsSink:
         config = load_config()
         if not config.metrics:
             return None
-        remote = build_remote_sink(config.metrics_remote_url, token=SupacrawlSecrets.from_env().metrics_token)
+        secrets = SupacrawlSecrets.from_env()
+        remote = build_remote_sink(
+            config.metrics_remote_url,
+            token=secrets.metrics_token,
+            username=config.metrics_remote_username,
+            password=secrets.metrics_password,
+            tenant=config.metrics_remote_tenant,
+        )
         try:
             sink = cls(full_url=config.metrics_full_url, remote=remote)
         except OSError as exc:  # unwritable home — degrade silently to no telemetry
@@ -136,6 +143,9 @@ class MetricsSink:
         if remote is not None:
             # Ship whatever is buffered when the process exits (covers the CLI,
             # where a run's events would otherwise never reach the threshold).
+            # This synchronous flush may block interpreter shutdown for up to the
+            # push timeout (a few seconds) if the endpoint is slow; consistent with
+            # the fail-open design, it never raises.
             atexit.register(sink.flush)
         return sink
 

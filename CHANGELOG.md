@@ -4,6 +4,25 @@ All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
+## [Unreleased]
+
+Turns the off-box telemetry path into a clean, point-at-any-Loki client with first-class setup and backfill tooling and a read-only control-plane API for a separate UI. Builds on the 2026.6.4 remote-shipping foundation. The `RemoteSink` seam, fail-open batching, low-cardinality labels, and environment-only credentials are unchanged; no Loki host is hardcoded anywhere.
+
+### Added
+
+- **Point at any Loki (full auth surface)**: the remote sink mirrors the Grafana Alloy / Promtail client — HTTP basic auth (`metrics_remote_username` + `SUPACRAWL_METRICS_PASSWORD`), an `X-Scope-OrgID` tenant header (`metrics_remote_tenant`), a bearer token (`SUPACRAWL_METRICS_TOKEN`), or no auth — so the same configuration reaches a local/LAN Loki, a gated proxy, a self-hosted multi-tenant Loki, or Grafana Cloud. Basic auth takes precedence over a bearer token when both are set; the password is environment-only and never written to the store. A `WARNING` is logged when only one half of a basic-auth pair is configured.
+- **`supacrawl metrics test-remote`**: probes the configured endpoint with one diagnostic event and reports the real HTTP status, latency, and a hint on failure (401/403 → auth, 404 → wrong path, 5xx → server/proxy) — so a misconfigured endpoint surfaces immediately instead of being swallowed by the fail-open sink.
+- **`supacrawl metrics replay-remote`**: backfills the local `events.jsonl` to the configured Loki in batches, reporting the ingestion result. Loki de-duplicates identical events so re-running is safe; `--since` limits the window and `--dry-run` previews. (Loki may reject events older than its ingestion window, noted in the command help.)
+- **Read-only control-plane HTTP endpoints** (`supacrawl serve`) for a separate UI plane — the engine exposes state, the UI is a separate front-end: `GET /supacrawl/config/schema` (the `x-ui` settings schema), `GET /supacrawl/config` (effective non-secret values plus a secret _presence_ map, never values), and `GET /supacrawl/metrics/summary?days=N`. Writes still go through the config store and credentials stay environment-only.
+
+### Changed
+
+- Remote telemetry is host-neutral and discoverable: neutral example placeholders (`https://loki.example.com/...`), a commented telemetry block in `.env.example`, and a README "Field Telemetry" section plus a "Control plane and the UI seam" guide in `docs/configuration.md` (with an auth matrix incl. Grafana Cloud). No Loki host is hardcoded.
+
+### Security
+
+- Credentials embedded in `metrics_remote_url` (`https://user:pass@host/...`) are stripped from the `GET /supacrawl/config` response and from every log line and probe result, so a secret in the URL is never echoed.
+
 ## [2026.6.4] - 2026-06-20
 
 Field telemetry can now be shipped off-box to a central log store, completing the path from a local scrape to a Grafana dashboard.

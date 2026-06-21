@@ -184,6 +184,8 @@ supacrawl metrics prune --keep-days 90
 
 Disable with `SUPACRAWL_METRICS=0`; log full URLs/queries with `SUPACRAWL_METRICS_FULL_URL=1`. The log is the data seam a separate dashboard would consume — the CLI emits, a GUI reads.
 
+**Ship to a central dashboard.** Point supacrawl at any [Grafana Loki](https://grafana.com/oss/loki/) — local, on a Docker network, or an external managed one (incl. Grafana Cloud): `supacrawl config set metrics_remote_url <url>`, then `supacrawl metrics test-remote` to confirm it works. Already-recorded events backfill with `supacrawl metrics replay-remote`. Auth mirrors the Promtail/Alloy client (none, bearer token, HTTP basic auth, or an `X-Scope-OrgID` tenant header). Events ship best-effort and fail-open — a slow or down endpoint never delays or fails a scrape — batched, with low-cardinality labels (`{job="supacrawl"}`) and all detail in the JSON line for LogQL `| json`. Where Loki lives is your business; nothing is hardcoded. See [the remote-store section in the configuration guide](docs/configuration.md#shipping-telemetry-to-a-remote-store-grafana--loki).
+
 ### Troubleshooting
 
 If scrapes return empty or minimal content, use `supacrawl_diagnose` to identify the cause (CDN protection, JS framework, bot detection). Common fixes: set `wait_for=3000` for JS-heavy sites (enables SPA stability polling), use `wait_until="load"` or `"networkidle"` if resources must fully load, enable `SUPACRAWL_STEALTH=true` for bot-protected sites, or try `only_main_content=false` if the wrong content is extracted.

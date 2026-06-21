@@ -1,20 +1,17 @@
-"""Native supacrawl endpoints (health, diagnose, summary)."""
+"""Native supacrawl endpoints (health, diagnose, summary, config, metrics)."""
 
 from __future__ import annotations
 
-import logging
 import time
 from importlib.metadata import version
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from supacrawl.api.auth import get_api_key
 from supacrawl.api.dependencies import get_services
 from supacrawl.mcp.api_client import SupacrawlServices
-
-logger = logging.getLogger("supacrawl.api.supacrawl")
 
 router = APIRouter(prefix="/supacrawl", tags=["supacrawl"])
 
@@ -54,6 +51,68 @@ async def health() -> dict[str, Any]:
         "status": "healthy",
         "uptime_seconds": uptime_seconds,
     }
+
+
+@router.get("/config/schema")
+async def config_schema_endpoint(
+    _api_key: str | None = Depends(get_api_key),
+) -> dict[str, Any]:
+    """Return the JSON schema a GUI uses to render the settings form.
+
+    The schema carries ``x-ui`` metadata on each field (group, widget hint,
+    help text, and optional conditional-visibility rules). No secret ever
+    appears here — credentials live only in ``SupacrawlSecrets`` and are
+    structurally absent from this schema.
+    """
+    from supacrawl.config import config_schema
+
+    return config_schema()
+
+
+@router.get("/config")
+async def config_effective(
+    _api_key: str | None = Depends(get_api_key),
+) -> dict[str, Any]:
+    """Return the effective non-secret config and a secrets presence map.
+
+    The ``config`` object mirrors ``supacrawl config get --json``: the resolved
+    effective values (default < stored TOML < environment). The ``secrets``
+    object reports only *whether* each credential is configured — never its
+    value — so a GUI can show "configured" / "not set" indicators safely.
+    """
+    from supacrawl.config import SupacrawlSecrets, load_config
+    from supacrawl.remote_sink import strip_url_credentials
+
+    config = load_config()
+    secrets = SupacrawlSecrets.from_env()
+    config_dump = config.model_dump(mode="json")
+    # Defence in depth: a user could embed basic-auth credentials in the push URL
+    # (https://user:pass@host/...). Strip them so the API never echoes a secret.
+    if config_dump.get("metrics_remote_url"):
+        config_dump["metrics_remote_url"] = strip_url_credentials(config_dump["metrics_remote_url"])
+    return {
+        "config": config_dump,
+        "secrets": secrets.configured(),
+    }
+
+
+@router.get("/metrics/summary")
+async def metrics_summary(
+    days: int = Query(default=7, ge=1, description="Summarise only events from the last N days."),
+    _api_key: str | None = Depends(get_api_key),
+) -> dict[str, Any]:
+    """Return a headline telemetry rollup for the last ``days`` days.
+
+    Aggregates the local ``events.jsonl`` into scrape/search counts, success
+    and escalation rates, verdict mix, and the top domains. A separate GUI
+    plane can consume this endpoint without touching the raw JSONL.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from supacrawl.telemetry import MetricsReader
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    return MetricsReader().summary(since=since)
 
 
 @router.post("/diagnose")

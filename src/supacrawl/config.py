@@ -283,6 +283,31 @@ class SupacrawlConfig(BaseModel):
             "Set the auth token via the SUPACRAWL_METRICS_TOKEN environment variable.",
         ),
     )
+    metrics_remote_username: str | None = Field(
+        default=None,
+        title="Remote log username",
+        json_schema_extra=_ui(
+            group="telemetry",
+            order=40,
+            widget="text",
+            visible_when={"metrics": True},
+            help="HTTP basic-auth username for the remote log endpoint. "
+            "For Grafana Cloud this is the numeric Loki/Logs user (instance) ID. "
+            "Set the corresponding password via SUPACRAWL_METRICS_PASSWORD.",
+        ),
+    )
+    metrics_remote_tenant: str | None = Field(
+        default=None,
+        title="Remote log tenant",
+        json_schema_extra=_ui(
+            group="telemetry",
+            order=50,
+            widget="text",
+            visible_when={"metrics": True},
+            help="Sets the X-Scope-OrgID header for self-hosted multi-tenant Loki. "
+            "Leave unset for single-tenant deployments or Grafana Cloud.",
+        ),
+    )
 
     # --- Cache -----------------------------------------------------------
     cache_dir: str | None = Field(
@@ -310,6 +335,7 @@ _SECRET_ENV: dict[str, str] = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "proxy": "SUPACRAWL_PROXY",
     "metrics_token": "SUPACRAWL_METRICS_TOKEN",
+    "metrics_password": "SUPACRAWL_METRICS_PASSWORD",
 }
 
 
@@ -333,6 +359,7 @@ class SupacrawlSecrets(BaseModel):
     anthropic_api_key: str | None = None
     proxy: str | None = None
     metrics_token: str | None = None
+    metrics_password: str | None = None
 
     @classmethod
     def from_env(cls) -> "SupacrawlSecrets":
