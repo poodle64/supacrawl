@@ -4,7 +4,7 @@ All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
-## [Unreleased]
+## [2026.6.5] - 2026-06-21
 
 Turns the off-box telemetry path into a clean, point-at-any-Loki client with first-class setup and backfill tooling and a read-only control-plane API for a separate UI. Builds on the 2026.6.4 remote-shipping foundation. The `RemoteSink` seam, fail-open batching, low-cardinality labels, and environment-only credentials are unchanged; no Loki host is hardcoded anywhere.
 
