@@ -609,7 +609,7 @@ class TestScrapeServicePdfRouting:
             service = ScrapeService(headless=True)
             try:
                 await service.scrape(
-                    url="https://example.gov.au/pacman/document/123",
+                    url="https://example.com/handbook/document/123",
                     formats=["markdown"],
                     parse_pdf="auto",
                 )

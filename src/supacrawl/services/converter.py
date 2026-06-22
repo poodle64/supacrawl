@@ -473,7 +473,6 @@ SITE_PREPROCESSORS: list[SitePreprocessor] = [
             "used instead of native <ol>/<li> elements, preserves hierarchy and nesting."
         ),
         examples=[
-            "example.gov.au",
             "Sites using CSS counters for list styling",
         ],
         detect=_detect_css_counter_lists,
@@ -487,7 +486,6 @@ SITE_PREPROCESSORS: list[SitePreprocessor] = [
             "related posts sections (.section-post-related)."
         ),
         examples=[
-            "consumer.example.gov.au",
             "Any WordPress site with BeTheme, Divi, Avada, or similar themes",
         ],
         detect=_detect_wordpress,

@@ -866,16 +866,16 @@ class TestCssCounterListsPreprocessing:
         assert "data-list-level" not in md
 
     def test_real_world_example(self):
-        """Test with real-world example from DASA documentation."""
+        """Test with a real-world example of CSS counter-based nested lists."""
         html = """
         <p class="Vol2_num_alpha_num" data-list-level="2" style="counter-set: item2 1;">
-            The Defence Aviation Safety Authority (DASA) must ensure...
+            The Standards Authority must ensure operational compliance...
         </p>
         <p class="Vol2_num_alpha_num" data-list-level="2">
-            Commanders and managers responsible for aviation activities...
+            Managers responsible for operational activities...
         </p>
         <p class="Vol2_num_alpha_num" data-list-level="3">
-            ensure compliance with the applicable DASR...
+            ensure compliance with the applicable standard...
         </p>
         <p class="Vol2_num_alpha_num" data-list-level="3">
             take all measures necessary to support...
@@ -891,8 +891,8 @@ class TestCssCounterListsPreprocessing:
         # Should have 2 root items
         root_lis = root_ol.find_all("li", recursive=False)
         assert len(root_lis) == 2
-        assert "DASA" in root_lis[0].get_text()
-        assert "Commanders" in root_lis[1].get_text()
+        assert "Standards Authority" in root_lis[0].get_text()
+        assert "Managers" in root_lis[1].get_text()
 
         # Second root item should have nested list
         nested_ol = root_lis[1].find("ol")
