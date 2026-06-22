@@ -714,6 +714,7 @@ class ScrapeService:
         wait_until: WaitUntilType | None = None,
         change_tracking_modes: list[str] | None = None,
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
+        expand_disclosures: bool = True,
         device: str | None = None,
         parse_pdf: Literal["fast", "auto", "ocr"] | None = "auto",
         engine: str | None = None,
@@ -755,6 +756,10 @@ class ScrapeService:
             expand_iframes: Iframe expansion mode. "none" strips all (legacy),
                     "same-origin" expands same-origin iframes inline (default),
                     "all" expands all non-blocked iframes including cross-origin.
+            expand_disclosures: When True (default), expand collapsed disclosure
+                    regions (aria-expanded="false" content controls, closed <details>)
+                    in the browser before capturing HTML. Navigation chrome is excluded.
+                    Set False to opt out.
             device: Playwright device name for mobile emulation (e.g. "iPhone 14",
                     "Pixel 7"). Sets viewport, user agent, device scale factor, and
                     touch support. Use ``--mobile`` as a shortcut for a default device.
@@ -1015,6 +1020,7 @@ class ScrapeService:
                 wait_until=wait_until,
                 change_tracking_modes=change_tracking_modes,
                 expand_iframes=(expand_iframes if retry_expand_iframes is None else retry_expand_iframes),  # type: ignore[arg-type]
+                expand_disclosures=expand_disclosures,
                 device=device,
                 parse_pdf=parse_pdf,
                 engine=engine,
@@ -1088,6 +1094,7 @@ class ScrapeService:
                     actions=actions,
                     wait_until=wait_until,
                     expand_iframes=expand_iframes,
+                    expand_disclosures=expand_disclosures,
                     device=device,
                     extra_headers=headers,
                     wait_for_selector=self._expect_selector(expect),

@@ -767,6 +767,7 @@ class BrowserManager:
         actions: list[Any] | None = None,
         wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] | None = None,
         expand_iframes: Literal["none", "same-origin", "all"] = "same-origin",
+        expand_disclosures: bool = True,
         device: str | None = None,
         extra_headers: dict[str, str] | None = None,
         wait_for_selector: str | None = None,
@@ -790,6 +791,11 @@ class BrowserManager:
             expand_iframes: Iframe expansion mode. "none" strips all iframes (legacy),
                 "same-origin" expands same-origin iframes inline (default),
                 "all" expands all non-blocked iframes including cross-origin.
+            expand_disclosures: When True (default), expand collapsed disclosure
+                regions (aria-expanded="false" content controls, closed <details>)
+                before capturing HTML, so click-gated content is faithfully captured.
+                Navigation chrome (nav menus, hamburgers) is excluded. Set False to
+                opt out, e.g. when testing the raw collapsed state.
             device: Playwright device name for mobile emulation (e.g. "iPhone 14",
                 "Pixel 7"). Sets viewport, user agent, device scale factor, and
                 touch support. Not supported with the Camoufox engine.
@@ -883,6 +889,15 @@ class BrowserManager:
                     await self._expand_iframes(page, mode=expand_iframes)
                 except Exception as exc:
                     LOGGER.debug("Iframe expansion failed for %s, continuing without it: %s", url, exc)
+
+            # Expand collapsed disclosure regions (aria-expanded controls, <details>)
+            # so click-gated content is captured faithfully. Best-effort: any failure
+            # falls back to the un-expanded page rather than crashing the fetch.
+            if expand_disclosures:
+                try:
+                    await self._expand_disclosures(page)
+                except Exception as exc:
+                    LOGGER.debug("Disclosure expansion failed for %s, continuing without it: %s", url, exc)
 
             # Extract HTML and title
             html = await page.content()
@@ -1020,6 +1035,103 @@ class BrowserManager:
         if expanded > 0:
             LOGGER.info("Expanded %d iframe(s) inline", expanded)
         return expanded
+
+    async def _expand_disclosures(self, page: "Page") -> int:
+        """Expand collapsed disclosure regions before content capture.
+
+        Clicks aria-expanded="false" content controls and opens closed <details>
+        elements so click-gated content is present in the captured HTML. Navigation
+        chrome (nav menus, hamburger buttons, dropdown navigations) is deliberately
+        excluded so site menus are not spuriously opened.
+
+        Idempotency: only collapsed controls are acted on; already-open controls
+        are skipped to avoid re-toggling them closed.
+
+        Args:
+            page: Playwright page with loaded content
+
+        Returns:
+            Number of disclosure regions expanded
+        """
+        # One querySelectorAll returning nothing is the entire cost on pages
+        # without collapsed disclosures — the JS short-circuits immediately.
+        js = """
+        async () => {
+            // Containers that mark navigation chrome; controls inside these are excluded.
+            function isNavChrome(el) {
+                let node = el;
+                while (node && node !== document.body) {
+                    const tag = (node.tagName || '').toLowerCase();
+                    if (tag === 'nav') return true;
+                    const role = (node.getAttribute && node.getAttribute('role') || '').toLowerCase();
+                    if (role === 'navigation' || role === 'menubar' || role === 'menu') return true;
+                    const cls = (node.className && typeof node.className === 'string'
+                        ? node.className : '').toLowerCase();
+                    // Common nav-chrome class signals (hamburger, site-nav, main-menu, etc.)
+                    if (/\\b(hamburger|mobile-nav|site-nav|main-nav|primary-nav|mega-menu|dropdown-nav|nav-menu|menu-toggle|topnav|global-nav|utility-nav|nav__toggle|breadcrumb|toc-toggle)\\b/.test(cls)) return true;
+                    node = node.parentElement;
+                }
+                return false;
+            }
+
+            let expanded = 0;
+            let clickCount = 0;
+
+            // 1. Open closed <details> elements by setting the open attribute directly.
+            //    Clicking would work but attribute-set is safer (no scroll jump, no event side-effects).
+            //    <details> are opened synchronously — no settle wait needed for this path.
+            const details = document.querySelectorAll('details:not([open])');
+            for (const d of details) {
+                if (isNavChrome(d)) continue;
+                d.setAttribute('open', '');
+                expanded++;
+            }
+
+            // 2. Click collapsed aria-expanded="false" content disclosure controls.
+            //    Require an aria-controls attribute (non-empty): this is the ARIA spec
+            //    signal for a genuine disclosure widget (accordion, collapsible panel).
+            //    The target panel need not already exist — some sites inject
+            //    the panel into the DOM on first click, so getElementById pre-click returns
+            //    null even though the panel is coming. The attribute presence is the signal.
+            //    Bare action buttons (sort, filter, submit, load-more) that happen to set
+            //    aria-expanded as a state flag do not carry aria-controls, so they are
+            //    safely excluded without needing a class-pattern heuristic.
+            //    <summary> elements are excluded: they only appear inside <details>, which
+            //    are already handled by the setAttribute('open') pass above.
+            const collapsed = document.querySelectorAll('[aria-expanded="false"]');
+            for (const el of collapsed) {
+                if (isNavChrome(el)) continue;
+                // Skip if it is inside a <details> we already opened above
+                if (el.closest && el.closest('details')) continue;
+                // Require the aria-controls attribute (non-empty) as the disclosure signal.
+                // We do NOT require the target to exist yet — panels may be injected on click.
+                const controlsId = el.getAttribute('aria-controls');
+                if (!controlsId) continue;
+                // Skip form-submission and reset buttons regardless of aria-controls
+                const elType = (el.getAttribute('type') || '').toLowerCase();
+                if (elType === 'submit' || elType === 'reset') continue;
+                try {
+                    el.click();
+                    clickCount++;
+                    expanded++;
+                } catch (e) {
+                    // Ignore individual click failures; we are best-effort
+                }
+            }
+
+            // Only pay the settle wait when at least one JS click occurred.
+            // <details> opens are synchronous attribute mutations; no wait needed for them.
+            if (clickCount > 0) {
+                await new Promise(r => setTimeout(r, 1200));
+            }
+
+            return expanded;
+        }
+        """
+        count: int = await page.evaluate(js)
+        if count > 0:
+            LOGGER.info("Expanded %d disclosure region(s)", count)
+        return count
 
     async def extract_links(
         self,

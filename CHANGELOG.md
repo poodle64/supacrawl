@@ -4,6 +4,14 @@ All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
+## [2026.6.6] - 2026-06-23
+
+Faithfully captures click-gated content. JS accordions and other collapsed disclosure regions are now expanded in the browser render path before the page is captured, so content that only appears when a toggle is clicked (for example a collapsed accordion panel) is no longer silently missed. This is a faithful-rendering default that cascades to every consumer; no per-site configuration or caller-supplied actions are needed.
+
+### Added
+
+- **Automatic disclosure expansion (`expand_disclosures`, default on)**: before capturing HTML in the browser path, supacrawl opens closed `<details>` elements and clicks collapsed `aria-expanded="false"` content controls (those carrying a non-empty `aria-controls`, the ARIA disclosure signal), revealing click-gated content. Navigation chrome (nav menus, hamburgers, breadcrumb/ToC toggles) is excluded, already-open controls are left untouched, and form submit/reset buttons are never clicked. Best-effort: any failure falls back to the un-expanded page. The ~1.2s settle wait is incurred only when a real click occurs, so pages with only `<details>` (or none) pay near zero. Opt out per call with `expand_disclosures=False`.
+
 ## [2026.6.5] - 2026-06-21
 
 Turns the off-box telemetry path into a clean, point-at-any-Loki client with first-class setup and backfill tooling and a read-only control-plane API for a separate UI. Builds on the 2026.6.4 remote-shipping foundation. The `RemoteSink` seam, fail-open batching, low-cardinality labels, and environment-only credentials are unchanged; no Loki host is hardcoded anywhere.
