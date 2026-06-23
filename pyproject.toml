@@ -45,6 +45,7 @@ dev = [
   "pre-commit>=4.5.1",
   "pytest>=9.0.2",
   "pytest-asyncio>=1.3.0",
+  "pytest-timeout>=2.4.0",
   "pytest-xdist>=3.8.0",
   "ruff>=0.15.4",
   "types-aiofiles>=25.1.0.20251011",
@@ -94,6 +95,14 @@ markers = [
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Per-test timeout backstop: a hung test (e.g. a live Playwright browser that
+# never returns) fails after 120s instead of blocking the whole run forever.
+# Generous enough that legitimately-slow integration/e2e browser tests pass;
+# "thread" method is required to interrupt blocking calls inside Playwright/async
+# (the default "signal" method does not). Override per test with
+# @pytest.mark.timeout(N).
+timeout = 120
+timeout_method = "thread"
 filterwarnings = [
     "ignore:The 'text' argument to find\\(\\)-type methods is deprecated:DeprecationWarning:bs4.element",
 ]
