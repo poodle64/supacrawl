@@ -126,4 +126,4 @@ __all__ = [
     "remove_parameters_from_signature",
 ]
 
-__version__ = "2026.5.2"
+__version__ = "2026.6.4"

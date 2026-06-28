@@ -19,17 +19,24 @@ import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from fastmcp.exceptions import FastMCPError
+
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-class MCPError(Exception):
+class MCPError(FastMCPError):
     """
     Base exception for all MCP errors.
 
     All MCP exceptions should inherit from this class to provide
     consistent error handling and context.
+
+    Inherits from ``fastmcp.exceptions.FastMCPError`` so the typed exception
+    passes through FastMCP's tool runner verbatim instead of being masked as
+    a generic ``Error calling tool '<name>'`` message when
+    ``mask_error_details=True``.
 
     Attributes:
         message: Human-readable error message
@@ -362,7 +369,7 @@ def translate_exceptions(
 
     Wrap a sync or async method so any exception in ``catch`` becomes
     an instance of ``raise_as``. Used at the boundary between shared
-    infrastructure (e.g. :class:`mcp_common.executors.SSHConnection`)
+    infrastructure (e.g. :class:`mcp_common.devices.transports.SSHConnection`)
     and a server's own exception hierarchy, replacing per-method
     try/except wrappers.
 

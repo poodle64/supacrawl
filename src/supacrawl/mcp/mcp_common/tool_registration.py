@@ -41,6 +41,63 @@ def remove_parameters_from_signature(
     return sig.replace(parameters=params)
 
 
+def resolve_signature_annotations(
+    func: Callable[..., Any],
+    sig: inspect.Signature,
+    *,
+    skip: tuple[str, ...] = (),
+) -> inspect.Signature:
+    """Resolve any stringised (PEP 563) annotations on a signature to live objects.
+
+    Tool modules use ``from __future__ import annotations``, so
+    ``inspect.signature`` returns each annotation as a *string*
+    (e.g. ``"Annotated[bool, Field(...)]"``). The wrapper this module builds
+    carries those strings into ``wrapper.__annotations__``; when the wrapper is
+    later re-wrapped (e.g. by a per-server error-translation decorator using
+    ``functools.wraps``), the strings have to be re-evaluated by Pydantic against
+    whatever ``__globals__`` the outer function happens to have. If that
+    namespace lacks ``Annotated``/``Field``, schema generation raises
+    ``KeyError`` and tool registration fails.
+
+    Resolving each annotation here, against the *original function's* module
+    globals (the namespace the author actually wrote the annotations in), makes
+    the wrapper carry concrete annotation objects that no longer depend on any
+    downstream ``__globals__``. This also lets the per-parameter normalisation
+    transforms below operate on real types rather than no-op on strings.
+
+    Parameters in ``skip`` (typically injected dependencies removed from the
+    public signature) are left untouched, so a ``TYPE_CHECKING``-only client
+    annotation (e.g. ``api_client: PayappsClient``) never has to resolve.
+
+    Args:
+        func: The function the signature was derived from; its ``__globals__``
+            is the resolution namespace.
+        sig: The signature whose parameter annotations should be resolved.
+        skip: Parameter names to leave unresolved (injected dependencies).
+
+    Returns:
+        A signature with string parameter annotations replaced by live objects.
+        Annotations that are already objects, or that fail to resolve, are left
+        as-is.
+    """
+    func_globals = getattr(func, "__globals__", {})
+    resolved_params = []
+    for param in sig.parameters.values():
+        annotation = param.annotation
+        if param.name in skip or not isinstance(annotation, str):
+            resolved_params.append(param)
+            continue
+        try:
+            resolved = eval(annotation, func_globals)  # noqa: S307 — author-controlled annotation, not user input
+        except NameError, AttributeError, SyntaxError:
+            # Leave unresolved (e.g. a forward ref to a name not importable at
+            # runtime); downstream handling treats it as a passthrough.
+            resolved_params.append(param)
+            continue
+        resolved_params.append(param.replace(annotation=resolved))
+    return sig.replace(parameters=resolved_params)
+
+
 def create_tool_wrapper(
     endpoint_func: Callable[..., Awaitable[Any]],
     api_client: Any,
@@ -97,6 +154,16 @@ def create_tool_wrapper(
     # Add custom parameters to remove
     if remove_params:
         params_to_remove.extend(remove_params)
+
+    # Resolve stringised (PEP 563) annotations to live objects before building
+    # the wrapper. Tool modules use `from __future__ import annotations`, so the
+    # signature's annotations arrive as strings; carrying those strings into the
+    # wrapper makes schema generation depend on the wrapper's (or a re-wrapper's)
+    # __globals__ at TypeAdapter-build time. Injected dependency params are
+    # skipped because their annotation may be a TYPE_CHECKING-only import that
+    # cannot resolve at runtime (and they are removed from the public signature
+    # anyway). See resolve_signature_annotations for the full rationale.
+    original_sig = resolve_signature_annotations(endpoint_func, original_sig, skip=tuple(params_to_remove))
 
     # Create new signature without dependency parameters
     new_sig = remove_parameters_from_signature(original_sig, *params_to_remove)
@@ -521,6 +588,53 @@ def create_tool_wrapper(
     # Set signature and annotations (these aren't handled by update_wrapper)
     # CRITICAL: Set signature BEFORE FastMCP inspects the function
     wrapper.__signature__ = new_sig  # type: ignore[attr-defined]
-    wrapper.__annotations__ = new_annotations
+    _set_authoritative_annotations(wrapper, new_annotations)
 
     return wrapper
+
+
+def _set_authoritative_annotations(func: Callable[..., Any], annotations: dict[str, Any]) -> None:
+    """Make ``annotations`` the authoritative annotation source for ``func``.
+
+    On Python 3.14 (PEP 749) a function's ``__annotations__`` is computed lazily
+    from ``__annotate__`` when one is present. Assigning ``__annotations__`` is
+    not enough on its own once any later step copies an ``__annotate__`` over the
+    top, so the stored ``__annotate__`` is cleared here. With ``__annotate__``
+    cleared, ``__annotations__`` is the single source of truth that Pydantic's
+    ``get_function_type_hints`` reads when building the tool schema.
+    """
+    func.__annotations__ = annotations
+    # PEP 749: drop any annotate callable so the explicit dict above wins.
+    if getattr(func, "__annotate__", None) is not None:
+        func.__annotate__ = None  # type: ignore[attr-defined]
+
+
+def preserve_tool_metadata(
+    wrapper: Callable[..., Any],
+    wrapped: Callable[..., Any],
+) -> None:
+    """Copy the FastMCP-introspected metadata from ``wrapped`` onto ``wrapper``.
+
+    A per-server decorator that re-wraps a ``create_tool_wrapper`` result (e.g. an
+    error-translation layer) must carry forward the metadata FastMCP and Pydantic
+    read to build the tool schema: the ``__signature__`` (which lists the tool's
+    parameters) and the ``__annotations__`` (which give each parameter its type).
+
+    ``functools.wraps`` is not sufficient for either:
+
+    - ``__signature__`` was never in ``WRAPPER_ASSIGNMENTS``.
+    - ``__annotations__`` was in ``WRAPPER_ASSIGNMENTS`` up to Python 3.13, but
+      Python 3.14 (PEP 749) replaced it with ``__annotate__``. A bare
+      ``*args/**kwargs`` re-wrapper has an empty ``__annotate__``, so ``wraps``
+      now leaves the re-wrapper with no parameter annotations while its copied
+      ``__signature__`` still lists the parameters. Pydantic then raises
+      ``KeyError: '<param>'`` (signature lists the param, type-hints do not).
+
+    Call this AFTER ``functools.wraps`` has run on ``wrapper``. The annotations
+    are resolved to live objects by ``create_tool_wrapper``, so they no longer
+    depend on the re-wrapper's own ``__globals__`` to evaluate.
+    """
+    signature = getattr(wrapped, "__signature__", None)
+    if signature is not None:
+        wrapper.__signature__ = signature  # type: ignore[attr-defined]
+    _set_authoritative_annotations(wrapper, dict(getattr(wrapped, "__annotations__", {})))
