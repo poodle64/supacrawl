@@ -18,10 +18,10 @@ jobs:
   lint:
     runs-on: [self-hosted, atlas]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up uv (and Python 3.14)
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: '3.14'
           enable-cache: true
@@ -35,13 +35,19 @@ jobs:
       - name: Format check
         run: uv run ruff format --check src/ tests/
 
+      - name: Notify failure (ntfy infra)
+        if: failure() && github.event_name != 'pull_request'
+        uses: poodle64/master-project/.github/actions/ntfy-failure@main
+        with:
+          title: 'supacrawl: lint failed'
+
   typecheck:
     runs-on: [self-hosted, atlas]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up uv (and Python 3.14)
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: '3.14'
           enable-cache: true
@@ -52,13 +58,19 @@ jobs:
       - name: Type check
         run: uv run mypy src/ tests/
 
+      - name: Notify failure (ntfy infra)
+        if: failure() && github.event_name != 'pull_request'
+        uses: poodle64/master-project/.github/actions/ntfy-failure@main
+        with:
+          title: 'supacrawl: typecheck failed'
+
   test:
     runs-on: [self-hosted, atlas]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up uv (and Python 3.14)
-        uses: astral-sh/setup-uv@v8.2.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: '3.14'
           enable-cache: true
@@ -71,3 +83,9 @@ jobs:
 
       - name: Test
         run: uv run pytest -m "not e2e"
+
+      - name: Notify failure (ntfy infra)
+        if: failure() && github.event_name != 'pull_request'
+        uses: poodle64/master-project/.github/actions/ntfy-failure@main
+        with:
+          title: 'supacrawl: test failed'
