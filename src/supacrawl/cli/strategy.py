@@ -22,8 +22,8 @@ def strategy() -> None:
 
     Examples:
         supacrawl strategy list            # Every learned domain and its champion
-        supacrawl strategy show example-airline.com # The learned strategy for one domain
-        supacrawl strategy forget example-airline.com
+        supacrawl strategy show qantas.com # The learned strategy for one domain
+        supacrawl strategy forget qantas.com
         supacrawl strategy clear           # Forget everything
     """
 
@@ -54,7 +54,7 @@ def strategy_list() -> None:
 @strategy.command("show")
 @click.argument("domain")
 def strategy_show(domain: str) -> None:
-    """Show the learned strategy for a single DOMAIN (e.g. example-airline.com)."""
+    """Show the learned strategy for a single DOMAIN (e.g. qantas.com)."""
     store = StrategyStore()
     s = store.get(domain.lower())
     if s is None:

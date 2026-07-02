@@ -458,10 +458,10 @@ supacrawl strategy COMMAND
 $ supacrawl strategy list
 # Show all learned domains
 
-$ supacrawl strategy show example-airline.com
+$ supacrawl strategy show qantas.com
 # Strategy details: engine, wait_for, quality score, sample count
 
-$ supacrawl strategy forget example-airline.com
+$ supacrawl strategy forget qantas.com
 # Reset strategy for one domain
 
 $ supacrawl strategy clear

@@ -154,14 +154,14 @@ async def test_strategy_memory_seeds_the_ladder(monkeypatch: pytest.MonkeyPatch,
     store = StrategyStore(strategy_dir=tmp_path, explore_rate=0.0)
 
     r1 = await ScrapeService(strategy_store=store).scrape(
-        "https://airline.example/a", formats=["markdown"], http_first=False
+        "https://qantas.example/a", formats=["markdown"], http_first=False
     )
     assert r1.success is True
     assert len(created) >= 2  # the first hit had to escalate to find the winner
 
     created.clear()
     r2 = await ScrapeService(strategy_store=store).scrape(
-        "https://airline.example/b", formats=["markdown"], http_first=False
+        "https://qantas.example/b", formats=["markdown"], http_first=False
     )
     assert r2.success is True
     assert len(created) == 1  # seeded straight to the champion — no ladder walk

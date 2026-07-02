@@ -82,11 +82,6 @@ logs/
 # ============================================================================
 docs/product/
 
-# Internal experiential-loop dev notes (name the operator's real test matrix;
-# kept local to improve the tool, never committed to the public repo)
-docs/development/improvement-lessons.md
-.claude/commands/improve-supacrawl.md
-
 # ============================================================================
 # Project-Specific
 # ============================================================================

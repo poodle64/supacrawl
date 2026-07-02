@@ -33,24 +33,24 @@ def _store(tmp_path) -> StrategyStore:
 
 
 def test_registrable_domain_strips_www() -> None:
-    assert registrable_domain("https://www.example-airline.com/au/en") == "example-airline.com"
+    assert registrable_domain("https://www.qantas.com/au/en") == "qantas.com"
     assert registrable_domain("https://shop.example.co.uk/x") == "shop.example.co.uk"
     assert registrable_domain("not a url") is None
 
 
 def test_records_clean_winner_and_seeds_it_back(tmp_path) -> None:
     store = _store(tmp_path)
-    assert store.seed("example-airline.com") is None  # cold
+    assert store.seed("qantas.com") is None  # cold
 
     store.record(
-        "example-airline.com",
+        "qantas.com",
         engine="camoufox",
         stealth=False,
         wait_for=5000,
         only_main_content=True,
         result=_result(QualityVerdict.OK, 88),
     )
-    choice = store.seed("example-airline.com")
+    choice = store.seed("qantas.com")
     assert choice is not None
     assert choice.engine == "camoufox"
     assert choice.wait_for == 5000

@@ -39,6 +39,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _ENV_PREFIX = "SUPACRAWL_"
 _DEFAULT_CONFIG_PATH = Path("~/.supacrawl/config.toml")
+# Per-operator secrets file loaded as a fallback when the env var is absent.
+# The eventual home for this secret is the Portcullis broker (the household is
+# migrating credentials off flat env files), but this dotenv fallback removes
+# the silent-failure mode in non-interactive launch contexts (e.g. the VSCodium
+# Claude Code extension) without moving the secret now.
+_METRICS_ENV_FILE = Path("~/.supacrawl/metrics.env")
 
 
 def _ui(
@@ -335,6 +341,42 @@ class SupacrawlConfig(BaseModel):
     )
 
 
+def _read_dotenv_file(path: Path) -> dict[str, str]:
+    """Parse a KEY=VALUE dotenv file into a dict, silently ignoring errors.
+
+    Follows the minimal subset of dotenv conventions present in the household
+    secrets files: ``KEY=VALUE`` lines, ``#``-comment lines, blank lines.
+    Values are stripped of leading/trailing whitespace and optional surrounding
+    quotes (single or double). The file is optional; a missing or unreadable
+    file returns an empty dict so callers never fail on absence.
+
+    Args:
+        path: Path to the dotenv file (``~`` is expanded).
+
+    Returns:
+        A dict mapping variable names to their string values.
+    """
+    expanded = path.expanduser()
+    if not expanded.exists():
+        return {}
+    result: dict[str, str] = {}
+    try:
+        for line in expanded.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, raw_val = line.partition("=")
+            key = key.strip()
+            val = raw_val.strip()
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                val = val[1:-1]
+            if key:
+                result[key] = val
+    except OSError as exc:
+        logging.getLogger(__name__).debug("Could not read %s: %s", expanded, exc)
+    return result
+
+
 # The credential names supacrawl honours, mapped to their environment variable.
 # Kept out of SupacrawlConfig so they never enter the GUI schema or the store.
 _SECRET_ENV: dict[str, str] = {
@@ -375,9 +417,26 @@ class SupacrawlSecrets(BaseModel):
     metrics_password: str | None = None
 
     @classmethod
-    def from_env(cls) -> "SupacrawlSecrets":
-        """Build from the environment using the canonical variable names."""
-        return cls(**{field: os.environ.get(env) for field, env in _SECRET_ENV.items()})
+    def from_env(cls, *, dotenv_file: Path | None = _METRICS_ENV_FILE) -> "SupacrawlSecrets":
+        """Build from the environment, falling back to a dotenv file for absent vars.
+
+        Precedence (highest to lowest):
+          1. Process environment (``os.environ``) — always wins.
+          2. ``dotenv_file`` (``~/.supacrawl/metrics.env`` by default) — used only
+             when the variable is absent from the process env.  Absent file = silent
+             no-op; the server starts cleanly whether or not the file exists.
+
+        This fallback exists because the VSCodium Claude Code extension launches MCP
+        servers without inheriting the interactive-shell environment that sources
+        ``metrics.env``, causing telemetry pushes to be silently rejected by the
+        bearer gate.  Reading the file directly removes that dependency.
+
+        Args:
+            dotenv_file: Path to the dotenv fallback file. ``None`` disables file
+                loading (useful in tests that want pure-env isolation).
+        """
+        file_vals: dict[str, str] = _read_dotenv_file(dotenv_file) if dotenv_file is not None else {}
+        return cls(**{field: os.environ.get(env) or file_vals.get(env) or None for field, env in _SECRET_ENV.items()})
 
     def configured(self) -> dict[str, bool]:
         """Report which secrets are set, by name, without exposing any value.

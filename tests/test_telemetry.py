@@ -32,14 +32,14 @@ def _scrape_result(
 
 def test_scrape_event_has_versioned_schema_and_domain_only(tmp_path) -> None:
     sink = MetricsSink(metrics_dir=tmp_path)
-    sink.record_scrape(url="https://www.example-airline.com/au/en/flight", result=_scrape_result(), latency_ms=1234)
+    sink.record_scrape(url="https://www.qantas.com/au/en/flight", result=_scrape_result(), latency_ms=1234)
 
     lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
     assert len(lines) == 1
     event = json.loads(lines[0])
     assert event["schema"] == SCHEMA_VERSION
     assert event["kind"] == "scrape"
-    assert event["domain"] == "example-airline.com"  # www stripped, path dropped
+    assert event["domain"] == "qantas.com"  # www stripped, path dropped
     assert "url" not in event  # full URL not logged by default
     assert event["verdict"] == "ok"
     assert event["score"] == 85

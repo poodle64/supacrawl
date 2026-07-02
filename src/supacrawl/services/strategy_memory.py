@@ -1,7 +1,7 @@
 """Per-domain strategy memory — supacrawl remembers what worked (#130).
 
 A stateless crawler re-derives the right engine/wait/stealth for a domain on
-every hit. supacrawl is local-first, so it can remember: the first example-airline.com
+every hit. supacrawl is local-first, so it can remember: the first qantas.com
 scrape that succeeds with ``camoufox + ~5s wait`` seeds the next one there,
 short-circuiting the escalation ladder. Over weeks of field use the defaults
 quietly become excellent for the exact sites the user visits — the moat a
@@ -97,7 +97,7 @@ def registrable_domain(url: str) -> str | None:
         url: The URL being scraped.
 
     Returns:
-        The host key (e.g. ``"example-airline.com"``), or None when there is no host.
+        The host key (e.g. ``"qantas.com"``), or None when there is no host.
     """
     host = (urlparse(url).hostname or "").lower()
     if not host:
