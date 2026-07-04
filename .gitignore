@@ -10,7 +10,13 @@ desktop.ini
 # Editor / IDE
 # ============================================================================
 .idea/
-.vscode/
+!.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
 *.swp
 *.swo
 *~
