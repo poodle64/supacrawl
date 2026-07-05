@@ -107,6 +107,19 @@ jobs:
 
   test:
     runs-on: [self-hosted, atlas]
+    # Non-e2e tests still drive a real headless Chromium (tests/test_browser.py),
+    # and `playwright install --with-deps` needs sudo the NixOS runner doesn't
+    # have (supacrawl#147). Run the job inside the official Playwright image,
+    # which bakes in Chromium + its OS deps for the pinned playwright version
+    # below — bump both together if the `playwright` dependency in
+    # pyproject.toml/uv.lock ever moves. volumes re-expose the host ntfy token
+    # paths the failure-notify step below reads (not auto-mounted into job
+    # containers).
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.60.0-noble
+      volumes:
+        - /etc/ntfy/tokens:/etc/ntfy/tokens:ro
+        - /run/secrets/ntfy:/run/secrets/ntfy:ro
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -118,9 +131,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --all-extras
-
-      - name: Install Playwright browsers
-        run: uv run playwright install --with-deps chromium
 
       - name: Test
         run: uv run pytest -m "not e2e"
