@@ -106,20 +106,16 @@ jobs:
             || echo "::warning::ntfy-failure: notification POST failed"
 
   test:
-    runs-on: [self-hosted, atlas]
-    # Non-e2e tests still drive a real headless Chromium (tests/test_browser.py),
-    # and `playwright install --with-deps` needs sudo the NixOS runner doesn't
-    # have (supacrawl#147). Run the job inside the official Playwright image,
-    # which bakes in Chromium + its OS deps for the pinned playwright version
-    # below — bump both together if the `playwright` dependency in
-    # pyproject.toml/uv.lock ever moves. volumes re-expose the host ntfy token
-    # paths the failure-notify step below reads (not auto-mounted into job
-    # containers).
-    container:
-      image: mcr.microsoft.com/playwright/python:v1.60.0-noble
-      volumes:
-        - /etc/ntfy/tokens:/etc/ntfy/tokens:ro
-        - /run/secrets/ntfy:/run/secrets/ntfy:ro
+    name: test
+    # by-exception (2026-07-05): tests/test_browser.py drives a real headless
+    # Chromium outside the e2e marker, and `playwright install --with-deps`
+    # needs apt+sudo the NixOS atlas runner doesn't have (supacrawl#147). A
+    # containerised self-hosted job was tried first but the atlas runner's
+    # bundled github-runner package has no node24 externals, which container
+    # jobs need for actions/checkout@v7 — a runner-packaging gap, not fixable
+    # from this repo. Mirrors portcullis's gui-tests.yaml playwright-e2e job:
+    # GitHub-hosted ubuntu-latest gives Playwright its native apt/sudo target.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -132,17 +128,25 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
+      - name: Install Playwright browsers
+        run: uv run playwright install --with-deps chromium
+
       - name: Test
         run: uv run pytest -m "not e2e"
 
+      # ntfy-failure inlined (public repo, see lint/typecheck jobs above); this
+      # job runs on ubuntu-latest so the atlas host token files below don't
+      # exist — falls through to secrets.NTFY_TOKEN, which is unset for this
+      # repo today (warns and no-ops rather than failing the job).
       - name: Notify failure (ntfy infra)
         if: failure() && github.event_name != 'pull_request'
         shell: bash
         env:
           NTFY_TITLE: 'supacrawl: test failed'
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
         run: |
-          TOKEN=""
+          TOKEN="$NTFY_TOKEN"
           for f in /etc/ntfy/tokens/ci-publisher.token /run/secrets/ntfy/systemd; do
             [ -n "$TOKEN" ] && break
             [ -r "$f" ] && TOKEN="$(cat "$f")"
