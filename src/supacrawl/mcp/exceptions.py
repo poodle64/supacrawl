@@ -4,7 +4,7 @@ All exceptions inherit from mcp_common.exceptions for consistent error handling.
 The map_exception function converts supacrawl library exceptions to MCP-friendly exceptions.
 """
 
-from supacrawl.mcp.mcp_common.exceptions import (
+from mcp_common.exceptions import (
     MCPClientError,
     MCPConnectionError,
     MCPError,

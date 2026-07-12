@@ -40,7 +40,27 @@ Homepage = "https://github.com/poodle64/supacrawl"
 Repository = "https://github.com/poodle64/supacrawl"
 
 [dependency-groups]
+# Local-path override for mcp-common and api-common, kept as its own group so
+# their uv.sources entries below can be group-scoped (PEP 735). A group-scoped
+# source is local-only config that a consumer resolving `supacrawl[mcp]` as a
+# path dependency never sees, avoiding uv "conflicting URLs" resolution errors
+# in consuming workspaces (see ragify#179 for the failure this prevents). uv
+# requires a group-scoped source's package to be listed directly in the group
+# it is scoped to, so api-common (pulled in transitively via mcp-common) is
+# listed here explicitly even though nothing in this file depends on it
+# directly.
+mcp-common-dev = [
+  "mcp-common",
+  "api-common",
+]
+# MCP surface deps, separated from dev so CI (no sibling checkouts) can
+# exclude exactly this slice and still lint/type/test everything else.
+mcp-dev = [
+  "supacrawl[mcp]",
+  {include-group = "mcp-common-dev"},
+]
 dev = [
+  "supacrawl[stealth,camoufox,captcha,pdf-ocr,api,readability]",
   "mypy>=1.19.1",
   "pre-commit>=4.5.1",
   "pytest>=9.0.2",
@@ -74,6 +94,12 @@ readability = [
   "rank-bm25>=0.2",
 ]
 mcp = [
+  # Shared MCP framework (BaseMCPServer, exceptions, config, logging). The MCP
+  # layer consumes the real mcp_common — it does NOT vendor a copy (a vendored
+  # fork silently drifts from the shared package; see the de-vendoring in this
+  # repo's history). mcp-common transitively pulls api-common (correlation),
+  # fastmcp, pydantic, and pydantic-settings.
+  "mcp-common",
   "anyio>=4.12.1",
   "fastmcp>=3.1.0",
   "pydantic-settings>=2.13.1",
@@ -160,8 +186,64 @@ ignore_missing_imports = true
 module = "rank_bm25.*"
 ignore_missing_imports = true
 
+# The MCP-surface deps are absent on CI (no sibling checkouts; see the
+# mcp-dev dependency group). Locally they are installed and fully typed.
+[[tool.mypy.overrides]]
+module = "fastmcp.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "mcp.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "mcp_common.*"
+ignore_missing_imports = true
+
+# api-common ships its own py.typed marker and resolves fine at runtime (it is
+# a genuine editable-path sibling, see [tool.uv.sources]), but two separate
+# reasons still land it here: (1) it is absent on CI along with the rest of
+# the mcp-dev group, and (2) even where it IS installed, mypy cannot
+# statically follow Hatchling's PEP 660 finder-based editable-install .pth
+# (unlike mcp-common's plain directory-path .pth, which mypy resolves without
+# issue) — a known mypy/Hatchling gap, not a real missing-stub problem.
+[[tool.mypy.overrides]]
+module = "api_common.*"
+ignore_missing_imports = true
+
+# pydantic-settings is declared only in the `mcp` extra here (unlike
+# redactyl, where it is already pulled in by the always-on `api` extra) — so
+# it is absent on CI for the same mcp-dev reason above. python-dotenv needs
+# no override: it resolves fine on CI regardless, as a genuine transitive
+# dependency of uvicorn[standard] (in the always-on `api` extra).
+[[tool.mypy.overrides]]
+module = "pydantic_settings.*"
+ignore_missing_imports = true
+
 [tool.uv]
 environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+
+# dev only: `uv run` performs an implicit default-groups sync wherever it
+# executes, including CI runners and consumer checkouts where the editable
+# mcp-dev/mcp-common-dev siblings do not exist on disk. Local dev installs
+# every group via .envrc (`uv sync --all-groups`); uv run never prunes the
+# extra groups it finds already installed.
+default-groups = ["dev"]
+
+# Sibling repos installed editable from disk for local/dev resolution; the
+# path source overrides the PyPI requirement for that distribution. mcp-common
+# and api-common are not published to an index, so the MCP extra resolves them
+# from the sibling checkouts (the household no-vendoring pattern — same as
+# ragify/redactyl/milton). mcp-common lives INSIDE the mcp-servers repo, so its
+# source is scoped to the mcp-common-dev group (see the group comment above).
+# api-common enters the graph only transitively via mcp-common (mcp-common
+# declares it as a runtime dependency); its source is scoped to the same group
+# for the same reason — an ungrouped source is local-only config a consumer
+# resolving supacrawl[mcp] as a path dependency would still see, hitting uv's
+# "conflicting URLs" resolution error (see ragify#179).
+[tool.uv.sources]
+mcp-common = { path = "../mcp-servers/mcp-common", editable = true, group = "mcp-common-dev" }
+api-common = { path = "../api-clients/api-common", editable = true, group = "mcp-common-dev" }
 
 [tool.hatch.build.targets.sdist]
 exclude = [

@@ -11,7 +11,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from supacrawl.mcp.tools.health import _get_search_config
+
+pytestmark = pytest.mark.mcp
 
 # ---------------------------------------------------------------------------
 # Helpers

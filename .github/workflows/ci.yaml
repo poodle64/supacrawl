@@ -29,8 +29,13 @@ jobs:
           python-version: '3.14'
           enable-cache: true
 
+      # --no-group mcp-dev: the mcp-dev/mcp-common-dev groups carry
+      # supacrawl[mcp] plus editable path sources into the mcp-servers and
+      # api-clients siblings, which do not exist on a bare runner checkout.
+      # Ruff is a pure static-AST linter — it needs no packages importable —
+      # so this only trims what gets installed, not what gets linted.
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --no-group mcp-dev
 
       - name: Lint
         run: uv run ruff check src/ tests/
@@ -80,8 +85,13 @@ jobs:
           python-version: '3.14'
           enable-cache: true
 
+      # --no-group mcp-dev: see the lint job comment above. mypy is purely
+      # static (never imports at runtime), so `mypy src/ tests/` still
+      # analyses the MCP-surface files under a per-module
+      # ignore_missing_imports override (fastmcp/mcp/mcp_common/api_common/
+      # dotenv/pydantic_settings) rather than needing those packages present.
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --no-group mcp-dev
 
       - name: Type check
         run: uv run mypy src/ tests/
@@ -134,14 +144,32 @@ jobs:
           python-version: '3.14'
           enable-cache: true
 
+      # --no-group mcp-dev: see the lint job comment above.
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --no-group mcp-dev
 
       - name: Install Playwright browsers
         run: uv run playwright install --with-deps chromium
 
+      # Two exclusion mechanisms, for two different failure shapes once the
+      # mcp-dev group is absent:
+      #   --ignore  — tests/test_mcp/, tests/test_api/, and
+      #               tests/test_health_search_config.py import the MCP
+      #               surface (fastmcp/mcp_common) at module top level (or, for
+      #               test_api, via a conftest `app` fixture built on a router
+      #               that imports supacrawl.mcp.api_client — a pre-existing
+      #               api/mcp coupling worth a follow-up decoupling), so pytest
+      #               fails at COLLECTION/SETUP time before any `-m` filter can
+      #               apply. --ignore excludes them from collection entirely.
+      #   -m "not mcp" — a handful of individual test classes elsewhere
+      #               (test_headless_propagation.py, test_remediation.py,
+      #               test_search_quota.py) defer their supacrawl.mcp import
+      #               inside the test body, so the FILE collects fine but
+      #               those specific @pytest.mark.mcp classes still need
+      #               excluding at run time.
+      # All of the above run locally (`uv sync --all-groups` installs mcp-dev).
       - name: Test
-        run: uv run pytest -m "not e2e"
+        run: uv run pytest -m "not e2e and not mcp" --ignore=tests/test_mcp --ignore=tests/test_api --ignore=tests/test_health_search_config.py
 
       # ntfy-failure inlined (public repo, see lint/typecheck jobs above); this
       # job runs on ubuntu-latest so the atlas host token files below don't

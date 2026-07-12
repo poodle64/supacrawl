@@ -10,6 +10,8 @@ import pytest
 from supacrawl.mcp.server import SupacrawlServer
 from supacrawl.mcp.wiring import register_all_tools, register_prompts, register_resources
 
+pytestmark = pytest.mark.mcp
+
 
 class TestMCPInitialization:
     """Test MCP server initialization lifecycle."""
@@ -70,12 +72,33 @@ class TestToolDiscovery:
         # For a more thorough test, we'd need to inspect the MCP tool registry
         assert server.mcp is not None
 
-    def test_tool_registration_requires_api_client(self):
-        """Tool registration should fail without API client."""
+    @pytest.mark.asyncio
+    async def test_tool_registration_accepts_none_api_client(self):
+        """Tool registration completes on a degraded start (api_client=None).
+
+        The crash-on-None guard was removed (#641 non-fatal-startup contract):
+        mcp_common.tool_registration.create_tool_wrapper now returns the typed
+        MCPDependencyUnavailableError at CALL time instead of the server
+        refusing to register tools at STARTUP time. See
+        servers/servarr/tests/test_degraded_registration.py in mcp-servers for
+        the canonical fleet-wide version of this regression test.
+        """
         server = SupacrawlServer()
 
-        with pytest.raises(RuntimeError, match="API client must be initialized"):
-            register_all_tools(server.mcp, None)  # type: ignore[arg-type]  # intentional: testing None rejection
+        register_all_tools(server.mcp, None)  # type: ignore[arg-type]  # intentional: testing degraded-start registration
+
+        tools = {tool.name for tool in await server.mcp.list_tools()}
+        assert {
+            "supacrawl_scrape",
+            "supacrawl_batch",
+            "supacrawl_map",
+            "supacrawl_crawl",
+            "supacrawl_search",
+            "supacrawl_extract",
+            "supacrawl_summary",
+            "supacrawl_health",
+            "supacrawl_diagnose",
+        } <= tools
 
     def test_resources_registered(self, mock_api_client):
         """Resources should be registered successfully."""

@@ -6,9 +6,10 @@ Wraps supacrawl library's ScrapeService for MCP consumption.
 
 from typing import Any, Literal
 
+from api_common.correlation import generate_correlation_id, get_correlation_id
+
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
-from supacrawl.mcp.mcp_common.correlation import generate_correlation_id, get_correlation_id
 from supacrawl.mcp.validators import validate_timeout, validate_url
 from supacrawl.services.browser import ENGINE_CHOICES
 

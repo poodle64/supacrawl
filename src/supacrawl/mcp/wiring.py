@@ -9,10 +9,10 @@ from typing import Any
 
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from mcp_common.tool_registration import create_tool_wrapper
 
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
-from supacrawl.mcp.mcp_common.tool_registration import create_tool_wrapper
 from supacrawl.mcp.tools import batch, crawl, diagnose, extract, health, scrape, search, summary
 from supacrawl.mcp.tools import map as map_module
 
@@ -43,10 +43,6 @@ def register_all_tools(mcp: FastMCP, api_client: SupacrawlServices) -> None:
         mcp: FastMCP server instance
         api_client: SupacrawlServices wrapper containing all services
     """
-    if api_client is None:
-        logger.error("Cannot register tools: API client is not initialized.")
-        raise RuntimeError("API client must be initialized before registering tools.")
-
     # List all tool functions with their api_client
     # Each tool receives the SupacrawlServices wrapper as first argument
     #

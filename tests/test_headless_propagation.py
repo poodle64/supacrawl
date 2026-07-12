@@ -134,6 +134,7 @@ class TestCrawlServiceHeadlessParameter:
         assert sig.parameters["headless"].default is None
 
 
+@pytest.mark.mcp
 class TestMCPSettingsHeadless:
     """Test MCP settings default headless to True."""
 

@@ -52,6 +52,7 @@ class TestThinContentHint:
         assert "wait_for" in hint
 
 
+@pytest.mark.mcp
 class TestMapExceptionRemediation:
     """map_exception attaches a remediation hint when one applies."""
 

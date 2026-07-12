@@ -7,9 +7,10 @@ functionality as MCP tools for AI agents.
 
 from typing import Any
 
+from mcp_common.server import BaseMCPServer
+
 from supacrawl.mcp.api_client import create_supacrawl_services
 from supacrawl.mcp.config import ALLOWED_HOSTS, ALLOWED_ORIGINS, SUPACRAWL_MASK_ERROR_DETAILS, logger
-from supacrawl.mcp.mcp_common.server import BaseMCPServer
 from supacrawl.mcp.wiring import register_all_tools, register_prompts, register_resources
 
 # Server instructions for LLMs

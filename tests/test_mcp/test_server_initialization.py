@@ -5,6 +5,8 @@ import pytest
 from supacrawl.mcp.config import SupacrawlSettings, get_settings
 from supacrawl.mcp.server import SupacrawlServer
 
+pytestmark = pytest.mark.mcp
+
 
 class TestServerInitialization:
     """Test server initialization and configuration."""

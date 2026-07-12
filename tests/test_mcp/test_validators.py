@@ -17,6 +17,8 @@ from supacrawl.mcp.validators import (
     validate_urls,
 )
 
+pytestmark = pytest.mark.mcp
+
 
 class TestValidateUrl:
     """Test URL validation."""

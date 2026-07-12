@@ -6,6 +6,8 @@ import pytest
 
 from supacrawl.mcp.exceptions import SupacrawlValidationError
 
+pytestmark = pytest.mark.mcp
+
 
 class TestValidationErrors:
     """Test validation error handling across tools."""

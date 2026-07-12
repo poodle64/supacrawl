@@ -342,6 +342,7 @@ class TestProviderHealthQuotaSerialisation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.mcp
 class TestHealthToolLowCreditWarning:
     """_get_search_config surfaces low-credit warning when a provider is near-exhausted."""
 

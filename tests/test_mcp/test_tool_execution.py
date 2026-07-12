@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+pytestmark = pytest.mark.mcp
+
 
 class TestScrapeTools:
     """Test scrape-related tools."""

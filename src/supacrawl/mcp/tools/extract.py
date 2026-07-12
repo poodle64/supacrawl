@@ -8,10 +8,11 @@ performs the extraction.
 
 from typing import Any
 
+from api_common.correlation import generate_correlation_id, get_correlation_id
+
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.exceptions import log_tool_exception
-from supacrawl.mcp.mcp_common.correlation import generate_correlation_id, get_correlation_id
 from supacrawl.mcp.validators import validate_prompt, validate_urls
 
 

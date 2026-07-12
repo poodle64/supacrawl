@@ -9,12 +9,12 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
+from mcp_common.config import parse_comma_separated
+from mcp_common.logging import setup_server_logging
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import supacrawl
-from supacrawl.mcp.mcp_common.config import parse_comma_separated
-from supacrawl.mcp.mcp_common.logging import setup_server_logging
 
 load_dotenv()
 

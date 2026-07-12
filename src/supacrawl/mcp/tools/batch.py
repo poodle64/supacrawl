@@ -9,9 +9,10 @@ API ``/v1/batch/scrape`` endpoint; all three delegate to the shared
 
 from typing import Any, Literal
 
+from api_common.correlation import generate_correlation_id, get_correlation_id
+
 from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.exceptions import log_tool_exception
-from supacrawl.mcp.mcp_common.correlation import generate_correlation_id, get_correlation_id
 from supacrawl.mcp.validators import validate_urls
 from supacrawl.services.batch import run_batch_scrape
 
