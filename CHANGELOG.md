@@ -4,6 +4,16 @@ All notable changes to supacrawl will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to calendar-based versioning (YYYY.MM.x format).
 
+## [Unreleased]
+
+### Changed
+
+- **api/mcp decoupling** (#151): the REST `api` layer no longer depends on the `mcp` package. `SupacrawlServices` and the `diagnose`/`summary` core logic moved into a portable `supacrawl.services` layer (sourcing config from `supacrawl.config`), so an `api`-only install imports and constructs the REST app without `fastmcp`/`mcp-common`. `supacrawl.mcp.api_client` is removed (no shim); `mcp.tools.diagnose`/`summary` are now thin FastMCP wrappers delegating to the services layer and translating exceptions via `map_exception`. `tests/test_api/` runs in CI again — the `--ignore=tests/test_api` workaround (a casualty of the old coupling) is removed.
+
+### Fixed
+
+- `validate_url` no longer swallows the "must have a valid host" error. It wrapped both the `urlparse` call and the netloc check in one broad `except Exception`, so the specific hostless-URL message was immediately re-wrapped as the vaguer "is not a valid URL". A hostless URL (`http://`, `https:///path`) now surfaces its own error.
+
 ## [2026.6.5] - 2026-06-21
 
 Turns the off-box telemetry path into a clean, point-at-any-Loki client with first-class setup and backfill tooling and a read-only control-plane API for a separate UI. Builds on the 2026.6.4 remote-shipping foundation. The `RemoteSink` seam, fail-open batching, low-cardinality labels, and environment-only credentials are unchanged; no Loki host is hardcoded anywhere.
