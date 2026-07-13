@@ -66,21 +66,25 @@ def validate_url(
             value=value,
         )
 
-    # Parse and validate URL structure
+    # Parse and validate URL structure. Only the urlparse call is wrapped:
+    # a genuinely unparseable URL becomes "is not a valid URL", while a
+    # parseable-but-hostless URL keeps its specific "must have a valid host"
+    # message instead of being re-wrapped by the broad except.
     try:
         parsed = urlparse(url)
-        if not parsed.netloc:
-            raise ValidationError(
-                f"{field_name} must have a valid host, got '{url}'",
-                field=field_name,
-                value=value,
-            )
     except Exception as e:
         raise ValidationError(
             f"{field_name} is not a valid URL: {e}",
             field=field_name,
             value=value,
         ) from e
+
+    if not parsed.netloc:
+        raise ValidationError(
+            f"{field_name} must have a valid host, got '{url}'",
+            field=field_name,
+            value=value,
+        )
 
     return url
 
