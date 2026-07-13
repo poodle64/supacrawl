@@ -6,8 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2026.7.0] - 2026-07-14
+
+The MCP tool surface gains its shared-bearer auth floor and a de-vendored mcp_common; the camoufox engine is pinned back onto a compatible playwright.
+
+### Added
+
+- **MCP static-bearer auth floor**: the HTTP tool surface authenticates callers against `SUPACRAWL_MCP_AUTH_TOKEN` (constant-time compare). `--transport http` on a non-loopback `--host` without the token now refuses to start unless `--insecure` is passed explicitly, so a network-reachable scraping surface can no longer ship unauthenticated by accident.
+
 ### Changed
 
+- **mcp_common de-vendored** (mcp-servers#641): the MCP layer consumes the live shared `mcp-common` package instead of a vendored copy; the published `[mcp]` extra declares it.
+- **camoufox extra pins `playwright<1.61`**: camoufox's bundled Firefox juggler rejects playwright 1.61's `Browser.setDefaultViewport` `isMobile` property, so every camoufox launch failed at `new_page`. The ceiling lifts once a camoufox release accepts the 1.61 protocol.
 - **api/mcp decoupling** (#151): the REST `api` layer no longer depends on the `mcp` package. `SupacrawlServices` and the `diagnose`/`summary` core logic moved into a portable `supacrawl.services` layer (sourcing config from `supacrawl.config`), so an `api`-only install imports and constructs the REST app without `fastmcp`/`mcp-common`. `supacrawl.mcp.api_client` is removed (no shim); `mcp.tools.diagnose`/`summary` are now thin FastMCP wrappers delegating to the services layer and translating exceptions via `map_exception`. `tests/test_api/` runs in CI again — the `--ignore=tests/test_api` workaround (a casualty of the old coupling) is removed.
 
 ### Fixed

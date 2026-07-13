@@ -2133,7 +2133,7 @@ wheels = [
 
 [[package]]
 name = "supacrawl"
-version = "2026.6.5"
+version = "2026.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -2157,6 +2157,7 @@ api = [
 ]
 camoufox = [
     { name = "camoufox", extra = ["geoip"], marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "playwright", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
 captcha = [
     { name = "2captcha-python", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -2221,6 +2222,7 @@ requires-dist = [
     { name = "pdf2image", marker = "extra == 'pdf-ocr'", specifier = ">=1.17.0" },
     { name = "pdfplumber", specifier = ">=0.11.9" },
     { name = "playwright", specifier = ">=1.40.0,<2.0.0" },
+    { name = "playwright", marker = "extra == 'camoufox'", specifier = "<1.61" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", marker = "extra == 'mcp'", specifier = ">=2.13.1" },
     { name = "pytesseract", marker = "extra == 'pdf-ocr'", specifier = ">=0.3.13" },

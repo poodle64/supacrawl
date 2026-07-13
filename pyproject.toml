@@ -4,7 +4,7 @@
 
 [project]
 name = "supacrawl"
-version = "2026.6.5"
+version = "2026.7.0"
  description = "Zero-infrastructure CLI web scraper with LLM extraction."
  readme = "README.md"
  requires-python = ">=3.14"
@@ -77,6 +77,11 @@ stealth = [
 ]
 camoufox = [
   "camoufox[geoip]>=0.4.11",
+  # camoufox's bundled Firefox juggler rejects playwright >= 1.61's
+  # Browser.setDefaultViewport `isMobile` property ("not described in this
+  # scheme"), so any camoufox launch fails at new_page. Lift the ceiling
+  # once a camoufox release accepts the 1.61 protocol.
+  "playwright<1.61",
 ]
 captcha = [
   "2captcha-python>=2.0.3",
