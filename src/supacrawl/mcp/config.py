@@ -2,6 +2,12 @@
 Configuration for Supacrawl MCP server.
 
 Uses Pydantic Settings for type-safe environment variable loading.
+
+Security notes:
+- ``SUPACRAWL_MCP_AUTH_TOKEN``: when set, the HTTP transport requires a bearer
+  token on every inbound request. Omitting this env var leaves the HTTP surface
+  unauthenticated — acceptable only on a loopback-bound, private network, or
+  when the ``--insecure`` flag is explicitly passed to ``supacrawl-mcp``.
 """
 
 from functools import lru_cache
@@ -130,6 +136,11 @@ class SupacrawlSettings(BaseSettings):
         ),
     )
 
+    # Bearer token for HTTP transport auth. No default — an empty/absent value
+    # means the HTTP surface starts unauthenticated. The token is consumed at
+    # startup only; it never appears in logs, errors, or tool responses.
+    mcp_auth_token: str | None = Field(default=None, alias="SUPACRAWL_MCP_AUTH_TOKEN")
+
     # MCP Server Configuration (without SUPACRAWL_ prefix)
     allowed_origins: list[str] = Field(
         default_factory=lambda: ["*"],
@@ -167,6 +178,14 @@ class SupacrawlSettings(BaseSettings):
         """Parse comma-separated string into list."""
         return parse_comma_separated(v)
 
+    @field_validator("mcp_auth_token", mode="before")
+    @classmethod
+    def _reject_empty_token(cls, v: str | None) -> str | None:
+        """Treat an all-whitespace token as absent so it cannot accidentally open auth."""
+        if v is not None and not v.strip():
+            return None
+        return v
+
     def get_cache_path(self) -> Path | None:
         """Get cache directory as Path, expanding ~ if present."""
         if self.cache_dir:
@@ -197,6 +216,7 @@ ALLOWED_ORIGINS = settings.allowed_origins
 ALLOWED_HOSTS = settings.allowed_hosts
 SERVICE_NAME = settings.service_name
 SUPACRAWL_MASK_ERROR_DETAILS = settings.mask_error_details
+SUPACRAWL_MCP_AUTH_TOKEN: str | None = settings.mcp_auth_token
 
 # Setup logging using mcp-common structured JSON logging
 # Version tracks the underlying supacrawl library for debugging clarity

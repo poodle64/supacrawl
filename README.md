@@ -100,6 +100,10 @@ playwright install chromium
 
 **Cursor / VS Code**: add to your editor's MCP settings with the same config.
 
+### HTTP Transport
+
+`supacrawl-mcp --transport http` exposes the tool surface over the network instead of stdio. It requires `SUPACRAWL_MCP_AUTH_TOKEN` (a shared bearer token every caller must present in an `Authorization: Bearer <token>` header) whenever `--host` is not loopback (`127.0.0.1`/`localhost`/`::1`) — the server refuses to start on a non-loopback host with no token configured, unless `--insecure` is passed explicitly. Loopback binds (the default `--host`) work unauthenticated.
+
 ### Available Tools
 
 | Tool                 | Description                                         |
