@@ -9,8 +9,8 @@ from fastapi import Request
 from supacrawl.services import ExtractService
 
 if TYPE_CHECKING:
-    from supacrawl.mcp.api_client import SupacrawlServices
     from supacrawl.services import CrawlService, MapService, ScrapeService
+    from supacrawl.services.registry import SupacrawlServices
     from supacrawl.services.search.service import SearchService
 
 

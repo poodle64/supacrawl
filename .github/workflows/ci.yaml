@@ -153,14 +153,14 @@ jobs:
 
       # Two exclusion mechanisms, for two different failure shapes once the
       # mcp-dev group is absent:
-      #   --ignore  — tests/test_mcp/, tests/test_api/, and
-      #               tests/test_health_search_config.py import the MCP
-      #               surface (fastmcp/mcp_common) at module top level (or, for
-      #               test_api, via a conftest `app` fixture built on a router
-      #               that imports supacrawl.mcp.api_client — a pre-existing
-      #               api/mcp coupling worth a follow-up decoupling), so pytest
-      #               fails at COLLECTION/SETUP time before any `-m` filter can
-      #               apply. --ignore excludes them from collection entirely.
+      #   --ignore  — tests/test_mcp/ and tests/test_health_search_config.py
+      #               import the MCP surface (fastmcp/mcp_common) at module
+      #               top level, so pytest fails at COLLECTION/SETUP time
+      #               before any `-m` filter can apply. --ignore excludes
+      #               them from collection entirely. tests/test_api/ no
+      #               longer needs this — the API router now sources its
+      #               business logic from the portable supacrawl.services
+      #               layer instead of supacrawl.mcp (#151).
       #   -m "not mcp" — a handful of individual test classes elsewhere
       #               (test_headless_propagation.py, test_remediation.py,
       #               test_search_quota.py) defer their supacrawl.mcp import
@@ -169,7 +169,7 @@ jobs:
       #               excluding at run time.
       # All of the above run locally (`uv sync --all-groups` installs mcp-dev).
       - name: Test
-        run: uv run pytest -m "not e2e and not mcp" --ignore=tests/test_mcp --ignore=tests/test_api --ignore=tests/test_health_search_config.py
+        run: uv run pytest -m "not e2e and not mcp" --ignore=tests/test_mcp --ignore=tests/test_health_search_config.py
 
       # ntfy-failure inlined (public repo, see lint/typecheck jobs above); this
       # job runs on ubuntu-latest so the atlas host token files below don't

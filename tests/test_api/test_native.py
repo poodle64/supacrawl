@@ -80,7 +80,7 @@ class TestDiagnose:
             "diagnosis": {"url": "https://example.com", "reachable": True},
         }
         with patch(
-            "supacrawl.mcp.tools.diagnose.supacrawl_diagnose",
+            "supacrawl.services.diagnose.supacrawl_diagnose",
             new_callable=AsyncMock,
             return_value=fake_result,
         ) as mock_diag:
@@ -110,7 +110,7 @@ class TestSummary:
             "summary_context": {"instruction": "Summarise the content above."},
         }
         with patch(
-            "supacrawl.mcp.tools.summary.supacrawl_summary",
+            "supacrawl.services.summary.supacrawl_summary",
             new_callable=AsyncMock,
             return_value=fake_result,
         ) as mock_sum:

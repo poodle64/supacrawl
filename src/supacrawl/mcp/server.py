@@ -9,9 +9,9 @@ from typing import Any
 
 from mcp_common.server import BaseMCPServer
 
-from supacrawl.mcp.api_client import create_supacrawl_services
 from supacrawl.mcp.config import ALLOWED_HOSTS, ALLOWED_ORIGINS, SUPACRAWL_MASK_ERROR_DETAILS, logger
 from supacrawl.mcp.wiring import register_all_tools, register_prompts, register_resources
+from supacrawl.services.registry import create_supacrawl_services
 
 # Server instructions for LLMs
 SUPACRAWL_INSTRUCTIONS = """\

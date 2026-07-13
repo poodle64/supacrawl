@@ -11,7 +11,6 @@ import httpx
 from api_common.correlation import generate_correlation_id, get_correlation_id
 from fastmcp import Context
 
-from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import (
@@ -22,6 +21,7 @@ from supacrawl.mcp.validators import (
     validate_sources,
 )
 from supacrawl.models import SearchFilters
+from supacrawl.services.registry import SupacrawlServices
 
 
 async def _fetch_url_metadata(url: str, timeout: float = 5.0) -> dict[str, Any]:

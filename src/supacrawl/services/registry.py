@@ -1,15 +1,18 @@
-"""MCP API client wrapper for Supacrawl.
+"""Shared services registry: the single ``SupacrawlServices`` wrapper both the
+REST API and the MCP layer inject into their tool/route handlers.
 
-Provides a unified interface to all supacrawl services for MCP tool injection.
+This module is deliberately free of any fastmcp/mcp-common/pydantic-settings
+dependency so an api-only install (``supacrawl[api]``, no ``mcp`` extra) can
+import and construct it. The MCP layer's FastMCP-specific wiring lives in
+``supacrawl.mcp``.
 
 NOTE: Agent tools are intentionally omitted from this MCP server. When using
 supacrawl via MCP, the controlling LLM (Claude, ChatGPT, etc.) IS the agent -
 it orchestrates the primitives. See README for rationale.
 """
 
+import logging
 from typing import TYPE_CHECKING
-
-from supacrawl.mcp.config import logger, settings
 
 if TYPE_CHECKING:
     from supacrawl.services import (
@@ -19,6 +22,8 @@ if TYPE_CHECKING:
         ScrapeService,
         SearchService,
     )
+
+logger = logging.getLogger(__name__)
 
 
 class SupacrawlServices:
@@ -133,7 +138,16 @@ async def create_supacrawl_services() -> SupacrawlServices:
     Raises:
         Exception: If service creation fails
     """
-    import os
+    from pathlib import Path
+
+    from supacrawl.config import SupacrawlSecrets, load_config
+    from supacrawl.models import LocaleConfig
+
+    config = load_config()
+    secrets = SupacrawlSecrets.from_env()
+
+    # Get locale config from settings
+    locale_config = LocaleConfig(language=config.locale, timezone=config.timezone)
 
     from supacrawl.services import (
         BrowserManager,
@@ -143,18 +157,15 @@ async def create_supacrawl_services() -> SupacrawlServices:
         SearchService,
     )
 
-    # Get optional locale config from settings
-    locale_config = settings.get_locale_config()
-
     # Create shared browser manager with config
     browser_manager = BrowserManager(
-        headless=settings.headless,
-        timeout_ms=settings.timeout,
-        user_agent=settings.user_agent,
+        headless=config.headless,
+        timeout_ms=config.timeout,
+        user_agent=config.user_agent,
         locale_config=locale_config,
-        stealth=settings.stealth,
-        proxy=settings.proxy,
-        engine=settings.engine,
+        stealth=config.stealth,
+        proxy=secrets.proxy,
+        engine=config.engine,
     )
 
     # Initialise browser
@@ -162,18 +173,18 @@ async def create_supacrawl_services() -> SupacrawlServices:
 
     # Log enabled features
     features = []
-    if settings.engine:
-        features.append(f"engine:{settings.engine}")
-    if settings.stealth:
+    if config.engine:
+        features.append(f"engine:{config.engine}")
+    if config.stealth:
         features.append("stealth")
-    if settings.proxy:
+    if secrets.proxy:
         features.append("proxy")
-    if settings.cache_dir:
+    if config.cache_dir:
         features.append("caching")
-    if settings.solve_captcha:
+    if config.solve_captcha:
         features.append("captcha-solving")
-    if settings.locale != "en-US" or settings.timezone != "UTC":
-        features.append(f"locale:{settings.locale}/{settings.timezone}")
+    if config.locale != "en-US" or config.timezone != "UTC":
+        features.append(f"locale:{config.locale}/{config.timezone}")
     if features:
         logger.info(f"Enabled features: {', '.join(features)}")
 
@@ -188,16 +199,17 @@ async def create_supacrawl_services() -> SupacrawlServices:
     from supacrawl.telemetry import MetricsSink
 
     telemetry = MetricsSink.default()
+    cache_dir = Path(config.cache_dir).expanduser() if config.cache_dir else None
 
     scrape_service = ScrapeService(
         browser=browser_manager,
         locale_config=locale_config,
-        cache_dir=settings.get_cache_path(),
-        stealth=settings.stealth,
-        proxy=settings.proxy,
-        solve_captcha=settings.solve_captcha,
-        headless=settings.headless,
-        engine=settings.engine,
+        cache_dir=cache_dir,
+        stealth=config.stealth,
+        proxy=secrets.proxy,
+        solve_captcha=config.solve_captcha,
+        headless=config.headless,
+        engine=config.engine,
         strategy_store=StrategyStore.default(),
         telemetry=telemetry,
     )
@@ -212,10 +224,10 @@ async def create_supacrawl_services() -> SupacrawlServices:
     # Prefer multi-provider chain (search_providers) over legacy single provider
     search_service = SearchService(
         scrape_service=scrape_service,
-        providers=settings.search_providers,
-        provider=settings.search_provider if not settings.search_providers else None,
-        brave_api_key=os.getenv("BRAVE_API_KEY"),
-        rate_limit=settings.search_rate_limit,
+        providers=config.search_providers,
+        provider=config.search_provider if not config.search_providers else None,
+        brave_api_key=secrets.brave_api_key,
+        rate_limit=config.search_rate_limit,
         locale_config=locale_config,
         telemetry=telemetry,
     )

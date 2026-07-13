@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from supacrawl.mcp.api_client import SupacrawlServices
+from supacrawl.services.registry import SupacrawlServices
 
 
 @pytest.fixture

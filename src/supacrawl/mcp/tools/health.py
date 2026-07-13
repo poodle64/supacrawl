@@ -3,8 +3,8 @@
 import os
 from typing import Any
 
-from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import SERVICE_VERSION, settings
+from supacrawl.services.registry import SupacrawlServices
 
 
 def _get_cache_info() -> dict[str, Any]:

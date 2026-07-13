@@ -20,7 +20,7 @@ logger = logging.getLogger("supacrawl.api")
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Create shared services on startup, tear down on shutdown."""
     from supacrawl.api.jobs import JobStore
-    from supacrawl.mcp.api_client import create_supacrawl_services
+    from supacrawl.services.registry import create_supacrawl_services
 
     services = await create_supacrawl_services()
     app.state.services = services

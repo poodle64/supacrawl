@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from supacrawl.api.auth import get_api_key
 from supacrawl.api.dependencies import get_services
-from supacrawl.mcp.api_client import SupacrawlServices
+from supacrawl.services.registry import SupacrawlServices
 
 router = APIRouter(prefix="/supacrawl", tags=["supacrawl"])
 
@@ -122,7 +122,7 @@ async def diagnose(
     _api_key: str | None = Depends(get_api_key),
 ) -> dict[str, Any]:
     """Run pre-scrape diagnostics on a URL."""
-    from supacrawl.mcp.tools.diagnose import supacrawl_diagnose
+    from supacrawl.services.diagnose import supacrawl_diagnose
 
     return await supacrawl_diagnose(api_client=services, url=req.url)
 
@@ -134,7 +134,7 @@ async def summary(
     _api_key: str | None = Depends(get_api_key),
 ) -> dict[str, Any]:
     """Scrape a URL and return content ready for summarisation."""
-    from supacrawl.mcp.tools.summary import supacrawl_summary
+    from supacrawl.services.summary import supacrawl_summary
 
     return await supacrawl_summary(
         api_client=services,

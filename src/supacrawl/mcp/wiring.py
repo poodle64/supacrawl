@@ -11,10 +11,10 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from mcp_common.tool_registration import create_tool_wrapper
 
-from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.tools import batch, crawl, diagnose, extract, health, scrape, search, summary
 from supacrawl.mcp.tools import map as map_module
+from supacrawl.services.registry import SupacrawlServices
 
 # All supacrawl tools are read-only: they fetch external URLs but do not
 # mutate any local or remote state. openWorldHint=True because the target

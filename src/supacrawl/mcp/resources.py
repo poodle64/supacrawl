@@ -9,7 +9,7 @@ import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from supacrawl.mcp.api_client import SupacrawlServices
+    from supacrawl.services.registry import SupacrawlServices
 
 # Supported output formats for scraping
 SUPPORTED_FORMATS = {

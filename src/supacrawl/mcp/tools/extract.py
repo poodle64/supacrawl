@@ -10,10 +10,10 @@ from typing import Any
 
 from api_common.correlation import generate_correlation_id, get_correlation_id
 
-from supacrawl.mcp.api_client import SupacrawlServices
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.exceptions import log_tool_exception
 from supacrawl.mcp.validators import validate_prompt, validate_urls
+from supacrawl.services.registry import SupacrawlServices
 
 
 async def supacrawl_extract(
