@@ -18,7 +18,7 @@ jobs:
   lint:
     runs-on: [self-hosted, atlas]
     env:
-      # Install from the committed lock; never re-resolve in CI (40-ci-workflow-standard).
+      # Install from the committed lock; never re-resolve in CI (10-ci-workflow-standard).
       UV_FROZEN: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -74,7 +74,7 @@ jobs:
   typecheck:
     runs-on: [self-hosted, atlas]
     env:
-      # Install from the committed lock; never re-resolve in CI (40-ci-workflow-standard).
+      # Install from the committed lock; never re-resolve in CI (10-ci-workflow-standard).
       UV_FROZEN: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -133,7 +133,7 @@ jobs:
     # GitHub-hosted ubuntu-latest gives Playwright its native apt/sudo target.
     runs-on: ubuntu-latest # by-exception (2026-07-05): Playwright's `--with-deps` OS-dep install needs apt+sudo unavailable on the NixOS atlas runner, mirroring portcullis gui-tests
     env:
-      # Install from the committed lock; never re-resolve in CI (40-ci-workflow-standard).
+      # Install from the committed lock; never re-resolve in CI (10-ci-workflow-standard).
       UV_FROZEN: '1'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
