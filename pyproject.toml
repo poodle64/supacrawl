@@ -40,18 +40,20 @@ Homepage = "https://github.com/poodle64/supacrawl"
 Repository = "https://github.com/poodle64/supacrawl"
 
 [dependency-groups]
-# Local-path override for mcp-common and api-common, kept as its own group so
-# their uv.sources entries below can be group-scoped (PEP 735). A group-scoped
-# source is local-only config that a consumer resolving `supacrawl[mcp]` as a
-# path dependency never sees, avoiding uv "conflicting URLs" resolution errors
-# in consuming workspaces (see ragify#179 for the failure this prevents). uv
-# requires a group-scoped source's package to be listed directly in the group
-# it is scoped to, so api-common (pulled in transitively via mcp-common) is
-# listed here explicitly even though nothing in this file depends on it
-# directly.
+# Local-path override for mcp-common, api-common, and redactyl-core, kept as
+# its own group so their uv.sources entries below can be group-scoped (PEP
+# 735). A group-scoped source is local-only config that a consumer resolving
+# `supacrawl[mcp]` as a path dependency never sees, avoiding uv "conflicting
+# URLs" resolution errors in consuming workspaces (see ragify#179 for the
+# failure this prevents). uv requires a group-scoped source's package to be
+# listed directly in the group it is scoped to, so api-common and
+# redactyl-core (both pulled in transitively via mcp-common, since
+# api_common.logging now imports redactyl_core at module load) are listed
+# here explicitly even though nothing in this file depends on them directly.
 mcp-common-dev = [
   "mcp-common",
   "api-common",
+  "redactyl-core",
 ]
 # MCP surface deps, separated from dev so CI (no sibling checkouts) can
 # exclude exactly this slice and still lint/type/test everything else.
@@ -216,6 +218,13 @@ ignore_missing_imports = true
 module = "api_common.*"
 ignore_missing_imports = true
 
+# redactyl-core hits the same Hatchling PEP 660 mypy gap as api-common above
+# (same build backend, same editable-path sibling shape) — it is the
+# redaction floor api_common.logging now imports at module load.
+[[tool.mypy.overrides]]
+module = "redactyl_core.*"
+ignore_missing_imports = true
+
 # pydantic-settings is declared only in the `mcp` extra here (unlike
 # redactyl, where it is already pulled in by the always-on `api` extra) — so
 # it is absent on CI for the same mcp-dev reason above. python-dotenv needs
@@ -249,6 +258,7 @@ default-groups = ["dev"]
 [tool.uv.sources]
 mcp-common = { path = "../mcp-servers/mcp-common", editable = true, group = "mcp-common-dev" }
 api-common = { path = "../api-clients/api-common", editable = true, group = "mcp-common-dev" }
+redactyl-core = { path = "../redactyl/redactyl-core", editable = true, group = "mcp-common-dev" }
 
 [tool.hatch.build.targets.sdist]
 exclude = [

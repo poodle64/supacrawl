@@ -150,23 +150,26 @@ wheels = [
 
 [[package]]
 name = "api-common"
-version = "2026.7.0"
+version = "2026.7.2"
 source = { editable = "../api-clients/api-common" }
 dependencies = [
     { name = "httpx", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "pydantic", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "redactyl-core", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "asyncssh", marker = "extra == 'ssh'", specifier = ">=2.14.0" },
     { name = "curl-cffi", marker = "extra == 'curl-websocket'", specifier = ">=0.10.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.20.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'telemetry'", specifier = ">=1.20.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "redactyl-core", editable = "../redactyl/redactyl-core" },
     { name = "websockets", marker = "extra == 'websocket'", specifier = ">=12.0" },
 ]
-provides-extras = ["telemetry", "websocket", "curl-websocket"]
+provides-extras = ["telemetry", "websocket", "ssh", "curl-websocket"]
 
 [[package]]
 name = "apify-fingerprint-datapoints"
@@ -1181,11 +1184,13 @@ dependencies = [
     { name = "cryptography", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "fastmcp", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "httpx", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "portcullis-client", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "pydantic", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "pydantic-settings", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "pyrage", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "python-dotenv", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "pyyaml", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "redactyl-core", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
 
 [package.metadata]
@@ -1195,11 +1200,13 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "fastmcp", specifier = ">=3.3.1,<4" },
     { name = "httpx", specifier = ">=0.28.0" },
+    { name = "portcullis-client", editable = "../api-clients/clients/portcullis" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "pyrage", specifier = ">=1.3.0" },
     { name = "python-dotenv", specifier = ">=1.2.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "redactyl-core", editable = "../redactyl/redactyl-core" },
 ]
 provides-extras = ["docker"]
 
@@ -1528,6 +1535,27 @@ wheels = [
 ]
 
 [[package]]
+name = "portcullis-client"
+version = "2026.6.8"
+source = { editable = "../api-clients/clients/portcullis" }
+dependencies = [
+    { name = "api-common", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "httpx", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "pydantic", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "python-dateutil", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "typing-extensions", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "api-common", editable = "../api-clients/api-common" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "python-dateutil", specifier = ">=2.9.0.post0" },
+    { name = "typing-extensions", specifier = ">=4.15.0" },
+]
+
+[[package]]
 name = "pre-commit"
 version = "4.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1852,6 +1880,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-dateutil"
+version = "2.9.0.post0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee498c46e004a0eb49bc148f2fd230864601a86dcf6db/python-dateutil-2.9.0.post0.tar.gz", hash = "sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3", size = 342432, upload-time = "2024-03-01T18:36:20.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
+]
+
+[[package]]
 name = "python-discovery"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1928,6 +1968,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/3e/dc87d97532ddad58af786ec89c7036182e352574c1cba37bf2bf783d2b15/readability_lxml-0.8.4.1.tar.gz", hash = "sha256:9d2924f5942dd7f37fb4da353263b22a3e877ccf922d0e45e348e4177b035a53", size = 22874, upload-time = "2025-05-03T21:11:45.493Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/75/2cc58965097e351415af420be81c4665cf80da52a17ef43c01ffbe2caf91/readability_lxml-0.8.4.1-py3-none-any.whl", hash = "sha256:874c0cea22c3bf2b78c7f8df831bfaad3c0a89b7301d45a188db581652b4b465", size = 19912, upload-time = "2025-05-03T21:11:43.993Z" },
+]
+
+[[package]]
+name = "redactyl-core"
+version = "2026.7.0"
+source = { editable = "../redactyl/redactyl-core" }
+dependencies = [
+    { name = "pydantic", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "pyyaml", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.12.0" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
 ]
 
 [[package]]
@@ -2197,10 +2252,12 @@ dev = [
 mcp-common-dev = [
     { name = "api-common", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "mcp-common", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "redactyl-core", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
 mcp-dev = [
     { name = "api-common", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "mcp-common", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "redactyl-core", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "supacrawl", extra = ["mcp"], marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
 
@@ -2252,10 +2309,12 @@ dev = [
 mcp-common-dev = [
     { name = "api-common", editable = "../api-clients/api-common" },
     { name = "mcp-common", editable = "../mcp-servers/mcp-common" },
+    { name = "redactyl-core", editable = "../redactyl/redactyl-core" },
 ]
 mcp-dev = [
     { name = "api-common" },
     { name = "mcp-common" },
+    { name = "redactyl-core" },
     { name = "supacrawl", extras = ["mcp"] },
 ]
 
