@@ -1,10 +1,17 @@
 """Health check tool for Supacrawl MCP server."""
 
+import asyncio
 import os
 from typing import Any
 
 from supacrawl.mcp.config import SERVICE_VERSION, settings
 from supacrawl.services.registry import SupacrawlServices
+
+# Query used for the live search probe (#156): short, generic, and cheap for
+# every provider (including quota-metered ones) while still exercising the
+# real request/response path a config-only check can never catch.
+_SEARCH_PROBE_QUERY = "supacrawl health check"
+_SEARCH_PROBE_TIMEOUT_S = 15.0
 
 
 def _get_cache_info() -> dict[str, Any]:
@@ -140,6 +147,43 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
     return config
 
 
+async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None:
+    """Run one real, minimal search to verify the effective provider actually returns results.
+
+    ``_get_search_config`` only checks that a provider is *configured* (has a
+    URL/API key) — a provider chain can report every provider "available" while
+    the underlying search silently returns nothing (#156: SearXNG's multi-word
+    query bug went undetected because ``is_available()`` is just ``bool(url)``).
+    This runs a single cheap query through the real search path so that class
+    of failure surfaces in the health payload instead of reading "healthy".
+
+    Args:
+        search_service: The live SearchService, or None if unavailable.
+
+    Returns:
+        None when there is no search service to probe. Otherwise a dict with
+        ``probed=True``, ``ok`` (whether the probe returned any results), and
+        ``result_count`` / ``error`` detail.
+    """
+    if search_service is None or not hasattr(search_service, "search"):
+        return None
+
+    try:
+        result = await asyncio.wait_for(
+            search_service.search(_SEARCH_PROBE_QUERY, limit=1),
+            timeout=_SEARCH_PROBE_TIMEOUT_S,
+        )
+    except Exception as e:
+        return {"probed": True, "ok": False, "result_count": 0, "error": str(e).strip() or type(e).__name__}
+
+    return {
+        "probed": True,
+        "ok": bool(result.success and result.data),
+        "result_count": len(result.data),
+        "error": result.error,
+    }
+
+
 def _get_browser_config() -> dict[str, Any]:
     """Get browser configuration."""
     return {
@@ -162,19 +206,29 @@ def _get_version_info() -> dict[str, str]:
     }
 
 
-async def supacrawl_health(api_client: SupacrawlServices) -> dict:
+async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = True) -> dict:
     """Get Supacrawl server health status, search provider state, and credit levels.
 
     Use this to verify connectivity, check which search provider is active,
     and detect low-credit conditions before they cause search failures.
+
+    Args:
+        api_client: Injected SupacrawlServices instance.
+        verify_search: When True (default), run one real, minimal search
+            through the effective provider chain so a search-path regression
+            (provider configured but silently returning nothing — #156) is
+            caught here instead of reading "healthy". Set False for a
+            config-only check with no live network call.
 
     Returns:
         Dictionary containing:
         - status: "healthy" | "degraded"
         - components.search: active provider, configured providers, brave_api_key_configured,
           and — when provider health data is available — per-provider remaining_credits
-          and last_error. A "warning" key is added when credits are low or DuckDuckGo
-          fallback is in use (set BRAVE_API_KEY to fix).
+          and last_error. A "warning" key is added when credits are low, DuckDuckGo
+          fallback is in use, or the live search probe found no results. A
+          "live_probe" key is present only when the probe actually ran (verify_search=True
+          and a search service is available), reporting what it found.
         - components.browser: engine, headless, stealth, timeout settings
         - components.llm: configured provider and model (for json/summary formats)
         - components.cache: path, entry count, size
@@ -184,12 +238,30 @@ async def supacrawl_health(api_client: SupacrawlServices) -> dict:
         service_status = api_client.get_service_status()
         all_healthy = all(service_status.values())
 
+        search_config = _get_search_config(api_client.search_service)
+        if verify_search:
+            probe = await _run_search_health_probe(api_client.search_service)
+            if probe is not None:
+                search_config["live_probe"] = probe
+                if not probe["ok"]:
+                    all_healthy = False
+                    search_config["status"] = "degraded"
+                    probe_note = (
+                        f"Live search probe failed: {probe['error']}"
+                        if probe.get("error")
+                        else "Live search probe returned no results despite provider configuration appearing ready."
+                    )
+                    existing_warning = search_config.get("warning")
+                    search_config["warning"] = (
+                        f"{existing_warning} {probe_note}".strip() if existing_warning else probe_note
+                    )
+
         return {
             "status": "healthy" if all_healthy else "degraded",
             "services": service_status,
             "components": {
                 "browser": _get_browser_config(),
-                "search": _get_search_config(api_client.search_service),
+                "search": search_config,
                 "llm": _get_llm_config(),
                 "cache": _get_cache_info(),
             },

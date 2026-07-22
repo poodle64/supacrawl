@@ -26,12 +26,23 @@ _READ_ONLY_ANNOTATIONS = ToolAnnotations(
     openWorldHint=True,
 )
 
-# Diagnostic / health tools are purely observational (no network writes).
+# Diagnostic tools are purely observational (no network writes).
 _OBSERVATIONAL_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=True,
     destructiveHint=False,
     idempotentHint=True,
     openWorldHint=False,
+)
+
+# Health defaults to a real live search probe (#156) to catch a provider that is
+# configured but silently returns nothing, so — unlike a pure config/cache
+# introspection tool — it is open-world: a client polling it should expect a
+# real outbound network call and the quota cost that comes with one.
+_HEALTH_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=True,
 )
 
 
@@ -61,8 +72,9 @@ def register_all_tools(mcp: FastMCP, api_client: SupacrawlServices) -> None:
         # LLM-assisted tools — open-world reads
         (extract.supacrawl_extract, api_client, _READ_ONLY_ANNOTATIONS),
         (summary.supacrawl_summary, api_client, _READ_ONLY_ANNOTATIONS),
-        # Operational — local/observational only
-        (health.supacrawl_health, api_client, _OBSERVATIONAL_ANNOTATIONS),
+        # Operational — health defaults to a live search probe (open-world);
+        # diagnose is local/observational only
+        (health.supacrawl_health, api_client, _HEALTH_ANNOTATIONS),
         (diagnose.supacrawl_diagnose, api_client, _OBSERVATIONAL_ANNOTATIONS),
     ]
 
