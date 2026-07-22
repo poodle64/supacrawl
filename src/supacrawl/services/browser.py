@@ -48,6 +48,8 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
+from supacrawl.services.url_guard import resolve_and_pin
+
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page
 
@@ -810,9 +812,19 @@ class BrowserManager:
             RuntimeError: If browser not initialized or fetch fails
             ValueError: If device is specified with Camoufox engine or device
                 name is not recognised.
+            ValidationError: If the URL or its resolved address is blocked (#152).
+                This is a pre-flight check only — the browser engine re-resolves
+                the hostname itself when it connects, so a DNS answer that
+                changes in the window between this check and the engine's own
+                connect is not pinned (see services/url_guard.py's module
+                docstring for why the browser paths cannot close that gap).
         """
         if not self._browser:
             raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+
+        # Pre-flight SSRF check (#152): refuses now if the URL or its resolved
+        # address is blocked. Not a full pin — see the Raises note above.
+        resolve_and_pin(url)
 
         if device and self.engine == "camoufox":
             raise ValueError(
@@ -1153,9 +1165,14 @@ class BrowserManager:
 
         Raises:
             RuntimeError: If browser not initialized or fetch fails
+            ValidationError: If the URL or its resolved address is blocked
+                (#152); see :meth:`fetch_page` for the pre-flight-only caveat.
         """
         if not self._browser:
             raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+
+        # Pre-flight SSRF check (#152): see fetch_page's Raises note.
+        resolve_and_pin(url)
 
         context: BrowserContext | None = None
         page: Page | None = None

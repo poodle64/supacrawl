@@ -22,6 +22,7 @@ from supacrawl.mcp.validators import (
 )
 from supacrawl.models import SearchFilters
 from supacrawl.services.registry import SupacrawlServices
+from supacrawl.services.url_guard import guarded_request, guarded_stream
 
 
 async def _fetch_url_metadata(url: str, timeout: float = 5.0) -> dict[str, Any]:
@@ -39,18 +40,22 @@ async def _fetch_url_metadata(url: str, timeout: float = 5.0) -> dict[str, Any]:
     """
     metadata: dict[str, Any] = {}
 
+    # follow_redirects=False: redirects are followed by hand inside
+    # guarded_request/guarded_stream so every hop is validated and pinned
+    # (#152) — these URLs come straight from search results, i.e. external
+    # and not directly operator-typed.
     async with httpx.AsyncClient(
         timeout=timeout,
-        follow_redirects=True,
+        follow_redirects=False,
         headers={"User-Agent": "Mozilla/5.0 (compatible; Supacrawl/1.0)"},
     ) as client:
         try:
             # Try HEAD request first (lightweight)
-            response = await client.head(url)
+            response = await guarded_request(client, "HEAD", url)
 
             # Some servers don't support HEAD, fall back to GET with stream
             if response.status_code == 405:
-                async with client.stream("GET", url) as response:
+                async with guarded_stream(client, "GET", url) as response:
                     headers = response.headers
             else:
                 headers = response.headers

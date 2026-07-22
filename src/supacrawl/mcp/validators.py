@@ -12,7 +12,9 @@ from urllib.parse import urlparse
 from mcp_common.exceptions import MCPValidationError
 from mcp_common.validators import validate_positive_int as _validate_positive_int
 
+from supacrawl.exceptions import ValidationError as _SupacrawlLibValidationError
 from supacrawl.mcp.exceptions import SupacrawlValidationError
+from supacrawl.services.url_guard import assert_safe_url
 
 # Words that indicate a time-sensitive search where current year matters
 TIME_SENSITIVE_KEYWORDS = {
@@ -121,6 +123,16 @@ def validate_url(
             field=field_name,
             value=value,
         ) from e
+
+    # Cheap, offline SSRF check (#152): scheme already verified above, so this
+    # only adds the blocked-IP-literal check. It cannot catch a hostname that
+    # *resolves* to a blocked address — the connection-layer guard
+    # (supacrawl.services.url_guard.resolve_and_pin / guarded_request) is what
+    # closes that window at the point each URL is actually fetched.
+    try:
+        assert_safe_url(url)
+    except _SupacrawlLibValidationError as e:
+        raise SupacrawlValidationError(e.message, field=field_name, value=value) from e
 
     return url
 

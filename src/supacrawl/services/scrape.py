@@ -2522,11 +2522,22 @@ class ScrapeService:
 
         Returns:
             ScrapeResult if successful, None if CAPTCHA solving failed
+
+        Raises:
+            ValidationError: If the URL or its resolved address is blocked
+                (#152); see ``BrowserManager.fetch_page``'s docstring for the
+                pre-flight-only caveat (this path navigates its own ad-hoc
+                page rather than going through ``fetch_page``).
         """
         from supacrawl.services.captcha import (
             CaptchaSolver,
             CaptchaSolverError,
         )
+        from supacrawl.services.url_guard import resolve_and_pin
+
+        # Pre-flight SSRF check (#152): this method drives its own page.goto
+        # rather than BrowserManager.fetch_page, so it needs its own check.
+        resolve_and_pin(url)
 
         # Create browser context for CAPTCHA solving
         browser = BrowserManager(

@@ -154,18 +154,15 @@ class TestDetectPdfContentType:
 
     @pytest.mark.asyncio
     async def test_detects_pdf_content_type(self):
+        """detect_pdf_content_type routes its HEAD through url_guard.guarded_request
+        (#152) rather than calling client.head() directly, so the fake response
+        is injected there."""
         from supacrawl.services.pdf import detect_pdf_content_type
 
         mock_response = MagicMock()
         mock_response.headers = {"content-type": "application/pdf"}
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.head = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_cls.return_value = mock_client
-
+        with patch("supacrawl.services.pdf.guarded_request", AsyncMock(return_value=mock_response)):
             result = await detect_pdf_content_type("https://example.com/report")
             assert result is True
 
@@ -176,13 +173,7 @@ class TestDetectPdfContentType:
         mock_response = MagicMock()
         mock_response.headers = {"content-type": "text/html; charset=utf-8"}
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.head = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_cls.return_value = mock_client
-
+        with patch("supacrawl.services.pdf.guarded_request", AsyncMock(return_value=mock_response)):
             result = await detect_pdf_content_type("https://example.com/page")
             assert result is False
 
@@ -190,13 +181,10 @@ class TestDetectPdfContentType:
     async def test_network_error_returns_false(self):
         from supacrawl.services.pdf import detect_pdf_content_type
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.head = AsyncMock(side_effect=Exception("Connection refused"))
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_cls.return_value = mock_client
-
+        with patch(
+            "supacrawl.services.pdf.guarded_request",
+            AsyncMock(side_effect=Exception("Connection refused")),
+        ):
             result = await detect_pdf_content_type("https://unreachable.com/file")
             assert result is False
 
@@ -249,6 +237,9 @@ class TestPdfSizeLimit:
 
     @pytest.mark.asyncio
     async def test_oversized_pdf_raises_value_error(self):
+        """download_pdf routes its GET through url_guard.guarded_request (#152)
+        rather than calling client.get() directly, so the fake response is
+        injected there."""
         from supacrawl.services.pdf import download_pdf
 
         # Create a mock response that exceeds the size limit
@@ -257,13 +248,7 @@ class TestPdfSizeLimit:
         mock_response.content = large_content
         mock_response.raise_for_status = MagicMock()
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            mock_client_cls.return_value = mock_client
-
+        with patch("supacrawl.services.pdf.guarded_request", AsyncMock(return_value=mock_response)):
             with pytest.raises(ValueError, match="too large"):
                 await download_pdf("https://example.com/huge.pdf")
 
@@ -672,19 +657,18 @@ class TestScrapeServicePdfRouting:
         download_mock = AsyncMock()
 
         with (
-            patch("supacrawl.services.http_fetch.httpx.AsyncClient") as mock_client_cls,
+            patch("supacrawl.services.http_fetch.guarded_request", new_callable=AsyncMock) as mock_guarded_request,
             patch("supacrawl.services.pdf.parse_pdf", new_callable=AsyncMock, return_value=mock_result) as mock_parse,
             patch("supacrawl.services.pdf.download_pdf", download_mock),
         ):
-            # Simulate the httpx GET returning application/pdf content-type
+            # Simulate the guarded GET returning application/pdf content-type
+            # (fetch_static routes through url_guard.guarded_request, #152).
             mock_response = MagicMock()
             mock_response.headers = {"content-type": "application/pdf"}
             mock_response.status_code = 200
             mock_response.content = pdf_bytes
             mock_response.url = "https://arxiv.org/pdf/1706.03762"
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client_cls.return_value)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value.get = AsyncMock(return_value=mock_response)
+            mock_guarded_request.return_value = mock_response
 
             service = ScrapeService(headless=True)
             result = await service.scrape(
@@ -720,7 +704,7 @@ class TestScrapeServicePdfRouting:
         download_mock = AsyncMock()
 
         with (
-            patch("supacrawl.services.http_fetch.httpx.AsyncClient") as mock_client_cls,
+            patch("supacrawl.services.http_fetch.guarded_request", new_callable=AsyncMock) as mock_guarded_request,
             patch("supacrawl.services.pdf.parse_pdf", new_callable=AsyncMock, return_value=mock_result) as mock_parse,
             patch("supacrawl.services.pdf.download_pdf", download_mock),
         ):
@@ -729,9 +713,7 @@ class TestScrapeServicePdfRouting:
             mock_response.status_code = 200
             mock_response.content = pdf_bytes
             mock_response.url = "https://example.com/download/doc"
-            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client_cls.return_value)
-            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client_cls.return_value.get = AsyncMock(return_value=mock_response)
+            mock_guarded_request.return_value = mock_response
 
             service = ScrapeService(headless=True)
             result = await service.scrape(

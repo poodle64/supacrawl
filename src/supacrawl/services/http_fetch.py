@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from supacrawl.services._pdf_sniff import MAX_PDF_SIZE, is_pdf_bytes
+from supacrawl.services.url_guard import guarded_request
 
 LOGGER = logging.getLogger(__name__)
 
@@ -88,13 +89,16 @@ async def fetch_static(
         request_headers.update(headers)
 
     try:
+        # follow_redirects=False: redirects are followed by hand inside
+        # guarded_request so every hop — not just the first URL — is
+        # validated and pinned to the address it resolved to (#152).
         async with httpx.AsyncClient(
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=httpx.Timeout(timeout_ms / 1000.0),
             proxy=proxy,
             headers=request_headers,
         ) as client:
-            response = await client.get(url)
+            response = await guarded_request(client, "GET", url)
     except Exception as e:
         # Any transport failure simply disqualifies the fast path; the browser
         # path runs next and produces the real error if it also fails.
