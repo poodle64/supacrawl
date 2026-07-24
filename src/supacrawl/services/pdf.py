@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 import httpx
 
 from supacrawl.services._pdf_sniff import MAX_PDF_SIZE, is_pdf_bytes
+from supacrawl.services.url_guard import guarded_request
 
 LOGGER = logging.getLogger(__name__)
 
@@ -152,12 +153,14 @@ async def detect_pdf_content_type(url: str, timeout: float = 10.0) -> bool:
     Returns False on any network error rather than raising.
     """
     try:
+        # follow_redirects=False: redirects are followed by hand inside
+        # guarded_request so every hop is validated and pinned (#152).
         async with httpx.AsyncClient(
             timeout=timeout,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": "Mozilla/5.0 (compatible; supacrawl)"},
         ) as client:
-            response = await client.head(url)
+            response = await guarded_request(client, "HEAD", url)
             content_type = response.headers.get("content-type", "")
             return "application/pdf" in content_type.lower()
     except Exception:
@@ -178,14 +181,17 @@ async def download_pdf(url: str, timeout: float = 120.0, max_size: int = MAX_PDF
     Raises:
         httpx.HTTPStatusError: If the server returns a non-2xx status.
         httpx.TimeoutException: If the request times out.
+        ValidationError: If the URL or a redirect hop fails the SSRF guard (#152).
         ValueError: If the PDF exceeds *max_size* bytes.
     """
+    # follow_redirects=False: redirects are followed by hand inside
+    # guarded_request so every hop is validated and pinned (#152).
     async with httpx.AsyncClient(
         timeout=timeout,
-        follow_redirects=True,
+        follow_redirects=False,
         headers={"User-Agent": "Mozilla/5.0 (compatible; supacrawl)"},
     ) as client:
-        response = await client.get(url)
+        response = await guarded_request(client, "GET", url)
         response.raise_for_status()
 
         if len(response.content) > max_size:

@@ -16,6 +16,7 @@ from supacrawl.services.detection import (
     estimate_js_requirement,
     generate_recommendations,
 )
+from supacrawl.services.url_guard import guarded_request
 from supacrawl.services.validation import validate_url
 
 if TYPE_CHECKING:
@@ -81,9 +82,11 @@ async def supacrawl_diagnose(
     }
 
     try:
+        # follow_redirects=False: redirects are followed by hand inside
+        # guarded_request so every hop is validated and pinned (#152).
         async with httpx.AsyncClient(
             timeout=15.0,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -91,7 +94,7 @@ async def supacrawl_diagnose(
             },
         ) as client:
             start_time = time.perf_counter()
-            response = await client.get(validated_url)
+            response = await guarded_request(client, "GET", validated_url)
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             diagnosis["reachable"] = True

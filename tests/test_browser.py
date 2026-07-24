@@ -391,3 +391,52 @@ class TestBrowserManager:
             assert isinstance(images, list)
             assert len(images) == 1
             assert "https://example.com/real-image.jpg" in images
+
+
+class TestBrowserPreflightSSRF:
+    """The #152 pre-flight refuses a blocked URL before any browser is driven.
+
+    ``_browser`` is set to a sentinel so the "not initialised" guard passes
+    without launching Playwright; ``resolve_and_pin`` is patched to refuse, and
+    the refusal must propagate before the sentinel is ever used.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fetch_page_refuses_blocked_url_before_launch(self, monkeypatch):
+        from supacrawl.exceptions import ValidationError
+        from supacrawl.services import browser as browser_mod
+
+        manager = browser_mod.BrowserManager()
+        monkeypatch.setattr(manager, "_browser", object())
+
+        def refuse(url):
+            raise ValidationError(
+                "URL host resolves to 169.254.169.254, which is in a blocked range",
+                field="url",
+                value=url,
+            )
+
+        monkeypatch.setattr(browser_mod, "resolve_and_pin", refuse)
+
+        with pytest.raises(ValidationError, match="blocked"):
+            await manager.fetch_page("http://evil.example.com/")
+
+    @pytest.mark.asyncio
+    async def test_extract_links_refuses_blocked_url_before_launch(self, monkeypatch):
+        from supacrawl.exceptions import ValidationError
+        from supacrawl.services import browser as browser_mod
+
+        manager = browser_mod.BrowserManager()
+        monkeypatch.setattr(manager, "_browser", object())
+
+        def refuse(url):
+            raise ValidationError(
+                "URL host resolves to a blocked range (link-local / cloud-metadata)",
+                field="url",
+                value=url,
+            )
+
+        monkeypatch.setattr(browser_mod, "resolve_and_pin", refuse)
+
+        with pytest.raises(ValidationError, match="blocked"):
+            await manager.extract_links("http://evil.example.com/")

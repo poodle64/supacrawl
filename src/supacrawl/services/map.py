@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from supacrawl.models import MapEvent, MapLink, MapResult
 from supacrawl.services.browser import BrowserManager
+from supacrawl.services.url_guard import guarded_request
 
 LOGGER = logging.getLogger(__name__)
 
@@ -308,15 +309,17 @@ class MapService:
         # can be fetched.  Only header KEYS are logged; values are not.
         if headers:
             LOGGER.debug("Sitemap client using %d custom header(s): %s", len(headers), list(headers.keys()))
+        # follow_redirects=False: redirects are followed by hand inside
+        # guarded_request so every hop is validated and pinned (#152).
         async with httpx.AsyncClient(
             timeout=10.0,
-            follow_redirects=True,
+            follow_redirects=False,
             headers=headers or {},
         ) as client:
             for sitemap_url in sitemap_candidates:
                 try:
                     LOGGER.debug(f"Trying sitemap: {sitemap_url}")
-                    resp = await client.get(sitemap_url)
+                    resp = await guarded_request(client, "GET", sitemap_url)
                     if resp.status_code == 200:
                         urls.extend(await self._parse_sitemap_xml(client, resp.text))
                 except Exception as e:
@@ -344,7 +347,10 @@ class MapService:
                 if loc and loc.text:
                     try:
                         LOGGER.debug(f"Fetching nested sitemap: {loc.text}")
-                        resp = await client.get(loc.text.strip())
+                        # loc.text is attacker-influenceable (it comes from XML the
+                        # target site served us), which is exactly why this must go
+                        # through the same guard as the original request (#152).
+                        resp = await guarded_request(client, "GET", loc.text.strip())
                         if resp.status_code == 200:
                             nested_urls = await self._parse_sitemap_xml(client, resp.text)
                             urls.extend(nested_urls)
