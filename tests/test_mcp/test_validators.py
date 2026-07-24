@@ -62,6 +62,22 @@ class TestValidateUrl:
             validate_url("ftp://example.com")
         assert "http" in str(exc_info.value).lower()
 
+    def test_rejects_cloud_metadata_ip(self):
+        """The MCP argument validator refuses a link-local/metadata IP literal (#152)."""
+        with pytest.raises(SupacrawlValidationError) as exc_info:
+            validate_url("http://169.254.169.254/latest/meta-data/")
+        assert "blocked" in str(exc_info.value).lower()
+
+    def test_rejects_ipv4_mapped_metadata_ip(self):
+        """The IPv4-mapped IPv6 spelling of the metadata endpoint is refused too (#152)."""
+        with pytest.raises(SupacrawlValidationError) as exc_info:
+            validate_url("http://[::ffff:169.254.169.254]/latest/meta-data/")
+        assert "blocked" in str(exc_info.value).lower()
+
+    def test_allows_public_url(self):
+        """A normal public URL passes the SSRF pre-check unchanged."""
+        assert validate_url("https://docs.example.com/guide") == "https://docs.example.com/guide"
+
 
 class TestValidateQuery:
     """Test search query validation."""

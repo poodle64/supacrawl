@@ -2529,6 +2529,8 @@ class ScrapeService:
                 pre-flight-only caveat (this path navigates its own ad-hoc
                 page rather than going through ``fetch_page``).
         """
+        import asyncio
+
         from supacrawl.services.captcha import (
             CaptchaSolver,
             CaptchaSolverError,
@@ -2537,7 +2539,8 @@ class ScrapeService:
 
         # Pre-flight SSRF check (#152): this method drives its own page.goto
         # rather than BrowserManager.fetch_page, so it needs its own check.
-        resolve_and_pin(url)
+        # Off the event loop: resolve_and_pin does a blocking getaddrinfo.
+        await asyncio.to_thread(resolve_and_pin, url)
 
         # Create browser context for CAPTCHA solving
         browser = BrowserManager(

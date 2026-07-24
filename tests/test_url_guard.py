@@ -21,6 +21,7 @@ import os
 import socket
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from supacrawl.exceptions import ValidationError
@@ -351,6 +352,175 @@ class TestGuardedRequestRedirectChain:
         ):
             with pytest.raises(ValidationError, match="no Location header"):
                 await guarded_request(client, "GET", "https://example.com/report.pdf")
+
+    async def test_relative_location_resolves_against_the_logical_url(self) -> None:
+        """A relative Location keeps the real hostname, not the pinned-IP request URL.
+
+        Resolving against the pinned-IP URL would silently drop the vhost /
+        certificate identity, so the guard joins against the logical URL.
+        """
+        client, calls = self._client([(302, {"location": "/moved/here"}), (200, {})])
+        seen = []
+
+        def fake_resolve(url):
+            seen.append(url)
+            return ("93.184.216.34", "example.com")
+
+        with patch("supacrawl.services.url_guard.resolve_and_pin", side_effect=fake_resolve):
+            response = await guarded_request(client, "GET", "https://example.com/docs/a")
+
+        assert response.status_code == 200
+        assert seen == ["https://example.com/docs/a", "https://example.com/moved/here"]
+        assert calls[1]["url"] == "https://93.184.216.34/moved/here"
+
+    async def test_host_header_preserves_a_non_default_port(self) -> None:
+        """Host must carry a non-default port (RFC 7230 §5.4); SNI stays hostname-only."""
+        client, calls = self._client([(200, {})])
+
+        with patch(
+            "supacrawl.services.url_guard.resolve_and_pin",
+            return_value=("93.184.216.34", "example.com"),
+        ):
+            await guarded_request(client, "GET", "https://example.com:8443/x")
+
+        assert calls[0]["url"] == "https://93.184.216.34:8443/x"
+        assert calls[0]["headers"]["host"] == "example.com:8443"
+        assert calls[0]["extensions"]["sni_hostname"] == "example.com"
+
+
+class TestEmbeddedIPv4InIPv6:
+    """IPv4-mapped/6to4/NAT64 IPv6 forms are classified by their embedded IPv4 (#152).
+
+    The bypass this closes: an IPv6 literal is never ``in`` an IPv4 network, so
+    ``::ffff:169.254.169.254`` slipped past every IPv4 blocklist entry while
+    still routing to the metadata endpoint on a dual-stack host.
+    """
+
+    @pytest.mark.parametrize(
+        "literal",
+        [
+            "::ffff:169.254.169.254",  # IPv4-mapped metadata
+            "::ffff:a9fe:a9fe",  # same, hex-compressed
+            "2002:a9fe:a9fe::",  # 6to4 wrapping the metadata IPv4
+            "64:ff9b::a9fe:a9fe",  # NAT64 well-known prefix wrapping it
+        ],
+    )
+    def test_embedded_metadata_blocked_by_default(self, literal: str) -> None:
+        import ipaddress
+
+        assert is_blocked_address(ipaddress.ip_address(literal)) is True
+
+    def test_ipv4_mapped_metadata_url_refused_offline(self) -> None:
+        with pytest.raises(ValidationError, match="blocked"):
+            assert_safe_url("http://[::ffff:169.254.169.254]/latest/meta-data/")
+
+    def test_public_ipv4_mapped_still_allowed(self) -> None:
+        """A mapped/6to4 address embedding a PUBLIC IPv4 is legitimate, not blocked."""
+        assert_safe_url("http://[::ffff:8.8.8.8]/dns-query")
+
+    def test_ipv4_mapped_loopback_is_default_allow_strict_block(self) -> None:
+        import ipaddress
+
+        addr = ipaddress.ip_address("::ffff:127.0.0.1")
+        assert is_blocked_address(addr) is False
+        with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
+            assert is_blocked_address(addr) is True
+
+    def test_resolver_answering_with_mapped_metadata_is_refused(self) -> None:
+        """The rebinding form: an AAAA answer of IPv4-mapped metadata is refused at resolve."""
+        infos = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::ffff:169.254.169.254", 443, 0, 0))]
+        with patch("supacrawl.services.url_guard.socket.getaddrinfo", return_value=infos):
+            with pytest.raises(ValidationError, match="blocked"):
+                resolve_and_pin("http://sneaky.example.com/")
+
+
+class TestStrictModeRanges:
+    """Every declared strict-mode range is actually enforced (guards against a typo'd CIDR)."""
+
+    @pytest.mark.parametrize(
+        "ip",
+        ["0.0.0.0", "0.1.2.3", "100.64.0.1", "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.0.1"],
+    )
+    def test_ipv4_ranges_refused_in_strict(self, ip: str) -> None:
+        import ipaddress
+
+        with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
+            assert is_blocked_address(ipaddress.ip_address(ip)) is True
+
+    @pytest.mark.parametrize("ip", ["::1", "fc00::1", "fd12:3456::1"])
+    def test_ipv6_ranges_refused_in_strict(self, ip: str) -> None:
+        import ipaddress
+
+        with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
+            assert is_blocked_address(ipaddress.ip_address(ip)) is True
+
+    @pytest.mark.parametrize("ip", ["0.0.0.0", "100.64.0.1", "::1", "fc00::1"])
+    def test_ranges_allowed_by_default(self, ip: str) -> None:
+        import ipaddress
+
+        assert is_blocked_address(ipaddress.ip_address(ip)) is False
+
+
+class TestGuardedRequestRealSocket:
+    """End-to-end proof against a loopback listener: the CONNECT lands on the pinned address.
+
+    The mocked-client tests prove request construction; these drive a real
+    ``httpx.AsyncClient`` so the socket layer — where the IPv4-mapped bypass
+    slipped through untested — is actually exercised (#152's 'local listener').
+    """
+
+    @staticmethod
+    def _listener():
+        import http.server
+        import threading
+
+        received: list[str] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler API)
+                received.append(self.headers.get("Host", ""))
+                body = b"OK-REAL-LISTENER"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, port, received
+
+    async def test_connects_to_pinned_loopback_with_real_host(self) -> None:
+        server, port, received = self._listener()
+        try:
+            infos = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+            with patch("supacrawl.services.url_guard.socket.getaddrinfo", return_value=infos):
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await guarded_request(client, "GET", f"http://docs.internal.test:{port}/x")
+
+            assert resp.status_code == 200
+            assert resp.text == "OK-REAL-LISTENER"
+            # The real connect used the pinned 127.0.0.1, and the Host header
+            # carried the true hostname AND port (not the pinned IP).
+            assert received == [f"docs.internal.test:{port}"]
+        finally:
+            server.shutdown()
+
+    async def test_ipv4_mapped_loopback_refused_before_any_socket_in_strict_mode(self) -> None:
+        """The reviewer's confirmed bypass: ::ffff:127.0.0.1 must never reach the listener."""
+        server, port, received = self._listener()
+        try:
+            with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    with pytest.raises(ValidationError, match="blocked"):
+                        await guarded_request(client, "GET", f"http://[::ffff:127.0.0.1]:{port}/x")
+
+            assert received == []
+        finally:
+            server.shutdown()
 
 
 async def _async_noop(*args, **kwargs) -> None:

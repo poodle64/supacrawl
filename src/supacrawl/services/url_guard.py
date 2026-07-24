@@ -54,6 +54,7 @@ controls.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import os
 import socket
@@ -88,6 +89,12 @@ _PRIVATE_NETWORKS: tuple[IPNetwork, ...] = (
     ipaddress.IPv6Network("fc00::/7"),  # IPv6 unique-local
 )
 
+# The well-known NAT64 prefix (RFC 6052): a 64:ff9b::/96 address embeds a
+# routable IPv4 destination in its low 32 bits. IPv4-mapped and 6to4 forms have
+# stdlib accessors (``.ipv4_mapped`` / ``.sixtofour``); NAT64 does not, so it is
+# matched explicitly and the embedded IPv4 pulled out by hand.
+_NAT64_PREFIX = ipaddress.IPv6Network("64:ff9b::/96")
+
 _ALLOWED_SCHEMES = {"http", "https"}
 
 _STRICT_ENV = "SUPACRAWL_BLOCK_PRIVATE_NETWORKS"
@@ -115,9 +122,38 @@ def _blocked_networks() -> tuple[IPNetwork, ...]:
     return _BLOCKED_NETWORKS
 
 
+def _candidate_addresses(addr: IPAddress) -> list[IPAddress]:
+    """The address plus any IPv4 destination it embeds and would route to.
+
+    An IPv6 literal can carry a blocked IPv4 target that a dual-stack host
+    connects to directly: IPv4-mapped (``::ffff:169.254.169.254``), 6to4
+    (``2002::/16``), or NAT64 (``64:ff9b::/96``). Classifying only the outer
+    IPv6 form misses the embedded target — an IPv6 address is never ``in`` an
+    IPv4 network, so ``::ffff:169.254.169.254`` slips past every IPv4 blocklist
+    entry (SSRF, #152). Checking the embedded IPv4 as well closes that.
+
+    Args:
+        addr: A parsed IP address.
+
+    Returns:
+        ``[addr]`` for a plain address; ``[addr, embedded_ipv4]`` when *addr* is
+        an IPv6 form that embeds an IPv4 destination.
+    """
+    candidates: list[IPAddress] = [addr]
+    if isinstance(addr, ipaddress.IPv6Address):
+        embedded = addr.ipv4_mapped
+        if embedded is None:
+            embedded = addr.sixtofour
+        if embedded is None and addr in _NAT64_PREFIX:
+            embedded = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+        if embedded is not None:
+            candidates.append(embedded)
+    return candidates
+
+
 def _describe(addr: IPAddress) -> str:
     """A short reason an address is refused, for the error message."""
-    if any(addr in net for net in _BLOCKED_NETWORKS):
+    if any(c in net for c in _candidate_addresses(addr) for net in _BLOCKED_NETWORKS):
         return "link-local / cloud-metadata"
     return "private / loopback"
 
@@ -125,13 +161,17 @@ def _describe(addr: IPAddress) -> str:
 def is_blocked_address(addr: IPAddress) -> bool:
     """Whether *addr* falls in a range refused under the current policy.
 
+    An IPv4-mapped/6to4/NAT64 IPv6 form is classified by the IPv4 destination it
+    embeds as well as by its own value, so a blocked IPv4 target cannot be
+    smuggled past the guard wearing an IPv6 spelling (#152).
+
     Args:
         addr: A parsed IP address.
 
     Returns:
         True when the address must not be connected to.
     """
-    return any(addr in net for net in _blocked_networks())
+    return any(c in net for c in _candidate_addresses(addr) for net in _blocked_networks())
 
 
 def _is_blocked_ip(host: str) -> bool:
@@ -278,6 +318,24 @@ def pinned_url(url: str, address: str) -> str:
     return urlunparse(parsed._replace(netloc=netloc))
 
 
+def _authority(host: str, port: int | None) -> str:
+    """The value for the ``Host`` header: the real hostname, port preserved.
+
+    Connecting to a pinned IP literal means httpx will not derive ``Host`` from
+    the request URL, so it is set by hand. RFC 7230 §5.4 requires the authority
+    to carry a non-default port, and an IPv6 hostname literal to be bracketed.
+
+    Args:
+        host: The original hostname (unbracketed, no port).
+        port: The explicit port from the URL, or ``None`` for the scheme default.
+
+    Returns:
+        The ``Host`` header value.
+    """
+    literal = f"[{host}]" if ":" in host else host
+    return f"{literal}:{port}" if port is not None else literal
+
+
 @asynccontextmanager
 async def guarded_stream(
     client: httpx.AsyncClient,
@@ -313,16 +371,19 @@ async def guarded_stream(
     """
     current_url = url
     for _ in range(max_redirects + 1):
-        address, host = resolve_and_pin(current_url)
+        # resolve_and_pin does a blocking socket.getaddrinfo; run it off the
+        # event loop so a slow resolver does not stall other concurrent fetches
+        # (httpx's own resolution is threaded for the same reason).
+        address, host = await asyncio.to_thread(resolve_and_pin, current_url)
         request_url = pinned_url(current_url, address)
 
         # The connection goes to the pinned address, but the server still needs
-        # the real hostname: Host for virtual hosting, SNI so TLS presents and
-        # verifies the right certificate.
+        # the real hostname: Host (with any non-default port) for virtual
+        # hosting, SNI so TLS presents and verifies the right certificate.
         request = client.build_request(
             method,
             request_url,
-            headers={"Host": host},
+            headers={"Host": _authority(host, urlparse(current_url).port)},
             extensions={"sni_hostname": host},
         )
         response = await client.send(request, stream=True, follow_redirects=False)

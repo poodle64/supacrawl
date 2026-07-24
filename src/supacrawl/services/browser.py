@@ -824,7 +824,8 @@ class BrowserManager:
 
         # Pre-flight SSRF check (#152): refuses now if the URL or its resolved
         # address is blocked. Not a full pin — see the Raises note above.
-        resolve_and_pin(url)
+        # Off the event loop: resolve_and_pin does a blocking getaddrinfo.
+        await asyncio.to_thread(resolve_and_pin, url)
 
         if device and self.engine == "camoufox":
             raise ValueError(
@@ -1172,7 +1173,8 @@ class BrowserManager:
             raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
 
         # Pre-flight SSRF check (#152): see fetch_page's Raises note.
-        resolve_and_pin(url)
+        # Off the event loop: resolve_and_pin does a blocking getaddrinfo.
+        await asyncio.to_thread(resolve_and_pin, url)
 
         context: BrowserContext | None = None
         page: Page | None = None
