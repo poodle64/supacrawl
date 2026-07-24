@@ -220,9 +220,26 @@ def assert_safe_url(url: str) -> None:
         url: The URL to validate.
 
     Raises:
-        ValidationError: When the scheme is not http(s), or the host is a
-            blocked IP literal.
+        ValidationError: When the URL contains a parser-divergence character,
+            the scheme is not http(s), or the host is a blocked IP literal.
     """
+    # Reject characters that RFC 3986 requires to be percent-encoded but that
+    # WHATWG-URL browser engines strip or remap: a backslash (Chromium treats it
+    # as "/" in the authority) and raw ASCII control characters (tab/newline/CR
+    # are stripped before parsing). urllib.parse and a browser then disagree on
+    # which host the URL names, so the browser pre-flight would validate one host
+    # while the engine navigates to another — a deterministic SSRF bypass (#152,
+    # e.g. http://169.254.169.254\@allowed-host/). A well-formed URL never
+    # carries these raw; a legitimately-intended one survives percent-encoded.
+    bad = next((c for c in url if c == "\\" or ord(c) < 0x20 or ord(c) == 0x7F), None)
+    if bad is not None:
+        raise ValidationError(
+            f"URL contains character {bad!r}, which browser and RFC 3986 parsers interpret "
+            "differently; percent-encode it. Raw backslashes and control characters are not allowed.",
+            field="url",
+            value=url,
+        )
+
     parsed = urlparse(url)
     scheme = parsed.scheme.lower()
     if scheme not in _ALLOWED_SCHEMES:

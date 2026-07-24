@@ -103,6 +103,40 @@ class TestAssertSafeUrl:
                 assert_safe_url("http://169.254.169.254/latest/meta-data/")
 
 
+class TestParserDivergenceReject:
+    """Backslash / control-char URLs are refused before parse (RFC 3986 vs WHATWG, #152).
+
+    Python's urlparse and a WHATWG browser engine disagree on the authority of
+    such a URL, so the browser pre-flight would validate a different host than
+    Chromium navigates to. Rejecting the raw character at the shared chokepoint
+    closes it for both the httpx and browser paths.
+    """
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://169.254.169.254\\@allowed-host.example/steal",  # backslash userinfo trick
+            "https://allowed.example\\@169.254.169.254/",
+            "http://169.254.169.254\t@allowed.example/",  # tab
+            "http://169.254.169.254\n@allowed.example/",  # newline
+            "http://allowed.example\r/path",  # carriage return
+        ],
+    )
+    def test_parser_divergence_urls_refused(self, url: str) -> None:
+        with pytest.raises(ValidationError, match="percent-encode|control character|interpret"):
+            assert_safe_url(url)
+
+    def test_resolve_and_pin_refuses_backslash_before_resolving(self) -> None:
+        with patch("supacrawl.services.url_guard.socket.getaddrinfo") as mock_resolve:
+            with pytest.raises(ValidationError):
+                resolve_and_pin("http://127.0.0.1\\@example.com/")
+        mock_resolve.assert_not_called()
+
+    def test_percent_encoded_backslash_is_allowed(self) -> None:
+        """A properly percent-encoded backslash (%5C) is legitimate and passes."""
+        assert_safe_url("https://docs.example.com/path%5Cwith-encoded-backslash")
+
+
 class TestIsBlockedIp:
     """_is_blocked_ip correctly classifies IP literals; non-IP hosts pass through."""
 
