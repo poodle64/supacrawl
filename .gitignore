@@ -98,3 +98,8 @@ scraped-pages/
 # Backup and archived artefacts
 .git-backup
 issues-archive-*.json
+
+# Session handoffs are internal working notes — this is a public repo, so they
+# stay local-only (never published). They live on disk for the next local
+# session but are never committed here.
+docs/development/handoffs/
