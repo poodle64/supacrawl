@@ -26,6 +26,7 @@ import pytest
 
 from supacrawl.exceptions import ValidationError
 from supacrawl.services.url_guard import (
+    _authority,
     _is_blocked_ip,
     assert_safe_url,
     guarded_request,
@@ -244,6 +245,22 @@ class TestPinnedUrl:
         assert pinned_url("https://example.com/x", "2606:2800:220:1::1") == "https://[2606:2800:220:1::1]/x"
 
 
+class TestAuthority:
+    """_authority builds the Host header: hostname, port preserved, IPv6 bracketed."""
+
+    def test_plain_hostname_no_port(self) -> None:
+        assert _authority("example.com", None) == "example.com"
+
+    def test_hostname_with_explicit_port(self) -> None:
+        assert _authority("example.com", 8443) == "example.com:8443"
+
+    def test_ipv6_hostname_is_bracketed(self) -> None:
+        assert _authority("2606:2800:220:1::1", None) == "[2606:2800:220:1::1]"
+
+    def test_ipv6_hostname_with_port_is_bracketed(self) -> None:
+        assert _authority("2606:2800:220:1::1", 8443) == "[2606:2800:220:1::1]:8443"
+
+
 class TestGuardedRequestRedirectChain:
     """guarded_request/guarded_stream guard and pin every redirect hop (#152)."""
 
@@ -403,6 +420,7 @@ class TestEmbeddedIPv4InIPv6:
             "::ffff:a9fe:a9fe",  # same, hex-compressed
             "2002:a9fe:a9fe::",  # 6to4 wrapping the metadata IPv4
             "64:ff9b::a9fe:a9fe",  # NAT64 well-known prefix wrapping it
+            "::169.254.169.254",  # deprecated IPv4-compatible form
         ],
     )
     def test_embedded_metadata_blocked_by_default(self, literal: str) -> None:
@@ -413,6 +431,18 @@ class TestEmbeddedIPv4InIPv6:
     def test_ipv4_mapped_metadata_url_refused_offline(self) -> None:
         with pytest.raises(ValidationError, match="blocked"):
             assert_safe_url("http://[::ffff:169.254.169.254]/latest/meta-data/")
+
+    def test_ipv4_compat_metadata_url_refused_offline(self) -> None:
+        with pytest.raises(ValidationError, match="blocked"):
+            assert_safe_url("http://[::169.254.169.254]/latest/meta-data/")
+
+    def test_ipv6_loopback_not_misread_as_ipv4_compat(self) -> None:
+        """``::1`` stays IPv6 loopback (strict-only), not IPv4-compatible 0.0.0.1."""
+        import ipaddress
+
+        assert is_blocked_address(ipaddress.ip_address("::1")) is False
+        with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
+            assert is_blocked_address(ipaddress.ip_address("::1")) is True
 
     def test_public_ipv4_mapped_still_allowed(self) -> None:
         """A mapped/6to4 address embedding a PUBLIC IPv4 is legitimate, not blocked."""

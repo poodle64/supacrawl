@@ -91,9 +91,15 @@ _PRIVATE_NETWORKS: tuple[IPNetwork, ...] = (
 
 # The well-known NAT64 prefix (RFC 6052): a 64:ff9b::/96 address embeds a
 # routable IPv4 destination in its low 32 bits. IPv4-mapped and 6to4 forms have
-# stdlib accessors (``.ipv4_mapped`` / ``.sixtofour``); NAT64 does not, so it is
-# matched explicitly and the embedded IPv4 pulled out by hand.
+# stdlib accessors (``.ipv4_mapped`` / ``.sixtofour``); NAT64 and the deprecated
+# IPv4-compatible form (``::a.b.c.d``, RFC 4291) do not, so they are matched by
+# prefix and the embedded IPv4 pulled out by hand.
 _NAT64_PREFIX = ipaddress.IPv6Network("64:ff9b::/96")
+_IPV4_COMPAT_PREFIX = ipaddress.IPv6Network("::/96")
+# ``::`` (unspecified) and ``::1`` (loopback) sit inside ::/96 but are genuine
+# IPv6 special addresses, not IPv4-compatible destinations — do not treat their
+# low 32 bits as an embedded IPv4.
+_IPV6_SPECIAL = frozenset({ipaddress.IPv6Address("::"), ipaddress.IPv6Address("::1")})
 
 _ALLOWED_SCHEMES = {"http", "https"}
 
@@ -127,10 +133,18 @@ def _candidate_addresses(addr: IPAddress) -> list[IPAddress]:
 
     An IPv6 literal can carry a blocked IPv4 target that a dual-stack host
     connects to directly: IPv4-mapped (``::ffff:169.254.169.254``), 6to4
-    (``2002::/16``), or NAT64 (``64:ff9b::/96``). Classifying only the outer
-    IPv6 form misses the embedded target — an IPv6 address is never ``in`` an
-    IPv4 network, so ``::ffff:169.254.169.254`` slips past every IPv4 blocklist
-    entry (SSRF, #152). Checking the embedded IPv4 as well closes that.
+    (``2002::/16``), NAT64 (``64:ff9b::/96``), or the deprecated IPv4-compatible
+    form (``::169.254.169.254``). Classifying only the outer IPv6 form misses the
+    embedded target — an IPv6 address is never ``in`` an IPv4 network, so
+    ``::ffff:169.254.169.254`` slips past every IPv4 blocklist entry (SSRF,
+    #152). Checking the embedded IPv4 as well closes every destination-embedding
+    form.
+
+    Teredo (``2001::/32``) is deliberately not covered: its embedded IPv4 is the
+    Teredo *server*, not the destination, so it is not a destination-embedding
+    form, and no supported OS (NixOS / macOS / Linux) enables the automatic
+    tunnelling that would make such a literal route to the embedded IPv4 anyway.
+    It is an accepted residual rather than a silent gap.
 
     Args:
         addr: A parsed IP address.
@@ -145,6 +159,8 @@ def _candidate_addresses(addr: IPAddress) -> list[IPAddress]:
         if embedded is None:
             embedded = addr.sixtofour
         if embedded is None and addr in _NAT64_PREFIX:
+            embedded = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+        if embedded is None and addr in _IPV4_COMPAT_PREFIX and addr not in _IPV6_SPECIAL:
             embedded = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
         if embedded is not None:
             candidates.append(embedded)
