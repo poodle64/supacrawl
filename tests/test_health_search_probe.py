@@ -60,6 +60,7 @@ class TestRunSearchHealthProbe:
         svc = _make_search_service(success=True, data=[])
 
         probe = await _run_search_health_probe(svc)
+        assert probe is not None
 
         assert probe["ok"] is False
         assert probe["result_count"] == 0
@@ -69,6 +70,7 @@ class TestRunSearchHealthProbe:
         svc = _make_search_service(success=False, data=[], error="No usable search provider.")
 
         probe = await _run_search_health_probe(svc)
+        assert probe is not None
 
         assert probe["ok"] is False
         assert probe["error"] == "No usable search provider."
@@ -95,6 +97,7 @@ class TestRunSearchHealthProbe:
         with patch.object(health_module, "_SEARCH_PROBE_TIMEOUT_S", 0.01):
             probe = await _run_search_health_probe(svc)
 
+        assert probe is not None
         assert probe["ok"] is False
         assert probe["probed"] is True
 
