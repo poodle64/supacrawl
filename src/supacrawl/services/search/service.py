@@ -414,7 +414,19 @@ class SearchService:
                 correlation_id=correlation_id,
             )
 
-            return self._record_search_telemetry(SearchResult(success=True, data=all_results), query, telemetry_started)
+            served_by = self._chain.last_provider
+            return self._record_search_telemetry(
+                SearchResult(
+                    success=True,
+                    data=all_results,
+                    provider=served_by,
+                    provider_fallback=bool(
+                        served_by and self._chain.configured_names and served_by not in self._chain.configured_names
+                    ),
+                ),
+                query,
+                telemetry_started,
+            )
 
         except Exception as e:
             msg = _describe_error(e)

@@ -90,11 +90,22 @@ def create_provider(
     raise ValueError(f"Unknown search provider: {name!r}. Supported providers: {', '.join(SUPPORTED_PROVIDERS)}")
 
 
+def strict_providers_enabled() -> bool:
+    """Whether the operator has opted into refusing implicit provider fallback.
+
+    Off by default so a fresh install still answers, on by design for a
+    deployment where a query reaching an unconfigured third-party engine is a
+    privacy incident rather than an inconvenience (#158).
+    """
+    return os.getenv("SUPACRAWL_SEARCH_STRICT_PROVIDERS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def build_provider_chain(
     providers: str | list[str] | None = None,
     *,
     brave_api_key: str | None = None,
     http_client: httpx.AsyncClient | None = None,
+    strict: bool | None = None,
 ) -> ProviderChain:
     """Build a provider chain from configuration.
 
@@ -104,9 +115,14 @@ def build_provider_chain(
             then falls back to DEFAULT_PROVIDERS.
         brave_api_key: Override for Brave API key.
         http_client: Optional shared HTTP client for providers that accept it.
+        strict: When True, never append an unconfigured fallback provider — a
+            chain with no usable provider fails loudly at search time instead
+            of silently answering from somewhere else. None reads
+            SUPACRAWL_SEARCH_STRICT_PROVIDERS.
 
     Returns:
-        Configured ProviderChain.
+        Configured ProviderChain. ``chain.configured_names`` records what was
+        asked for, so a fallback is always distinguishable from a selection.
     """
     # Resolve provider list
     if providers is None:
@@ -136,21 +152,32 @@ def build_provider_chain(
         LOGGER.warning("No valid providers configured, using defaults")
         unique_names = list(DEFAULT_PROVIDERS)
 
-    chain = ProviderChain()
+    chain = ProviderChain(configured_names=list(unique_names))
     for name in unique_names:
         provider = create_provider(name, brave_api_key=brave_api_key, http_client=http_client)
         chain.add(provider)
 
     # If the only provider is brave and it doesn't have a key, add DDG as fallback
-    # (preserves backwards-compatible behaviour)
+    # so a fresh install still answers. The fallback is never silent: it is named
+    # against what was configured, and can be refused outright (#158).
     if len(chain.providers) == 1 and chain.providers[0].name == "brave" and not chain.providers[0].is_available():
-        LOGGER.warning(
-            "Brave Search selected but BRAVE_API_KEY not set. "
-            "Adding DuckDuckGo as fallback (deprecated, unreliable). "
-            "Set BRAVE_API_KEY for reliable search — see https://brave.com/search/api/"
-        )
-        ddg = create_provider("duckduckgo", http_client=http_client)
-        chain.add(ddg)
+        if strict if strict is not None else strict_providers_enabled():
+            LOGGER.error(
+                "Brave Search configured but BRAVE_API_KEY is not set, and strict provider mode is on "
+                "(SUPACRAWL_SEARCH_STRICT_PROVIDERS). Refusing to fall back to DuckDuckGo — search will "
+                "fail loudly until the configured provider is usable."
+            )
+        else:
+            LOGGER.warning(
+                "SEARCH PROVIDER FALLBACK — configured provider(s) %s cannot be used (BRAVE_API_KEY not set); "
+                "falling back to 'duckduckgo', which the operator did NOT configure. Every query will be served "
+                "by a public third-party engine until this is fixed. Set BRAVE_API_KEY "
+                "(https://brave.com/search/api/), or set SUPACRAWL_SEARCH_STRICT_PROVIDERS=1 to fail instead "
+                "of falling back.",
+                unique_names,
+            )
+            ddg = create_provider("duckduckgo", http_client=http_client)
+            chain.add(ddg)
 
     available = [p.name for p in chain.providers if p.is_available()]
     LOGGER.debug(f"Search provider chain: {[p.name for p in chain.providers]} (available: {available})")

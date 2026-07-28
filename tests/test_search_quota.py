@@ -356,6 +356,8 @@ class TestHealthToolLowCreditWarning:
         chain = MagicMock()
         chain.active_providers = [MagicMock(name="brave")]
         chain.active_providers[0].name = "brave"
+        chain.configured_names = ["brave"]
+        chain.unconfigured_fallback_active = False
         chain.get_health.return_value = {
             "brave": {
                 "status": "healthy",
@@ -387,6 +389,8 @@ class TestHealthToolLowCreditWarning:
         chain = MagicMock()
         chain.active_providers = [MagicMock()]
         chain.active_providers[0].name = "brave"
+        chain.configured_names = ["brave"]
+        chain.unconfigured_fallback_active = False
         chain.get_health.return_value = {
             "brave": {
                 "status": "healthy",
@@ -416,6 +420,8 @@ class TestHealthToolLowCreditWarning:
         chain = MagicMock()
         chain.active_providers = [MagicMock()]
         chain.active_providers[0].name = "serper"
+        chain.configured_names = ["serper"]
+        chain.unconfigured_fallback_active = False
         chain.get_health.return_value = {
             "serper": {
                 "status": "healthy",

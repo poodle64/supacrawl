@@ -286,6 +286,13 @@ class ProviderChain:
     """
 
     providers: list[SearchProvider] = field(default_factory=list)
+    # Provider names the operator actually asked for, before any implicit
+    # fallback was appended. Empty means "nobody recorded an intent", in which
+    # case no fallback claim can be made either way (#158).
+    configured_names: list[str] = field(default_factory=list)
+    # Name of the provider that served the most recent successful search, so a
+    # caller can tell which provider answered rather than inferring it (#158).
+    last_provider: str | None = None
     _health: dict[str, ProviderHealth] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -303,6 +310,31 @@ class ProviderChain:
     def active_providers(self) -> list[SearchProvider]:
         """Providers that are available and not currently skipped."""
         return [p for p in self.providers if p.is_available() and not self._health[p.name].should_skip]
+
+    @property
+    def effective_provider(self) -> str | None:
+        """Name of the provider that would serve the next search, or None when nothing can."""
+        active = self.active_providers
+        if active:
+            return active[0].name
+        # A cooled-down-but-available provider would still be tried as a last
+        # resort by search(), so it is the honest answer here too.
+        usable = [p for p in self.providers if p.is_available()]
+        return usable[0].name if usable else None
+
+    @property
+    def unconfigured_fallback_active(self) -> bool:
+        """Whether the chain would serve from a provider the operator never configured.
+
+        This is the #158 signal: every individual field can read fine while the
+        server answers from a provider nobody asked for. Reporting it as one
+        boolean means a reader never has to diff ``configured_names`` against
+        ``effective_provider`` to notice.
+        """
+        if not self.configured_names:
+            return False
+        effective = self.effective_provider
+        return effective is not None and effective not in self.configured_names
 
     def get_health(self) -> dict[str, dict]:
         """Get health status for all providers (for health endpoint).
@@ -397,6 +429,13 @@ class ProviderChain:
                     return []
 
                 health.record_success()
+                self.last_provider = provider.name
+                if self.configured_names and provider.name not in self.configured_names:
+                    LOGGER.warning(
+                        f"Search served by {provider.name!r}, which is NOT a configured provider "
+                        f"(configured: {self.configured_names}). Queries are leaving via a provider "
+                        f"the operator did not select [correlation_id={correlation_id}]"
+                    )
 
                 # Sync remaining-quota from the provider into health so it is
                 # visible via get_health() / supacrawl_health.  Only providers

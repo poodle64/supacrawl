@@ -79,14 +79,24 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
         provider_list = [settings.search_provider]
 
     # Determine overall status
+    fallback_active = False
     if search_service and hasattr(search_service, "provider_chain"):
         chain = search_service.provider_chain
         active = chain.active_providers
         provider_health = chain.get_health()
 
+        # The chain knows what was actually asked for; the MCP settings object
+        # only knows what this process's env said. Prefer the chain (#158).
+        if chain.configured_names:
+            provider_list = list(chain.configured_names)
+
         if active:
-            status = "ready"
             effective_provider = active[0].name
+            # A chain answering from a provider outside the configured set is
+            # NOT ready. Every field below can read fine while the server serves
+            # from somewhere nobody chose — that is exactly what #158 is about.
+            fallback_active = chain.unconfigured_fallback_active
+            status = "degraded" if fallback_active else "ready"
         else:
             status = "degraded"
             effective_provider = provider_list[0] if provider_list else "none"
@@ -117,10 +127,20 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
     config: dict[str, Any] = {
         "configured_providers": provider_list,
         "effective_provider": effective_provider,
+        "provider_fallback_active": fallback_active,
         "status": status,
         "brave_api_key_configured": has_brave_key,
         "rate_limit_rps": rate_limit,
     }
+
+    if fallback_active:
+        config["warning"] = (
+            f"PROVIDER FALLBACK ACTIVE — configured {provider_list} but serving from "
+            f"{effective_provider!r}, which was not configured. Searches are leaving via a provider "
+            "the operator did not select; if the configured provider is a self-hosted backend, queries "
+            "that were meant to stay in-house are not. Fix the configured provider's credential/URL, "
+            "or set SUPACRAWL_SEARCH_STRICT_PROVIDERS=1 to fail instead of falling back."
+        )
 
     if provider_health:
         config["providers"] = provider_health
@@ -136,7 +156,9 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
         if low_credit:
             listed = ", ".join(f"{name} ({remaining} left)" for name, remaining in low_credit)
             hints = "; ".join(dict.fromkeys(renewal_hint(name) for name, _ in low_credit))
-            config["warning"] = f"Low search credits on: {listed}. {hints} to avoid outages."
+            credit_note = f"Low search credits on: {listed}. {hints} to avoid outages."
+            existing = config.get("warning")
+            config["warning"] = f"{existing} {credit_note}" if existing else credit_note
 
     if status == "degraded" and effective_provider == "duckduckgo" and "warning" not in config:
         config["warning"] = (
@@ -239,6 +261,11 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
         all_healthy = all(service_status.values())
 
         search_config = _get_search_config(api_client.search_service)
+        # A degraded search component must reach the top-line verdict. Burying it
+        # one level down is what let a server serving from an unconfigured
+        # provider read "healthy" for an unknown period (#158).
+        if search_config.get("status") == "degraded":
+            all_healthy = False
         if verify_search:
             probe = await _run_search_health_probe(api_client.search_service)
             if probe is not None:

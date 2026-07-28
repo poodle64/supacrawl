@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from supacrawl.services.registry import SupacrawlServices
+from supacrawl.services.search.providers import ProviderChain
 
 
 @pytest.fixture
@@ -70,7 +71,42 @@ def mock_search_service() -> MagicMock:
         )
     )
     mock.close = AsyncMock()
+    # A real chain carrying one configured, available provider. An unconstrained
+    # MagicMock here would make every attribute the health surface reads truthy,
+    # which is how a mock quietly stops representing the thing it stands for (#158).
+    mock.provider_chain = _configured_provider_chain("brave")
     return mock
+
+
+def _configured_provider_chain(name: str) -> ProviderChain:
+    """Build a real ProviderChain holding one configured, available provider."""
+
+    class _AvailableProvider:
+        def __init__(self, provider_name: str) -> None:
+            self._name = provider_name
+
+        @property
+        def name(self) -> str:
+            return self._name
+
+        def is_available(self) -> bool:
+            return True
+
+        async def search_web(self, *args: object, **kwargs: object) -> list:
+            return []
+
+        async def search_images(self, *args: object, **kwargs: object) -> list:
+            return []
+
+        async def search_news(self, *args: object, **kwargs: object) -> list:
+            return []
+
+        async def close(self) -> None:
+            return None
+
+    chain = ProviderChain(configured_names=[name])
+    chain.add(_AvailableProvider(name))  # type: ignore[arg-type]
+    return chain
 
 
 @pytest.fixture

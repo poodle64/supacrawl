@@ -35,6 +35,10 @@ def _make_chain(active_names: list[str], all_names: list[str]) -> MagicMock:
 
     chain.active_providers = [_make_provider(n) for n in active_names]
     chain.get_health.return_value = {n: {"status": "healthy", "requests_made": 1} for n in all_names}
+    # Mirror the real ProviderChain contract: everything in the chain was asked
+    # for, so no unconfigured fallback is in play (#158).
+    chain.configured_names = list(all_names)
+    chain.unconfigured_fallback_active = False
     return chain
 
 

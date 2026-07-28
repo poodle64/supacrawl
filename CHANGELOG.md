@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **`SUPACRAWL_SEARCH_STRICT_PROVIDERS`** (#158): opt-in switch that refuses implicit provider fallback. With it set, a configured provider that cannot be used fails the search loudly instead of quietly handing the query to DuckDuckGo. Off by default so a fresh install still answers.
+- **`SearchResult.provider` / `SearchResult.provider_fallback`** (#158): every search result now names the provider that actually served it and flags whether that provider was one the operator configured, so a caller no longer has to infer it.
+
+### Fixed
+
+- **Silent provider fallback now reads as degraded, not ready** (#158): the health surface reported `status: "ready"` while serving from a provider nobody configured — the exact condition that let a household deployment answer every search from a public engine while its self-hosted backend sat unused (#156). `components.search` gains `provider_fallback_active`, goes `degraded` when the effective provider is outside the configured set, carries a warning naming both, and — critically — that degraded verdict now reaches the top-level `status` instead of being buried one level down. The fallback also logs a warning at the moment it is applied, naming what was configured, what is being used instead, and why.
+
 ## [2026.7.0] - 2026-07-14
 
 The MCP tool surface gains its shared-bearer auth floor and a de-vendored mcp_common; the camoufox engine is pinned back onto a compatible playwright.

@@ -533,6 +533,11 @@ class SearchResult(BaseModel):
     success: bool
     data: list[SearchResultItem]
     error: str | None = None
+    # Which provider actually answered, and whether that provider was one the
+    # operator configured. Without these a caller cannot tell a configured
+    # provider from a silent fallback (#158).
+    provider: str | None = None
+    provider_fallback: bool = False
 
 
 # =============================================================================
