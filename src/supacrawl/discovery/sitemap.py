@@ -12,7 +12,7 @@ from datetime import datetime
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
-import httpx
+from supacrawl.services.url_guard import guarded_async_client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ async def discover_sitemaps(base_url: str) -> list[str]:
     # Check robots.txt first
     robots_url = f"{origin}/robots.txt"
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with guarded_async_client(timeout=30.0) as client:
             response = await client.get(robots_url, follow_redirects=True)
             if response.status_code == 200:
                 sitemaps.extend(_parse_robots_for_sitemaps(response.text))
@@ -99,7 +99,7 @@ async def discover_sitemaps(base_url: str) -> list[str]:
 
     # If no sitemaps found in robots.txt, check common locations
     if not sitemaps:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with guarded_async_client(timeout=30.0) as client:
             for path in COMMON_SITEMAP_PATHS:
                 sitemap_url = f"{origin}{path}"
                 try:
@@ -208,7 +208,7 @@ async def _parse_sitemap_recursive(
 async def _fetch_sitemap_content(sitemap_url: str) -> bytes | None:
     """Fetch sitemap content, handling gzip compression."""
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with guarded_async_client(timeout=60.0) as client:
             response = await client.get(sitemap_url, follow_redirects=True)
             if response.status_code != 200:
                 LOGGER.warning(

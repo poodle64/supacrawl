@@ -51,7 +51,36 @@ from bs4 import BeautifulSoup
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page
 
+from supacrawl.services.url_guard import UnsafeUrlError, resolve_and_pin
+
 LOGGER = logging.getLogger(__name__)
+
+
+async def _install_navigation_guard(page: Any) -> None:
+    """Refuse browser navigations and subresource loads to blocked addresses (#152).
+
+    The browser path cannot be pinned the way the httpx path is: Chromium owns
+    its own resolver and socket, so there is no seam to hand it a validated
+    address. The residual exposure is therefore a genuine time-of-check gap —
+    a name validated here can answer differently when Chromium resolves it.
+
+    What IS closed is the redirect and subresource hole: a route handler sees
+    every request the page makes, including each redirect hop, and aborts any
+    whose host is a blocked IP literal or resolves into a blocked range. That
+    turns "unchecked after the first URL" into "checked every hop, unpinned".
+    """
+
+    async def _route(route: Any, request: Any) -> None:
+        try:
+            resolve_and_pin(request.url)
+        except UnsafeUrlError as exc:
+            LOGGER.warning("Blocked browser request to %s: %s", request.url, exc)
+            await route.abort("blockedbyclient")
+            return
+        await route.continue_()
+
+    await page.route("**/*", _route)
+
 
 # Basic stealth scripts for non-stealth mode (subset of puppeteer-extra-plugin-stealth)
 STEALTH_SCRIPTS = [
@@ -853,6 +882,13 @@ class BrowserManager:
                 )
             else:
                 wait_until_resolved = wait_until
+            # Chromium resolves and connects itself, so the pinned-address
+            # guarantee the httpx path gets is not available here (#152). The
+            # target is still validated before navigation, and every navigation
+            # (redirect hops included) is re-validated by the route handler
+            # installed in _install_navigation_guard.
+            resolve_and_pin(url)
+            await _install_navigation_guard(page)
             response = await page.goto(url, wait_until=wait_until_resolved, timeout=self.timeout_ms)
 
             # Wait for SPA stability if requested
@@ -1185,6 +1221,8 @@ class BrowserManager:
                 )
             else:
                 wait_until_resolved = wait_until
+            resolve_and_pin(url)
+            await _install_navigation_guard(page)
             await page.goto(url, wait_until=wait_until_resolved, timeout=self.timeout_ms)
 
             # Extract all links using JavaScript

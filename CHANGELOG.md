@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **Outbound SSRF guard on every fetch supacrawl owns** (#152): a crawler fetches whatever URL it is handed, and supacrawl owns the socket, so only supacrawl can refuse a target. New `supacrawl.services.url_guard` resolves each host and refuses the fetch if **any** returned address is in a blocked range — checking the URL string is not enough, since owning a DNS record defeats an IP-literal check — then connects to that validated address literally, carrying the real hostname in `Host` and TLS SNI so nothing can change the answer between check and connect. The check lives in an httpx transport, so **every redirect hop is re-validated** by the same code, with no call site able to forget. Wired into the HTTP-first scrape path, PDF fetches, sitemap and robots discovery, map, and diagnose.
+- **`SUPACRAWL_BLOCK_PRIVATE_NETWORKS`** (#152): link-local and cloud-metadata ranges (169.254.0.0/16, fe80::/10 — including the AWS/GCP/Azure IMDS endpoint) are refused **always**; private/RFC1918 and loopback targets stay reachable by default, because crawling an internal documentation site is a first-class use of a self-hosted tool. A consumer accepting untrusted URLs sets this switch to refuse those too. Ranges and semantics mirror ragify's `RAGIFY_BLOCK_PRIVATE_NETWORKS` so the two libraries agree.
+- **Browser path: checked every hop, not pinned** (#152): Chromium owns its own resolver and socket, so there is no seam to hand it a validated address — the pinned-address guarantee the httpx path gets is **not** available there. What is closed is the redirect and subresource hole: the target is validated before navigation and a Playwright route handler re-validates every request the page makes, aborting any that resolves into a blocked range. The residual time-of-check/time-of-use window on the browser path is real and is recorded here rather than left silent.
+- **A blocked target no longer degrades into an unguarded browser fetch** (#152): the HTTP-first path swallowed every exception and returned `None`, which handed the same refused URL straight to the browser. A guard refusal now propagates instead.
+
 ### Added
 
 - **`SUPACRAWL_SEARCH_STRICT_PROVIDERS`** (#158): opt-in switch that refuses implicit provider fallback. With it set, a configured provider that cannot be used fails the search loudly instead of quietly handing the query to DuckDuckGo. Off by default so a fresh install still answers.

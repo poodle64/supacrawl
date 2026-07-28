@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from supacrawl.services._pdf_sniff import MAX_PDF_SIZE, is_pdf_bytes
+from supacrawl.services.url_guard import UnsafeUrlError, guarded_async_client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -88,13 +89,18 @@ async def fetch_static(
         request_headers.update(headers)
 
     try:
-        async with httpx.AsyncClient(
+        async with guarded_async_client(
             follow_redirects=True,
             timeout=httpx.Timeout(timeout_ms / 1000.0),
             proxy=proxy,
             headers=request_headers,
         ) as client:
             response = await client.get(url)
+    except UnsafeUrlError:
+        # A refusal is a verdict, not a transport hiccup. Returning None here
+        # would hand the same blocked target straight to the browser path,
+        # which cannot be pinned — the guard would have refused nothing (#152).
+        raise
     except Exception as e:
         # Any transport failure simply disqualifies the fast path; the browser
         # path runs next and produces the real error if it also fails.

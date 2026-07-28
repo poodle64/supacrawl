@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
-import httpx
+from supacrawl.services.url_guard import guarded_async_client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ async def fetch_robots(base_url: str, timeout: float = 30.0) -> RobotsConfig:
     robots_url = f"{origin}/robots.txt"
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with guarded_async_client(timeout=timeout) as client:
             response = await client.get(robots_url, follow_redirects=True)
 
             if response.status_code == 404:

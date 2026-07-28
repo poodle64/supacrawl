@@ -159,7 +159,7 @@ class TestDetectPdfContentType:
         mock_response = MagicMock()
         mock_response.headers = {"content-type": "application/pdf"}
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
+        with patch("supacrawl.services.pdf.guarded_async_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.head = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -176,7 +176,7 @@ class TestDetectPdfContentType:
         mock_response = MagicMock()
         mock_response.headers = {"content-type": "text/html; charset=utf-8"}
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
+        with patch("supacrawl.services.pdf.guarded_async_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.head = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -190,7 +190,7 @@ class TestDetectPdfContentType:
     async def test_network_error_returns_false(self):
         from supacrawl.services.pdf import detect_pdf_content_type
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
+        with patch("supacrawl.services.pdf.guarded_async_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.head = AsyncMock(side_effect=Exception("Connection refused"))
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -257,7 +257,7 @@ class TestPdfSizeLimit:
         mock_response.content = large_content
         mock_response.raise_for_status = MagicMock()
 
-        with patch("supacrawl.services.pdf.httpx.AsyncClient") as mock_client_cls:
+        with patch("supacrawl.services.pdf.guarded_async_client") as mock_client_cls:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)

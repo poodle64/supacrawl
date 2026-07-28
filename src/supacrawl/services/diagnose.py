@@ -16,6 +16,7 @@ from supacrawl.services.detection import (
     estimate_js_requirement,
     generate_recommendations,
 )
+from supacrawl.services.url_guard import guarded_async_client
 from supacrawl.services.validation import validate_url
 
 if TYPE_CHECKING:
@@ -81,7 +82,7 @@ async def supacrawl_diagnose(
     }
 
     try:
-        async with httpx.AsyncClient(
+        async with guarded_async_client(
             timeout=15.0,
             follow_redirects=True,
             headers={

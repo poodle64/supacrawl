@@ -17,9 +17,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import urlparse
 
-import httpx
-
 from supacrawl.services._pdf_sniff import MAX_PDF_SIZE, is_pdf_bytes
+from supacrawl.services.url_guard import guarded_async_client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -152,7 +151,7 @@ async def detect_pdf_content_type(url: str, timeout: float = 10.0) -> bool:
     Returns False on any network error rather than raising.
     """
     try:
-        async with httpx.AsyncClient(
+        async with guarded_async_client(
             timeout=timeout,
             follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (compatible; supacrawl)"},
@@ -180,7 +179,7 @@ async def download_pdf(url: str, timeout: float = 120.0, max_size: int = MAX_PDF
         httpx.TimeoutException: If the request times out.
         ValueError: If the PDF exceeds *max_size* bytes.
     """
-    async with httpx.AsyncClient(
+    async with guarded_async_client(
         timeout=timeout,
         follow_redirects=True,
         headers={"User-Agent": "Mozilla/5.0 (compatible; supacrawl)"},

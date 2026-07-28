@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from supacrawl.models import MapEvent, MapLink, MapResult
 from supacrawl.services.browser import BrowserManager
+from supacrawl.services.url_guard import guarded_async_client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -308,7 +309,7 @@ class MapService:
         # can be fetched.  Only header KEYS are logged; values are not.
         if headers:
             LOGGER.debug("Sitemap client using %d custom header(s): %s", len(headers), list(headers.keys()))
-        async with httpx.AsyncClient(
+        async with guarded_async_client(
             timeout=10.0,
             follow_redirects=True,
             headers=headers or {},
