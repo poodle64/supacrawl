@@ -202,3 +202,91 @@ class TestScrapeService:
         # Summary may be None if Ollama is not running
         if result.data.summary is not None:
             assert isinstance(result.data.summary, str)
+
+
+class TestCaptchaSolvingInstallsNavigationGuard:
+    """The CAPTCHA-solving browser path installs the same per-request
+    re-validation as ``BrowserManager`` (#152), not just a pre-flight.
+
+    ``_scrape_with_captcha_solving`` drives its own ad-hoc page rather than
+    going through ``BrowserManager.fetch_page``, so unlike that method it has
+    to install ``_install_navigation_guard`` itself. Driven with a fake
+    ``BrowserManager`` (patched at the point ``scrape.py`` constructs it) so
+    no real Chromium is needed.
+    """
+
+    class _FakePage:
+        def __init__(self) -> None:
+            self.route_installed = False
+            self.route_installed_before_goto = False
+
+        async def route(self, _pattern: str, _handler) -> None:
+            self.route_installed = True
+
+        async def goto(self, _url: str, **_kwargs):
+            self.route_installed_before_goto = self.route_installed
+            raise RuntimeError("simulated navigation failure — test stops here")
+
+        async def close(self) -> None:
+            return None
+
+    class _FakeInnerBrowser:
+        def __init__(self, page: object) -> None:
+            self._page = page
+
+        async def new_page(self) -> object:
+            return self._page
+
+    class _FakeBrowserManager:
+        """Stands in for supacrawl.services.scrape.BrowserManager.
+
+        engine="camoufox" so _scrape_with_captcha_solving takes the
+        no-separate-context branch and calls ``self._browser.new_page()``
+        directly — the minimum surface needed to reach page.goto.
+        """
+
+        instances: "list[TestCaptchaSolvingInstallsNavigationGuard._FakeBrowserManager]" = []
+
+        def __init__(self, **_kwargs: object) -> None:
+            self.engine = "camoufox"
+            self.page = TestCaptchaSolvingInstallsNavigationGuard._FakePage()
+            self._browser = TestCaptchaSolvingInstallsNavigationGuard._FakeInnerBrowser(self.page)
+            TestCaptchaSolvingInstallsNavigationGuard._FakeBrowserManager.instances.append(self)
+
+        async def start(self) -> None:
+            return None
+
+        async def stop(self) -> None:
+            return None
+
+    @pytest.mark.asyncio
+    async def test_route_handler_installed_before_navigation(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from supacrawl.services import scrape as scrape_mod
+
+        self._FakeBrowserManager.instances.clear()
+        monkeypatch.setattr(
+            "supacrawl.services.url_guard.resolve_and_pin", lambda url: ("93.184.216.34", "example.com")
+        )
+        monkeypatch.setattr(scrape_mod, "BrowserManager", self._FakeBrowserManager)
+
+        service = ScrapeService()
+
+        with pytest.raises(RuntimeError, match="simulated navigation failure"):
+            await service._scrape_with_captcha_solving(
+                "https://example.com/",
+                formats=["markdown"],
+                only_main_content=True,
+                wait_for=0,
+                timeout=5000,
+                screenshot_full_page=False,
+                actions=None,
+                json_schema=None,
+                json_prompt=None,
+                include_tags=None,
+                exclude_tags=None,
+            )
+
+        assert len(self._FakeBrowserManager.instances) == 1
+        page = self._FakeBrowserManager.instances[0].page
+        assert page.route_installed is True
+        assert page.route_installed_before_goto is True

@@ -23,6 +23,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from supacrawl.exceptions import ValidationError
+from supacrawl.services.browser import _install_navigation_guard
 from supacrawl.services.url_guard import resolve_and_pin
 
 LOGGER = logging.getLogger(__name__)
@@ -204,6 +205,12 @@ class ReferenceRenderer:
         try:
             page = await self._browser.new_page()
             response = None
+
+            # The pre-flight above only checks the original URL; a redirect or
+            # a page-issued subresource request after navigation starts is not
+            # covered by it, so install the same per-request re-validation the
+            # rest of the browser paths get (#152) before navigating.
+            await _install_navigation_guard(page)
 
             try:
                 response = await page.goto(url, wait_until="networkidle", timeout=timeout_ms)

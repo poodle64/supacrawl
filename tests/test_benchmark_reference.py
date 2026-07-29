@@ -182,3 +182,49 @@ async def test_renderer_captures_js_injected_content() -> None:
     assert expected_fragment in main_text, (
         f"Expected {expected_fragment!r} in settled main_text, but got: {main_text!r}"
     )
+
+
+class TestCaptureInstallsNavigationGuard:
+    """``capture`` installs the same per-request re-validation as BrowserManager (#152).
+
+    The pre-flight ``resolve_and_pin`` call only checks the URL the caller
+    asked for; a redirect or a page-issued subresource request after
+    navigation starts is only caught if the route handler is installed
+    before ``page.goto``. Driven with a fake browser/page so no real
+    Chromium is needed.
+    """
+
+    class _FakePage:
+        def __init__(self) -> None:
+            self.route_installed = False
+            self.route_installed_before_goto = False
+
+        async def route(self, _pattern: str, _handler) -> None:
+            self.route_installed = True
+
+        async def goto(self, _url: str, **_kwargs):
+            self.route_installed_before_goto = self.route_installed
+            raise RuntimeError("simulated navigation failure — test stops here")
+
+    class _FakeBrowser:
+        def __init__(self, page) -> None:
+            self._page = page
+
+        async def new_page(self):
+            return self._page
+
+    @pytest.mark.asyncio
+    async def test_route_handler_installed_before_navigation(self, monkeypatch) -> None:
+        from supacrawl.benchmark import reference as reference_mod
+
+        monkeypatch.setattr(reference_mod, "resolve_and_pin", lambda url: ("93.184.216.34", "example.com"))
+
+        renderer = reference_mod.ReferenceRenderer()
+        page = self._FakePage()
+        renderer._browser = self._FakeBrowser(page)
+
+        capture = await renderer.capture("https://example.com/")
+
+        assert page.route_installed is True
+        assert page.route_installed_before_goto is True
+        assert capture.error is not None and "Navigation failed" in capture.error

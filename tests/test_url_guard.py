@@ -136,6 +136,17 @@ class TestParserDivergenceReject:
         """A properly percent-encoded backslash (%5C) is legitimate and passes."""
         assert_safe_url("https://docs.example.com/path%5Cwith-encoded-backslash")
 
+    def test_malformed_bracketed_ipv6_authority_raises_validation_error(self) -> None:
+        """urllib.parse itself raises ValueError for some malformed authorities.
+
+        A non-IP literal inside brackets (e.g. userinfo-split around a
+        bracketed non-address) makes urlparse raise ValueError rather than
+        just returning an odd result. That must surface as ValidationError
+        like every other refusal here, not escape as a raw ValueError.
+        """
+        with pytest.raises(ValidationError, match="could not be parsed"):
+            assert_safe_url("http://[notanip]:80@evil.example.com/")
+
 
 class TestIsBlockedIp:
     """_is_blocked_ip correctly classifies IP literals; non-IP hosts pass through."""
@@ -438,6 +449,26 @@ class TestGuardedRequestRedirectChain:
         assert calls[0]["headers"]["host"] == "example.com:8443"
         assert calls[0]["extensions"]["sni_hostname"] == "example.com"
 
+    async def test_malformed_redirect_location_raises_validation_error_not_value_error(self) -> None:
+        """A hostile Location header can make urljoin itself raise ValueError.
+
+        Python 3.14 hardened urllib.parse to validate a bracketed IPv6
+        authority and raise ValueError for a malformed one (e.g. a non-IP
+        literal inside the brackets). That must surface as the same
+        ValidationError every other hop refusal does, not escape as a raw
+        ValueError past a caller that only catches ValidationError.
+        """
+        client, _calls = self._client(
+            [(302, {"location": "http://[notanip]:80@evil.example.com/"})],
+        )
+
+        with patch(
+            "supacrawl.services.url_guard.resolve_and_pin",
+            return_value=("93.184.216.34", "example.com"),
+        ):
+            with pytest.raises(ValidationError, match="could not be parsed"):
+                await guarded_request(client, "GET", "https://example.com/report.pdf")
+
 
 class TestEmbeddedIPv4InIPv6:
     """IPv4-mapped/6to4/NAT64 IPv6 forms are classified by their embedded IPv4 (#152).
@@ -595,18 +626,32 @@ class TestStrictModeRanges:
         with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
             assert is_blocked_address(ipaddress.ip_address(ip)) is True
 
-    @pytest.mark.parametrize("ip", ["::1", "fc00::1", "fd12:3456::1"])
+    @pytest.mark.parametrize("ip", ["::1", "::", "fc00::1", "fd12:3456::1"])
     def test_ipv6_ranges_refused_in_strict(self, ip: str) -> None:
         import ipaddress
 
         with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
             assert is_blocked_address(ipaddress.ip_address(ip)) is True
 
-    @pytest.mark.parametrize("ip", ["0.0.0.0", "100.64.0.1", "::1", "fc00::1"])
+    @pytest.mark.parametrize("ip", ["0.0.0.0", "100.64.0.1", "::1", "::", "fc00::1"])
     def test_ranges_allowed_by_default(self, ip: str) -> None:
         import ipaddress
 
         assert is_blocked_address(ipaddress.ip_address(ip)) is False
+
+    def test_ipv6_unspecified_refused_in_strict(self) -> None:
+        """``::`` (unspecified) is the IPv6 analogue of ``0.0.0.0``: a connect()
+
+        to it is routed by the OS to loopback, so leaving it unblocked while
+        ``0.0.0.0/8`` is blocked would defeat strict mode for exactly the
+        deployment shape strict mode exists to protect.
+        """
+        with patch.dict(os.environ, {"SUPACRAWL_BLOCK_PRIVATE_NETWORKS": "1"}):
+            with pytest.raises(ValidationError, match="private / loopback"):
+                resolve_and_pin("http://[::]/")
+
+    def test_ipv6_unspecified_reachable_by_default(self) -> None:
+        assert_safe_url("http://[::]/")
 
 
 class TestGuardedRequestRealSocket:

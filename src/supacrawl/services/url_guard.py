@@ -103,6 +103,7 @@ _PRIVATE_NETWORKS: tuple[IPNetwork, ...] = (
     ipaddress.IPv4Network("0.0.0.0/8"),  # "This host on this network"
     ipaddress.IPv4Network("100.64.0.0/10"),  # Carrier-grade NAT
     ipaddress.IPv6Network("::1/128"),  # IPv6 loopback
+    ipaddress.IPv6Network("::/128"),  # IPv6 unspecified — a connect() to it is routed to loopback
     ipaddress.IPv6Network("fc00::/7"),  # IPv6 unique-local
 )
 
@@ -257,7 +258,18 @@ def assert_safe_url(url: str) -> None:
             value=url,
         )
 
-    parsed = urlparse(url)
+    # A malformed bracketed-IPv6 authority (e.g. an unbalanced or non-IP
+    # literal inside `[...]`) makes urllib.parse itself raise ValueError
+    # rather than just returning an odd result. That must fail as a
+    # ValidationError like every other refusal here, not escape as a raw
+    # ValueError — a caller catching only ValidationError (e.g. the browser
+    # route handler re-validating a redirect Location) must not see this
+    # leak past it uncaught.
+    try:
+        parsed = urlparse(url)
+    except ValueError as exc:
+        raise ValidationError(f"URL {url!r} could not be parsed: {exc}", field="url", value=url) from exc
+
     scheme = parsed.scheme.lower()
     if scheme not in _ALLOWED_SCHEMES:
         raise ValidationError(
@@ -472,7 +484,19 @@ async def guarded_stream(
         # Resolve against the logical URL, not the pinned one: a relative
         # Location off a pinned-IP request URL would silently drop the
         # hostname and with it the vhost/certificate identity.
-        current_url = urljoin(current_url, location)
+        #
+        # A malformed bracketed-IPv6 authority in an attacker-controlled
+        # Location header makes urljoin itself raise ValueError rather than
+        # returning a rejectable string; that must surface as the same
+        # ValidationError every other hop refusal does.
+        try:
+            current_url = urljoin(current_url, location)
+        except ValueError as exc:
+            raise ValidationError(
+                f"Redirect Location {location!r} from {current_url!r} could not be parsed: {exc}",
+                field="url",
+                value=location,
+            ) from exc
 
     raise ValidationError(f"Too many redirects (>{max_redirects}) starting from {url!r}", field="url", value=url)
 

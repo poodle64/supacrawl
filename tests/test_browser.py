@@ -1,5 +1,9 @@
 """Tests for browser manager."""
 
+import asyncio
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 
 from supacrawl.services.browser import BrowserManager, PageContent, PageMetadata
@@ -440,3 +444,99 @@ class TestBrowserPreflightSSRF:
 
         with pytest.raises(ValidationError, match="blocked"):
             await manager.extract_links("http://evil.example.com/")
+
+
+class TestNavigationGuardRouteHandler:
+    """``_install_navigation_guard`` re-validates every request a page makes.
+
+    This is the redirect/subresource protection layered on top of the
+    pre-flight check (#152): the pre-flight only sees the URL a caller asked
+    for, this route handler sees every hop the browser itself then makes.
+    """
+
+    class _FakeRoute:
+        def __init__(self) -> None:
+            self.aborted_with: str | None = None
+            self.continued = False
+
+        async def abort(self, reason: str) -> None:
+            self.aborted_with = reason
+
+        async def continue_(self) -> None:
+            self.continued = True
+
+    class _FakeRequest:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+    class _FakePage:
+        def __init__(self) -> None:
+            self.handler: Callable[..., Any] | None = None
+
+        async def route(self, pattern: str, handler: Callable[..., Any]) -> None:
+            self.handler = handler
+
+    @pytest.mark.asyncio
+    async def test_blocked_request_is_aborted(self, monkeypatch):
+        from supacrawl.exceptions import ValidationError
+        from supacrawl.services import browser as browser_mod
+
+        def refuse(url):
+            raise ValidationError("blocked range (link-local / cloud-metadata)", field="url", value=url)
+
+        monkeypatch.setattr(browser_mod, "resolve_and_pin", refuse)
+
+        page = self._FakePage()
+        await browser_mod._install_navigation_guard(page)
+        route, request = self._FakeRoute(), self._FakeRequest("http://169.254.169.254/latest/meta-data/")
+
+        assert page.handler is not None
+        await page.handler(route, request)
+
+        assert route.aborted_with == "blockedbyclient"
+        assert route.continued is False
+
+    @pytest.mark.asyncio
+    async def test_allowed_request_continues(self, monkeypatch):
+        from supacrawl.services import browser as browser_mod
+
+        monkeypatch.setattr(browser_mod, "resolve_and_pin", lambda url: ("93.184.216.34", "example.com"))
+
+        page = self._FakePage()
+        await browser_mod._install_navigation_guard(page)
+        route, request = self._FakeRoute(), self._FakeRequest("https://example.com/")
+
+        assert page.handler is not None
+        await page.handler(route, request)
+
+        assert route.continued is True
+        assert route.aborted_with is None
+
+    @pytest.mark.asyncio
+    async def test_resolution_runs_off_the_event_loop(self, monkeypatch):
+        """A slow resolver on one hostile request must not stall the event loop.
+
+        Every other resolve_and_pin call site in this codebase wraps it in
+        asyncio.to_thread for exactly this reason; the route handler fires
+        once per request/redirect/subresource, so it needs the same guarantee.
+        """
+        from supacrawl.services import browser as browser_mod
+
+        calls: list[tuple[object, ...]] = []
+        real_to_thread = asyncio.to_thread
+
+        async def spying_to_thread(func, *args):
+            calls.append((func, *args))
+            return await real_to_thread(func, *args)
+
+        monkeypatch.setattr(browser_mod.asyncio, "to_thread", spying_to_thread)
+        monkeypatch.setattr(browser_mod, "resolve_and_pin", lambda url: ("93.184.216.34", "example.com"))
+
+        page = self._FakePage()
+        await browser_mod._install_navigation_guard(page)
+        assert page.handler is not None
+        await page.handler(self._FakeRoute(), self._FakeRequest("https://example.com/"))
+
+        assert len(calls) == 1
+        assert calls[0][0] is browser_mod.resolve_and_pin
+        assert calls[0][1] == "https://example.com/"

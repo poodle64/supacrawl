@@ -73,7 +73,12 @@ async def _install_navigation_guard(page: Any) -> None:
 
     async def _route(route: Any, request: Any) -> None:
         try:
-            resolve_and_pin(request.url)
+            # Off the event loop: resolve_and_pin does a blocking getaddrinfo,
+            # and this handler fires once per request/redirect/subresource —
+            # a slow or black-holed resolver on a hostile page must not stall
+            # the whole event loop (and every other concurrent scrape in the
+            # process) for the lookup's duration.
+            await asyncio.to_thread(resolve_and_pin, request.url)
         except ValidationError as exc:
             LOGGER.warning("Blocked browser request to %s: %s", request.url, exc)
             await route.abort("blockedbyclient")

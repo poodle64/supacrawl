@@ -2531,6 +2531,7 @@ class ScrapeService:
         """
         import asyncio
 
+        from supacrawl.services.browser import _install_navigation_guard
         from supacrawl.services.captcha import (
             CaptchaSolver,
             CaptchaSolverError,
@@ -2568,6 +2569,12 @@ class ScrapeService:
                 page = await context.new_page()
 
             try:
+                # The pre-flight above only checks the original URL; a hostile
+                # page reached after CAPTCHA-solving can still redirect or
+                # issue its own subresource requests, so install the same
+                # per-request re-validation BrowserManager's guarded paths get
+                # (#152) before navigating.
+                await _install_navigation_guard(page)
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
 
                 # Detect and solve CAPTCHA
