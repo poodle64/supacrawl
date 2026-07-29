@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from supacrawl.exceptions import ValidationError
+from supacrawl.services.url_guard import assert_safe_url
 
 
 def validate_url(
@@ -85,6 +86,16 @@ def validate_url(
             field=field_name,
             value=value,
         )
+
+    # Cheap, offline SSRF check (#152): scheme already verified above, so this
+    # only adds the blocked-IP-literal check. It cannot catch a hostname that
+    # *resolves* to a blocked address — the connection-layer guard
+    # (supacrawl.services.url_guard.resolve_and_pin / guarded_request) is what
+    # closes that window at the point each URL is actually fetched.
+    try:
+        assert_safe_url(url)
+    except ValidationError as e:
+        raise ValidationError(e.message, field=field_name, value=value, context=e.context) from e
 
     return url
 

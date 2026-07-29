@@ -356,16 +356,16 @@ class TestFetchStatic:
         return resp
 
     async def _call(self, fake_response: MagicMock) -> HttpFetchResult | None:
-        """Call fetch_static with a patched httpx.AsyncClient."""
+        """Call fetch_static with a patched guarded_request (#152).
+
+        fetch_static routes its GET through url_guard.guarded_request rather
+        than calling client.get() directly, so the fake response is injected
+        there; the real httpx.AsyncClient is left to construct normally since
+        it never actually opens a socket in this path.
+        """
         from supacrawl.services.http_fetch import fetch_static
 
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=fake_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        # False matches httpx's real __aexit__ — it does not suppress exceptions.
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("supacrawl.services.http_fetch.httpx.AsyncClient", return_value=mock_client):
+        with patch("supacrawl.services.http_fetch.guarded_request", AsyncMock(return_value=fake_response)):
             return await fetch_static("https://example.com/doc", timeout_ms=5000)
 
     async def test_missing_content_type_with_pdf_magic_routed_to_pdf(self) -> None:

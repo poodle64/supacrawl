@@ -22,6 +22,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from supacrawl.exceptions import ValidationError
+from supacrawl.services.url_guard import resolve_and_pin
+
 LOGGER = logging.getLogger(__name__)
 
 # Hydration-settle constants.
@@ -188,6 +191,14 @@ class ReferenceRenderer:
         """
         if self._browser is None:
             return ReferenceCapture(error="ReferenceRenderer not started — use as async context manager")
+
+        # Pre-flight SSRF check (#152), matching the other browser-navigation
+        # sites: refuse a URL that resolves to a blocked address before driving
+        # Playwright. Off the event loop — resolve_and_pin blocks on getaddrinfo.
+        try:
+            await asyncio.to_thread(resolve_and_pin, url)
+        except ValidationError as exc:
+            return ReferenceCapture(error=f"Refused by SSRF guard: {exc}")
 
         page = None
         try:

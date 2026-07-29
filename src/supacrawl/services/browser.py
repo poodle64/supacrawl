@@ -48,10 +48,11 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
+from supacrawl.exceptions import ValidationError
+from supacrawl.services.url_guard import resolve_and_pin
+
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page
-
-from supacrawl.services.url_guard import UnsafeUrlError, resolve_and_pin
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ async def _install_navigation_guard(page: Any) -> None:
     async def _route(route: Any, request: Any) -> None:
         try:
             resolve_and_pin(request.url)
-        except UnsafeUrlError as exc:
+        except ValidationError as exc:
             LOGGER.warning("Blocked browser request to %s: %s", request.url, exc)
             await route.abort("blockedbyclient")
             return
@@ -839,9 +840,20 @@ class BrowserManager:
             RuntimeError: If browser not initialized or fetch fails
             ValueError: If device is specified with Camoufox engine or device
                 name is not recognised.
+            ValidationError: If the URL or its resolved address is blocked (#152).
+                This is a pre-flight check only — the browser engine re-resolves
+                the hostname itself when it connects, so a DNS answer that
+                changes in the window between this check and the engine's own
+                connect is not pinned (see services/url_guard.py's module
+                docstring for why the browser paths cannot close that gap).
         """
         if not self._browser:
             raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+
+        # Pre-flight SSRF check (#152): refuses now if the URL or its resolved
+        # address is blocked. Not a full pin — see the Raises note above.
+        # Off the event loop: resolve_and_pin does a blocking getaddrinfo.
+        await asyncio.to_thread(resolve_and_pin, url)
 
         if device and self.engine == "camoufox":
             raise ValueError(
@@ -884,10 +896,9 @@ class BrowserManager:
                 wait_until_resolved = wait_until
             # Chromium resolves and connects itself, so the pinned-address
             # guarantee the httpx path gets is not available here (#152). The
-            # target is still validated before navigation, and every navigation
-            # (redirect hops included) is re-validated by the route handler
-            # installed in _install_navigation_guard.
-            resolve_and_pin(url)
+            # target was already validated above (pre-flight), and every
+            # navigation from here on (redirect hops included) is re-validated
+            # by the route handler installed in _install_navigation_guard.
             await _install_navigation_guard(page)
             response = await page.goto(url, wait_until=wait_until_resolved, timeout=self.timeout_ms)
 
@@ -1189,9 +1200,15 @@ class BrowserManager:
 
         Raises:
             RuntimeError: If browser not initialized or fetch fails
+            ValidationError: If the URL or its resolved address is blocked
+                (#152); see :meth:`fetch_page` for the pre-flight-only caveat.
         """
         if not self._browser:
             raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+
+        # Pre-flight SSRF check (#152): see fetch_page's Raises note.
+        # Off the event loop: resolve_and_pin does a blocking getaddrinfo.
+        await asyncio.to_thread(resolve_and_pin, url)
 
         context: BrowserContext | None = None
         page: Page | None = None
@@ -1221,7 +1238,6 @@ class BrowserManager:
                 )
             else:
                 wait_until_resolved = wait_until
-            resolve_and_pin(url)
             await _install_navigation_guard(page)
             await page.goto(url, wait_until=wait_until_resolved, timeout=self.timeout_ms)
 

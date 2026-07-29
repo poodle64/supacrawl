@@ -12,7 +12,9 @@ from datetime import datetime
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
-from supacrawl.services.url_guard import guarded_async_client
+import httpx
+
+from supacrawl.services.url_guard import guarded_request
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,8 +87,11 @@ async def discover_sitemaps(base_url: str) -> list[str]:
     # Check robots.txt first
     robots_url = f"{origin}/robots.txt"
     try:
-        async with guarded_async_client(timeout=30.0) as client:
-            response = await client.get(robots_url, follow_redirects=True)
+        # follow_redirects left at the client default (False): redirects are
+        # followed by hand inside guarded_request so every hop is validated
+        # and pinned (#152).
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await guarded_request(client, "GET", robots_url)
             if response.status_code == 200:
                 sitemaps.extend(_parse_robots_for_sitemaps(response.text))
                 LOGGER.debug(
@@ -99,11 +104,11 @@ async def discover_sitemaps(base_url: str) -> list[str]:
 
     # If no sitemaps found in robots.txt, check common locations
     if not sitemaps:
-        async with guarded_async_client(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             for path in COMMON_SITEMAP_PATHS:
                 sitemap_url = f"{origin}{path}"
                 try:
-                    response = await client.head(sitemap_url, follow_redirects=True)
+                    response = await guarded_request(client, "HEAD", sitemap_url)
                     if response.status_code == 200:
                         sitemaps.append(sitemap_url)
                         LOGGER.debug("Found sitemap at %s", sitemap_url)
@@ -208,8 +213,8 @@ async def _parse_sitemap_recursive(
 async def _fetch_sitemap_content(sitemap_url: str) -> bytes | None:
     """Fetch sitemap content, handling gzip compression."""
     try:
-        async with guarded_async_client(timeout=60.0) as client:
-            response = await client.get(sitemap_url, follow_redirects=True)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await guarded_request(client, "GET", sitemap_url)
             if response.status_code != 200:
                 LOGGER.warning(
                     "Sitemap returned status %d: %s",
