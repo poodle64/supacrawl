@@ -29,15 +29,32 @@ Chromium or Firefox a pre-resolved literal address while it still presents
 the original hostname for TLS SNI and virtual hosting the way httpx's
 ``extensions={"sni_hostname": ...}`` does. The browser call sites
 (``BrowserManager.fetch_page`` / ``extract_links``,
-``ScrapeService._scrape_with_captcha_solving``) call :func:`resolve_and_pin`
-as a pre-flight — refusing a URL that resolves to a blocked address right
-now — but the browser then re-resolves the hostname itself when it actually
-connects, so a DNS answer that changes in that window is not pinned. This is
-a real, accepted gap: closing it would mean routing all browser traffic
+``ScrapeService._scrape_with_captcha_solving``,
+``ReferenceRenderer``) call :func:`resolve_and_pin` as a pre-flight —
+refusing a URL that resolves to a blocked address before navigation starts —
+and ``BrowserManager`` additionally installs a Playwright route handler
+(``_install_navigation_guard``) that re-validates every request the page
+makes, redirect hops and subresource loads included, aborting any that
+resolve into a blocked range. What remains open is the pre-flight's own
+time-of-check/time-of-use window: the engine re-resolves each hostname
+itself when it actually connects, so a DNS answer that changes between a
+given hop's route-handler check and the engine's connect for *that hop* is
+not pinned. Closing that fully would mean routing all browser traffic
 through a local proxy that itself pins addresses, which is out of scope
 here. Documented rather than silently left open, per the household's "an
 honest 'this path cannot be pinned, here is why' is a legitimate outcome"
 standard.
+
+**Non-ASCII hosts are refused, not IDNA-encoded.** ``urllib.parse`` performs
+no IDNA/UTS-46 normalisation of its own, while a WHATWG browser engine
+normalises through its own table before resolving — the same "pre-flight
+checks one host, the engine connects to another" shape as the backslash /
+control-character bypass this guard already refuses, just reached through
+Unicode normalisation divergence instead of authority parsing. Rather than
+encode a Unicode host ourselves and hope that matches whatever a given
+engine's IDNA table does, :func:`assert_safe_url` refuses it outright; the
+unambiguous ASCII/punycode form (``xn--...``) is unaffected and every
+conformant parser reads it identically.
 
 RFC 1918 private ranges and loopback are **not** blocked by default:
 operators legitimately point supacrawl at internal documentation sites,
@@ -249,6 +266,26 @@ def assert_safe_url(url: str) -> None:
             value=url,
         )
     host = parsed.hostname or ""
+
+    # Reject a non-ASCII host outright rather than IDNA-encoding it ourselves.
+    # urllib.parse does no IDNA/UTS-46 normalisation — it hands back the raw
+    # Unicode label — while a WHATWG browser engine normalises through its own
+    # IDNA table before resolving. The two are not guaranteed to agree (case
+    # folding, deprecated-codepoint mappings, and homograph-adjacent forms
+    # differ between IDNA2003, UTS-46 and a given engine's table version), so a
+    # Unicode host is exactly the same "the pre-flight validates one host, the
+    # engine connects to another" shape as the backslash bypass above — just
+    # via normalisation instead of parsing. A legitimate internationalised
+    # domain is still reachable via its unambiguous ASCII/punycode form
+    # (``xn--...``), which every conformant parser reads identically.
+    if not host.isascii():
+        raise ValidationError(
+            f"URL host {host!r} contains non-ASCII characters; IDNA/Unicode host normalisation can "
+            "diverge between this guard and a browser engine. Use the punycode (xn--) form instead.",
+            field="url",
+            value=url,
+        )
+
     if _is_blocked_ip(host):
         raise ValidationError(
             f"URL host {host!r} is in a blocked IP range ({_describe(ipaddress.ip_address(host))}).",

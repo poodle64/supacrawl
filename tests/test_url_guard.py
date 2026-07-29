@@ -497,6 +497,90 @@ class TestEmbeddedIPv4InIPv6:
             with pytest.raises(ValidationError, match="blocked"):
                 resolve_and_pin("http://sneaky.example.com/")
 
+    @pytest.mark.parametrize(
+        "literal",
+        [
+            "::ffff:169.254.169.254",  # IPv4-mapped metadata
+            "::ffff:a9fe:a9fe",  # same, hex-compressed
+            "2002:a9fe:a9fe::",  # 6to4 wrapping the metadata IPv4
+            "64:ff9b::a9fe:a9fe",  # NAT64 well-known prefix wrapping it
+            "::169.254.169.254",  # deprecated IPv4-compatible form
+        ],
+    )
+    def test_every_embedding_form_refused_offline_as_a_url_literal(self, literal: str) -> None:
+        """assert_safe_url refuses every embedding form as a bracketed URL literal.
+
+        Each of these is a distinct spelling of the same underlying bypass; a
+        guard that only catches the mapped/compat forms and misses 6to4/NAT64
+        is fixing a vector, not a class.
+        """
+        with pytest.raises(ValidationError, match="blocked"):
+            assert_safe_url(f"http://[{literal}]/latest/meta-data/")
+
+    @pytest.mark.parametrize(
+        "literal",
+        [
+            "::ffff:169.254.169.254",
+            "::ffff:a9fe:a9fe",
+            "2002:a9fe:a9fe::",
+            "64:ff9b::a9fe:a9fe",
+            "::169.254.169.254",
+        ],
+    )
+    def test_every_embedding_form_refused_when_a_hostname_resolves_to_it(self, literal: str) -> None:
+        """resolve_and_pin refuses every embedding form reached via DNS, not just as a literal.
+
+        This is the shape a real attacker uses: an innocuous-looking hostname
+        whose AAAA record answers with one of these forms, so the cheap
+        offline assert_safe_url check (which never resolves anything) cannot
+        see it at all — only the resolve-time check can.
+        """
+        infos = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (literal, 443, 0, 0))]
+        with patch("supacrawl.services.url_guard.socket.getaddrinfo", return_value=infos):
+            with pytest.raises(ValidationError, match="blocked"):
+                resolve_and_pin("http://totally-innocent.example.com/")
+
+
+class TestIdnaUnicodeHostRejected:
+    """A non-ASCII host is refused rather than guessed at (#152).
+
+    urllib.parse does no IDNA/UTS-46 normalisation of its own; a WHATWG
+    browser engine does, through its own table. The two are not guaranteed to
+    agree, so a Unicode hostname is the same "pre-flight validates one host,
+    the engine connects to another" shape as the backslash bypass — just via
+    normalisation divergence instead of authority-parsing divergence. Refusing
+    it outright (rather than IDNA-encoding it ourselves and hoping that
+    matches whatever engine eventually resolves it) closes the class instead
+    of one browser's current table.
+    """
+
+    def test_unicode_host_rejected_offline(self) -> None:
+        with pytest.raises(ValidationError, match="non-ASCII"):
+            assert_safe_url("http://例え.テスト/path")
+
+    def test_unicode_host_rejected_before_any_resolution(self) -> None:
+        with patch("supacrawl.services.url_guard.socket.getaddrinfo") as mock_resolve:
+            with pytest.raises(ValidationError, match="non-ASCII"):
+                resolve_and_pin("http://例え.テスト/path")
+        mock_resolve.assert_not_called()
+
+    def test_fullwidth_digit_homoglyph_of_metadata_ip_rejected(self) -> None:
+        """A fullwidth-digit spelling of the metadata address is refused as non-ASCII.
+
+        ``ipaddress.ip_address`` never parses this as an IP literal (it wants
+        ASCII digits), so without this check it would fall through as an
+        ordinary hostname and reach DNS resolution.
+        """
+        with pytest.raises(ValidationError, match="non-ASCII"):
+            assert_safe_url("http://１６９.２５４.１６９.２５４/")
+
+    def test_punycode_form_is_unaffected(self) -> None:
+        """The unambiguous ASCII/punycode encoding of an IDN still passes through."""
+        assert_safe_url("http://xn--r8jz45g.xn--zckzah/path")
+
+    def test_ascii_host_unaffected(self) -> None:
+        assert_safe_url("https://docs.example.com/guide")
+
 
 class TestStrictModeRanges:
     """Every declared strict-mode range is actually enforced (guards against a typo'd CIDR)."""
