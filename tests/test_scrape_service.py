@@ -240,9 +240,8 @@ class TestCaptchaSolvingInstallsNavigationGuard:
     class _FakeBrowserManager:
         """Stands in for supacrawl.services.scrape.BrowserManager.
 
-        engine="camoufox" so _scrape_with_captcha_solving takes the
-        no-separate-context branch and calls ``self._browser.new_page()``
-        directly — the minimum surface needed to reach page.goto.
+        engine="camoufox" so ``_open_page`` takes the no-separate-context branch
+        and just creates a page — the minimum surface needed to reach page.goto.
         """
 
         instances: "list[TestCaptchaSolvingInstallsNavigationGuard._FakeBrowserManager]" = []
@@ -258,6 +257,10 @@ class TestCaptchaSolvingInstallsNavigationGuard:
 
         async def stop(self) -> None:
             return None
+
+        async def _open_page(self, *, owns_context: bool, **_: object) -> tuple[None, object]:
+            assert owns_context is False, "camoufox owns no separate context"
+            return None, await self._browser.new_page()
 
     @pytest.mark.asyncio
     async def test_route_handler_installed_before_navigation(self, monkeypatch: pytest.MonkeyPatch) -> None:

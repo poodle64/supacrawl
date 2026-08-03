@@ -330,6 +330,9 @@ _CLOSED_BROWSER_SIGNATURES = (
 # a genuinely broken environment (no browser binaries, no memory) is.
 _RELAUNCH_BACKOFF_BASE_S = 5.0
 _RELAUNCH_BACKOFF_MAX_S = 300.0
+# Enough doublings to reach the ceiling many times over; caps the exponent so a
+# long-running failure streak cannot overflow the shift itself.
+_RELAUNCH_BACKOFF_MAX_DOUBLINGS = 16
 
 
 def is_closed_browser_error(error: BaseException) -> bool:
@@ -860,11 +863,24 @@ class BrowserManager:
         """Whether the underlying browser process is still connected.
 
         A local flag read (no IPC), so it is cheap enough to check on every page
-        checkout. Camoufox's persistent context exposes no ``is_connected``; when
-        liveness genuinely cannot be determined the answer is optimistic, and the
+        checkout.
+        """
+        return self._instance_is_alive(self._browser)
+
+    @staticmethod
+    def _instance_is_alive(browser: Any | None) -> bool:
+        """Whether one specific browser object is still connected.
+
+        Always ask about the instance a call actually used, never the manager's
+        current one: under concurrency another request may already have swapped a
+        fresh browser in, which would make the manager read healthy while the
+        engine this call was riding is the one that died — and the failure would
+        then be blamed on the site.
+
+        Camoufox's persistent context exposes no ``is_connected``; when liveness
+        genuinely cannot be determined the answer is optimistic, and the
         relaunch-on-detect path in :meth:`_open_page` is the backstop.
         """
-        browser = self._browser
         if browser is None:
             return False
         for candidate in (browser, getattr(browser, "browser", None)):
@@ -935,7 +951,11 @@ class BrowserManager:
         failures = self._consecutive_relaunch_failures
         if failures == 0:
             return
-        backoff = min(_RELAUNCH_BACKOFF_BASE_S * 2 ** (failures - 1), _RELAUNCH_BACKOFF_MAX_S)
+        # Cap the exponent, not just the result: the backoff plateaus long before
+        # this, and an uncapped 2**failures overflows float after days of a
+        # continuously failing environment — turning the guard into a crash.
+        doublings = min(failures - 1, _RELAUNCH_BACKOFF_MAX_DOUBLINGS)
+        backoff = min(_RELAUNCH_BACKOFF_BASE_S * 2**doublings, _RELAUNCH_BACKOFF_MAX_S)
         last_failure = self._last_relaunch_failure_at
         elapsed = float("inf") if last_failure is None else time.monotonic() - last_failure
         if elapsed < backoff:
@@ -996,12 +1016,14 @@ class BrowserManager:
         Raises:
             BrowserUnavailableError: If the browser is dead and cannot be revived.
         """
+        in_use = self._browser
         try:
             return await self._new_context_and_page(
                 owns_context=owns_context, device=device, extra_headers=extra_headers
             )
         except Exception as e:
-            if not (is_closed_browser_error(e) and not self.is_alive):
+            # Liveness of the instance THIS call used — see _instance_is_alive.
+            if not (is_closed_browser_error(e) and not self._instance_is_alive(in_use)):
                 raise
             LOGGER.warning("Browser engine died (%s); relaunching in-process and retrying this fetch", e)
             await self.relaunch()
@@ -1044,7 +1066,7 @@ class BrowserManager:
             raise
         return context, page
 
-    def _as_engine_failure(self, error: BaseException) -> BaseException:
+    def _as_engine_failure(self, error: BaseException, in_use: Any | None) -> BaseException:
         """Re-label a mid-fetch error that was really the engine dying.
 
         A browser that dies *after* the page opened surfaces as an ordinary
@@ -1052,10 +1074,16 @@ class BrowserManager:
         caller report an infrastructure fault instead of blaming the site; the
         engine itself is relaunched on the next checkout rather than here, so a
         fetch with side-effecting actions is never silently replayed.
+
+        Args:
+            error: The exception the fetch raised.
+            in_use: The browser instance this fetch was actually running on —
+                never the manager's current one, which a concurrent relaunch may
+                already have replaced with a healthy engine.
         """
         if isinstance(error, BrowserUnavailableError):
             return error
-        if is_closed_browser_error(error) and not self.is_alive:
+        if is_closed_browser_error(error) and not self._instance_is_alive(in_use):
             return BrowserUnavailableError(f"Browser engine died mid-fetch: {error}")
         return error
 
@@ -1139,9 +1167,13 @@ class BrowserManager:
         page: Page | None = None
         # Camoufox browser IS the context — don't create a separate one
         owns_context = self.engine != "camoufox"
+        # The engine this fetch runs on. Re-read after _open_page, which may have
+        # relaunched, so a mid-fetch death is judged against the right instance.
+        engine_in_use: Any = self._browser
 
         try:
             context, page = await self._open_page(owns_context=owns_context, device=device, extra_headers=extra_headers)
+            engine_in_use = self._browser
 
             # Navigate to URL - use parameter if provided, else fall back to env var
             if wait_until is None:
@@ -1244,7 +1276,7 @@ class BrowserManager:
         except Exception as e:
             # An engine that dies mid-fetch reads as an ordinary Playwright error;
             # re-label it so the caller is told the scraper broke, not the site.
-            relabelled = self._as_engine_failure(e)
+            relabelled = self._as_engine_failure(e, engine_in_use)
             if relabelled is e:
                 raise
             raise relabelled from e
@@ -1481,9 +1513,11 @@ class BrowserManager:
         context: BrowserContext | None = None
         page: Page | None = None
         owns_context = self.engine != "camoufox"
+        engine_in_use: Any = self._browser
 
         try:
             context, page = await self._open_page(owns_context=owns_context, extra_headers=extra_headers)
+            engine_in_use = self._browser
 
             # Navigate to URL - use parameter if provided, else fall back to env var
             if wait_until is None:
@@ -1511,7 +1545,7 @@ class BrowserManager:
             return links
 
         except Exception as e:
-            relabelled = self._as_engine_failure(e)
+            relabelled = self._as_engine_failure(e, engine_in_use)
             if relabelled is e:
                 raise
             raise relabelled from e

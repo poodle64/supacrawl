@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import http.server
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -224,6 +225,65 @@ class TestRelaunch:
         assert manager.relaunches == 1
 
     @pytest.mark.asyncio
+    async def test_a_concurrent_relaunch_does_not_make_a_dead_engine_look_like_a_site_fault(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The interleaving that judging liveness off the manager gets wrong.
+
+        Caller A is mid-``new_context`` on an engine that dies. Caller B relaunches
+        first, so by the time A's error surfaces the MANAGER reads healthy — and a
+        check against the manager clears the fresh engine, so A's failure escapes
+        raw and gets blamed on the site. A must be judged against the engine A was
+        actually using, which here means A recovers onto the fresh one.
+        """
+        in_flight = asyncio.Event()
+        release = asyncio.Event()
+
+        class _DiesWhileInFlight(_FakeBrowser):
+            async def new_context(self, **_: Any) -> _FakeContext:
+                self.connected = False
+                in_flight.set()
+                await release.wait()  # B gets to relaunch before this error surfaces
+                raise RuntimeError(FIELD_ERROR)
+
+        manager, launches = _managed(monkeypatch, initial=_DiesWhileInFlight())
+
+        caller_a = asyncio.create_task(manager._open_page(owns_context=True))
+        await in_flight.wait()
+        await manager.relaunch()  # caller B heals the pool first
+        assert manager.is_alive is True
+        release.set()
+
+        context, page = await caller_a
+
+        assert page is not None, "caller A did not recover onto the engine B relaunched"
+        assert len(launches) == 1, "A relaunched again instead of using B's fresh engine"
+
+    def test_a_mid_fetch_death_stays_an_infrastructure_fault_after_a_concurrent_relaunch(self) -> None:
+        """The same race, for a browser that dies AFTER the page opened.
+
+        That path cannot retry (a fetch may have run side-effecting actions), so
+        the only thing protecting the caller is the label — and the label must be
+        judged against the engine the fetch ran on, not the healthy replacement.
+        """
+        manager = BrowserManager()
+        manager._browser = _FakeBrowser()  # type: ignore[assignment]  # B's fresh engine
+        dead_engine = _FakeBrowser(connected=False)  # the one A was riding
+
+        relabelled = manager._as_engine_failure(RuntimeError(FIELD_ERROR), dead_engine)
+
+        assert isinstance(relabelled, BrowserUnavailableError)
+
+    def test_a_healthy_engine_is_never_relabelled_as_infrastructure(self) -> None:
+        manager = BrowserManager()
+        healthy = _FakeBrowser()
+        manager._browser = healthy  # type: ignore[assignment]
+
+        error = RuntimeError(FIELD_ERROR)
+
+        assert manager._as_engine_failure(error, healthy) is error
+
+    @pytest.mark.asyncio
     async def test_a_deliberately_stopped_manager_is_not_resurrected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Self-healing covers an engine that DIED, never one a caller retired."""
         manager, launches = _managed(monkeypatch, initial=_FakeBrowser())
@@ -291,6 +351,17 @@ class TestCrashLoopGuard:
 
         with pytest.raises(BrowserUnavailableError):
             await manager._open_page(owns_context=True)
+
+    def test_a_long_failure_streak_still_reports_a_backoff_rather_than_crashing(self) -> None:
+        """An uncapped 2**failures overflows float and turns the guard into a crash."""
+        manager = BrowserManager()
+        manager._consecutive_relaunch_failures = 5000
+        # Real monotonic, not 0.0: on a long-uptime box 0.0 reads as "ages ago"
+        # and the backoff would not gate at all.
+        manager._last_relaunch_failure_at = time.monotonic()
+
+        with pytest.raises(BrowserUnavailableError, match="before trying again"):
+            manager._assert_relaunch_allowed()
 
 
 # ---------------------------------------------------------------------------

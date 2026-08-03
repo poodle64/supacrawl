@@ -25,18 +25,16 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 if TYPE_CHECKING:
-    from playwright.async_api import Browser
-
     from supacrawl.services.strategy_memory import StrategyChoice, StrategyStore
     from supacrawl.telemetry import MetricsSink
 
 from bs4 import BeautifulSoup
 
 from supacrawl.cache import CacheManager
-from supacrawl.exceptions import ProviderError, generate_correlation_id
+from supacrawl.exceptions import generate_correlation_id
 from supacrawl.models import (
     ActionsOutput,
     QualityAssessment,
@@ -2606,17 +2604,11 @@ class ScrapeService:
         try:
             await browser.start()
 
-            # Navigate to page
-            if browser._browser is None:
-                raise ProviderError("Browser failed to start", provider="playwright")
-
-            # Camoufox browser IS the context — don't create a separate one
-            if browser.engine == "camoufox":
-                context = None
-                page = await browser._browser.new_page()
-            else:
-                context = await cast("Browser", browser._browser).new_context(**browser._build_context_options())
-                page = await context.new_page()
+            # Same page checkout as every other browser path, so this one inherits
+            # the closed-engine detection and in-process relaunch rather than
+            # hand-rolling context creation that would silently drift from it.
+            # Camoufox's browser IS the context, so it owns no separate one.
+            context, page = await browser._open_page(owns_context=browser.engine != "camoufox")
 
             try:
                 # The pre-flight above only checks the original URL; a hostile
