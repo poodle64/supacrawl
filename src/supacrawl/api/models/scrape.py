@@ -112,3 +112,11 @@ class ScrapeResponse(BaseModel):
     success: bool
     data: ScrapeDataResponse | None = None
     error: str | None = None
+    quality: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Verdict, score, reasons and a concrete suggestion. Sits on the envelope rather than inside "
+            "`data` so it survives a failure, where there is no data — a REST caller needs it most exactly "
+            "then, to tell a scraper-side fault (verdict 'infrastructure') from a site-side one."
+        ),
+    )

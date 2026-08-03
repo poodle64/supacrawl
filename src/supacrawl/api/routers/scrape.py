@@ -82,8 +82,12 @@ def _build_service_kwargs(req: ScrapeRequest) -> dict[str, Any]:
 
 def _scrape_result_to_response(result: ScrapeResult) -> ScrapeResponse:
     """Map an internal ``ScrapeResult`` to the v2 response shape."""
+    quality = result.quality.model_dump() if result.quality is not None else None
     if not result.success or result.data is None:
-        return ScrapeResponse(success=False, error=result.error)
+        # The failure branch carries the quality assessment too: it is the only
+        # thing telling a REST caller whether the scraper or the site broke, and
+        # dropping it here left that surface with the raw error string alone.
+        return ScrapeResponse(success=False, error=result.error, quality=quality)
 
     data = result.data
     meta = data.metadata
@@ -133,7 +137,7 @@ def _scrape_result_to_response(result: ScrapeResult) -> ScrapeResponse:
         change_tracking=change_tracking_dict,
     )
 
-    return ScrapeResponse(success=True, data=data_resp)
+    return ScrapeResponse(success=True, data=data_resp, quality=quality)
 
 
 @router.post("/scrape")

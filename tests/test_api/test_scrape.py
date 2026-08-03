@@ -6,7 +6,14 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from supacrawl.models import ScrapeData, ScrapeMetadata, ScrapeResult, StructuredData
+from supacrawl.models import (
+    QualityAssessment,
+    QualityVerdict,
+    ScrapeData,
+    ScrapeMetadata,
+    ScrapeResult,
+    StructuredData,
+)
 
 
 def _make_rich_scrape_result() -> ScrapeResult:
@@ -144,3 +151,52 @@ class TestScrapeEndpoint:
         assert data["summary"] is None
         assert data["json"] is None
         assert data["structuredData"] is None
+
+
+class TestScrapeQualityOnTheEnvelope:
+    """The REST surface must carry the same failure signal as the MCP tool (#160).
+
+    A failure is exactly when a caller needs the verdict most — and exactly when
+    there is no ``data`` to hang it off — so it lives on the envelope.
+    """
+
+    def test_a_failure_carries_the_verdict_and_suggestion(
+        self, client: TestClient, mock_scrape_service: AsyncMock
+    ) -> None:
+        mock_scrape_service.scrape.return_value = ScrapeResult(
+            success=False,
+            error="Browser engine died mid-fetch",
+            quality=QualityAssessment(verdict=QualityVerdict.INFRASTRUCTURE, score=0),
+        )
+
+        body = client.post("/scrape", json={"url": "https://example.com"}).json()
+
+        assert body["success"] is False
+        assert body["quality"]["verdict"] == "infrastructure"
+        assert body["quality"]["suggestion"] is not None
+
+    def test_a_site_failure_stays_distinguishable_from_a_scraper_failure(
+        self, client: TestClient, mock_scrape_service: AsyncMock
+    ) -> None:
+        mock_scrape_service.scrape.return_value = ScrapeResult(
+            success=False,
+            error="Timeout 30000ms exceeded",
+            quality=QualityAssessment(verdict=QualityVerdict.EMPTY, score=0),
+        )
+
+        body = client.post("/scrape", json={"url": "https://example.com"}).json()
+
+        assert body["quality"]["verdict"] == "empty"
+        assert body["quality"]["suggestion"] is not None
+
+    def test_a_successful_scrape_carries_its_verdict_too(
+        self, client: TestClient, mock_scrape_service: AsyncMock
+    ) -> None:
+        result = _make_rich_scrape_result()
+        result.quality = QualityAssessment(verdict=QualityVerdict.OK, score=91)
+        mock_scrape_service.scrape.return_value = result
+
+        body = client.post("/scrape", json={"url": "https://example.com"}).json()
+
+        assert body["quality"]["verdict"] == "ok"
+        assert body["quality"]["score"] == 91
