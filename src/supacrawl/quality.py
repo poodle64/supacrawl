@@ -234,35 +234,6 @@ _VERDICT_SCORE_CEILING: dict[QualityVerdict, int] = {
     QualityVerdict.EMPTY: 0,
 }
 
-_VERDICT_SUGGESTIONS: dict[QualityVerdict, str] = {
-    QualityVerdict.BOT_CHALLENGE: (
-        "The site served an anti-bot challenge. supacrawl auto-escalates stealth engines; if it persists, "
-        "install supacrawl[stealth] or supacrawl[camoufox], or route through a proxy."
-    ),
-    QualityVerdict.CAPTCHA: (
-        "A CAPTCHA was presented. Enable supacrawl[captcha] with CAPTCHA_API_KEY and solve_captcha=True, "
-        "or fetch the same information from a different source."
-    ),
-    QualityVerdict.JS_SHELL: (
-        "The page returned a pre-hydration shell; the real content is rendered client-side. Increase wait_for "
-        "(e.g. 5000) so the content can hydrate."
-    ),
-    QualityVerdict.THIN: (
-        "Very little content was extracted. Try only_main_content=False to keep more of the page, a larger "
-        "wait_for if it loads late, or check whether the page needs authentication."
-    ),
-    QualityVerdict.PAYWALL: (
-        "The page appears to require login or a subscription; only the wall page was returned. Supply session "
-        "headers/cookies if you have access."
-    ),
-    QualityVerdict.GARBLED_PDF: (
-        "PDF text was extracted but inter-word spacing looks corrupt. Try --parse-pdf ocr for a clean re-read."
-    ),
-    QualityVerdict.EMPTY: (
-        "No content could be extracted. Try a larger wait_for, only_main_content=False, or a different engine."
-    ),
-}
-
 
 def _reference_free_score(*, word_count: int, link_count: int, spacing: float | None) -> int:
     """Grade a usable page 0-100 from signals that need no reference capture.
@@ -414,12 +385,9 @@ def assess_quality(
     if verdict in _VERDICT_SCORE_CEILING:
         score = min(score, _VERDICT_SCORE_CEILING[verdict])
 
-    return QualityAssessment(
-        verdict=verdict,
-        score=score,
-        reasons=reasons,
-        suggestion=_VERDICT_SUGGESTIONS.get(verdict),
-    )
+    # ``suggestion`` is filled by QualityAssessment itself from VERDICT_SUGGESTIONS,
+    # so the contract holds for every construction site, not just this one.
+    return QualityAssessment(verdict=verdict, score=score, reasons=reasons)
 
 
 __all__ = [

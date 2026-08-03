@@ -74,7 +74,8 @@ async def supacrawl_scrape(
     ```
     {
       "verdict": "ok" | "thin" | "js_shell" | "paywall" | "bot_challenge" |
-                 "captcha" | "error_status" | "garbled_pdf" | "empty",
+                 "captcha" | "error_status" | "garbled_pdf" | "empty" |
+                 "infrastructure",
       "score": 0-100,
       "reasons": [...],
       "suggestion": "...",   // present when verdict is not "ok"
@@ -86,6 +87,11 @@ async def supacrawl_scrape(
     and empty pages are reported `success=False`. Check `quality.verdict` and
     `quality.score` to decide whether to accept, retry, or escalate. A non-ok
     verdict always carries `quality.suggestion` with a concrete next step.
+
+    Every verdict except `infrastructure` describes the TARGET SITE.
+    `infrastructure` means supacrawl's own engine failed and the request never
+    reached the site — the engine relaunches itself, so retry once; if it
+    recurs, restart the supacrawl server rather than trying the URL again.
 
     **Anti-bot and hard sites:**
     Do NOT manually set `engine`, `stealth`, or `wait_for` for hard sites.

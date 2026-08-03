@@ -47,7 +47,7 @@ from supacrawl.models import (
     ScrapeResult,
 )
 from supacrawl.quality import assess_quality
-from supacrawl.services.browser import BrowserManager, PageContent, PageMetadata
+from supacrawl.services.browser import BrowserManager, BrowserUnavailableError, PageContent, PageMetadata
 from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.detection import detect_bot_protection, estimate_js_requirement
 from supacrawl.services.http_fetch import fetch_static
@@ -1340,6 +1340,12 @@ class ScrapeService:
         verdict so an agent still gets a structured signal, and preserves the
         change-tracking "removed" status.
 
+        A failure of supacrawl's own browser engine is classified apart from every
+        site-shaped failure (#160): the caller has to be able to tell "this site is
+        a problem, escalate differently" from "the scraper is broken", because the
+        right next action differs and retrying the URL is wasted work for one of
+        them.
+
         Args:
             url: The URL that failed.
             error: The raised exception.
@@ -1351,8 +1357,13 @@ class ScrapeService:
         """
         error_msg = str(error)
         low_error = error_msg.lower()
-        bot_suspected = any(p in low_error for p in ["403", "429", "blocked", "denied"])
-        if not self._stealth and (bot_suspected or "err_http2_protocol_error" in low_error):
+        scraper_fault = isinstance(error, BrowserUnavailableError)
+        bot_suspected = not scraper_fault and any(p in low_error for p in ["403", "429", "blocked", "denied"])
+        if scraper_fault:
+            # A stealth or wait hint would be actively misleading here: nothing
+            # about the request was ever sent to the site.
+            pass
+        elif not self._stealth and (bot_suspected or "err_http2_protocol_error" in low_error):
             error_msg += _stealth_hint(bot_suspected=bot_suspected)
         else:
             hint = remediation_hint(error_msg)
@@ -1361,7 +1372,12 @@ class ScrapeService:
 
         LOGGER.error("Scrape failed for %s: %s", url, error, exc_info=True)
 
-        verdict = QualityVerdict.BOT_CHALLENGE if bot_suspected else QualityVerdict.EMPTY
+        if scraper_fault:
+            verdict = QualityVerdict.INFRASTRUCTURE
+        elif bot_suspected:
+            verdict = QualityVerdict.BOT_CHALLENGE
+        else:
+            verdict = QualityVerdict.EMPTY
         quality = QualityAssessment(verdict=verdict, score=0, reasons=[str(error)[:200]])
 
         if wants_change_tracking and previous_entry is not None:
@@ -1515,6 +1531,15 @@ class ScrapeService:
             f"Expected content not found: {expect!r}. The page loaded but the asserted content never "
             f"appeared after escalation. {remediation} [correlation_id={correlation_id}]"
         )
+        # The verdict stays honest — the content that came back really was fine,
+        # it just was not what the caller asserted — but a failure handed to a
+        # caller must still carry a next step in the structured field, not only in
+        # the error prose.
+        if result.quality is not None:
+            result.quality.suggestion = (
+                f"The page loaded cleanly but never showed the asserted content ({expect!r}). {remediation} "
+                f"If the assertion itself is wrong, re-check it against the returned markdown."
+            )
         return result
 
     @staticmethod
@@ -2028,10 +2053,35 @@ class ScrapeService:
         try:
             pdf_result = await do_parse_pdf(url=url, mode=mode, pdf_bytes=pdf_bytes)
         except ImportError as e:
-            return ScrapeResult(success=False, error=str(e))
+            # A missing PDF extra is supacrawl's own environment, not the document.
+            return ScrapeResult(
+                success=False,
+                error=str(e),
+                quality=QualityAssessment(
+                    verdict=QualityVerdict.INFRASTRUCTURE,
+                    score=0,
+                    reasons=[str(e)[:200]],
+                    suggestion=(
+                        "supacrawl cannot read PDFs in this environment because its PDF dependency is not "
+                        "installed. Install supacrawl[pdf] and retry; the document itself was never assessed."
+                    ),
+                ),
+            )
         except Exception as e:
             LOGGER.error(f"PDF extraction failed for {url}: {e}", exc_info=True)
-            return ScrapeResult(success=False, error=f"PDF extraction failed: {e}")
+            return ScrapeResult(
+                success=False,
+                error=f"PDF extraction failed: {e}",
+                quality=QualityAssessment(
+                    verdict=QualityVerdict.EMPTY,
+                    score=0,
+                    reasons=[f"PDF extraction failed: {e}"[:200]],
+                    suggestion=(
+                        "The PDF could not be parsed. Try parse_pdf='ocr' for a scanned or damaged document, "
+                        "or check the URL actually returns a PDF rather than an HTML error page."
+                    ),
+                ),
+            )
 
         markdown = pdf_result.markdown
         word_count = len(markdown.split()) if markdown else None

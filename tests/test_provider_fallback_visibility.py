@@ -81,6 +81,9 @@ class _StubServices:
 
     def __init__(self, search_service: SearchService) -> None:
         self.search_service = search_service
+        # No shared browser engine in these tests, so browser liveness cannot move
+        # the top-line status either — the search verdict is the only variable.
+        self.browser_manager = None
 
     def get_service_status(self) -> dict[str, bool]:
         # Every other component healthy: the search verdict is the only thing

@@ -206,9 +206,22 @@ async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None
     }
 
 
-def _get_browser_config() -> dict[str, Any]:
-    """Get browser configuration."""
-    return {
+def _get_browser_config(browser_manager: Any | None = None) -> dict[str, Any]:
+    """Get browser configuration, plus live engine liveness when there is one.
+
+    Configuration alone cannot tell a caller whether the shared engine is still
+    running. A long-lived server hands the same browser to every request, so a
+    crashed engine is an outage for all of them; ``alive`` makes that visible
+    instead of leaving it to be inferred from failing scrapes (#160).
+
+    Args:
+        browser_manager: The shared BrowserManager, or None when the server has
+            no long-lived engine (nothing to report liveness for).
+
+    Returns:
+        Browser settings, plus ``alive``/``relaunches`` when a shared engine exists.
+    """
+    config: dict[str, Any] = {
         "headless": settings.headless,
         "timeout_ms": settings.timeout,
         "stealth": settings.stealth,
@@ -216,6 +229,13 @@ def _get_browser_config() -> dict[str, Any]:
         "locale": settings.locale,
         "timezone": settings.timezone,
     }
+    if browser_manager is not None:
+        config["engine"] = browser_manager.engine
+        config["alive"] = browser_manager.is_alive
+        # Relaunches are cumulative for the process: a climbing count is a real
+        # signal that something keeps killing the engine.
+        config["relaunches"] = browser_manager.relaunches
+    return config
 
 
 def _get_version_info() -> dict[str, str]:
@@ -251,7 +271,10 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
           fallback is in use, or the live search probe found no results. A
           "live_probe" key is present only when the probe actually ran (verify_search=True
           and a search service is available), reporting what it found.
-        - components.browser: engine, headless, stealth, timeout settings
+        - components.browser: engine, headless, stealth, timeout settings, plus
+          live `alive` / `relaunches` for the shared engine. `alive: false` means
+          the engine crashed; it self-heals on the next scrape, and drives the
+          top-level status to "degraded" with a warning until it does.
         - components.llm: configured provider and model (for json/summary formats)
         - components.cache: path, entry count, size
         - version: supacrawl library and MCP server versions
@@ -259,6 +282,16 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
     try:
         service_status = api_client.get_service_status()
         all_healthy = all(service_status.values())
+
+        browser_config = _get_browser_config(api_client.browser_manager)
+        # A dead shared engine is a real outage for every consumer of this server,
+        # so it must reach the top-line verdict rather than sit one level down.
+        if browser_config.get("alive") is False:
+            all_healthy = False
+            browser_config["warning"] = (
+                "The shared browser engine is not connected. It is relaunched automatically on the next "
+                "scrape; if scrapes keep failing with an 'infrastructure' verdict, restart this server."
+            )
 
         search_config = _get_search_config(api_client.search_service)
         # A degraded search component must reach the top-line verdict. Burying it
@@ -287,7 +320,7 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
             "status": "healthy" if all_healthy else "degraded",
             "services": service_status,
             "components": {
-                "browser": _get_browser_config(),
+                "browser": browser_config,
                 "search": search_config,
                 "llm": _get_llm_config(),
                 "cache": _get_cache_info(),

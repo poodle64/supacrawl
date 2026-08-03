@@ -42,6 +42,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
@@ -297,6 +298,55 @@ class CamoufoxNotAvailableError(ImportError):
         super().__init__("Camoufox engine requires camoufox. Install with: pip install supacrawl[camoufox]")
 
 
+class BrowserUnavailableError(RuntimeError):
+    """Raised when supacrawl's own browser engine is unusable.
+
+    Distinct from every site-shaped failure: it means the fetch never left the
+    building. A long-lived server relaunches a dead engine in-process, so this
+    escapes only when the relaunch itself failed or is in crash-loop backoff —
+    i.e. the environment is broken, and no amount of retrying the URL, changing
+    engines, or waiting longer will help.
+    """
+
+
+# Substrings identifying a Playwright error that means the browser PROCESS is
+# gone (as opposed to the page or the site misbehaving). Matching one of these is
+# necessary but never sufficient: the same wording appears when a single page is
+# closed under a perfectly healthy browser, so every use is paired with a live
+# ``is_connected()`` check before anything is relaunched.
+_CLOSED_BROWSER_SIGNATURES = (
+    "target page, context or browser has been closed",
+    "browser has been closed",
+    "browser closed",
+    "target closed",
+    "connection closed",
+    "playwright has been closed",
+    "browser has disconnected",
+)
+
+# Crash-loop guard for in-process relaunch. Consecutive FAILED relaunches back off
+# exponentially from this base; a successful relaunch resets the counter, so a
+# sidecar that legitimately loses its browser once a week is never throttled while
+# a genuinely broken environment (no browser binaries, no memory) is.
+_RELAUNCH_BACKOFF_BASE_S = 5.0
+_RELAUNCH_BACKOFF_MAX_S = 300.0
+
+
+def is_closed_browser_error(error: BaseException) -> bool:
+    """Whether an exception's text says the underlying browser process is gone.
+
+    Args:
+        error: The raised exception.
+
+    Returns:
+        True when the message matches a known closed-browser signature. Callers
+        must confirm with :meth:`BrowserManager.is_alive` before treating it as a
+        dead engine — a closed *page* produces the same wording.
+    """
+    text = str(error).lower()
+    return any(signature in text for signature in _CLOSED_BROWSER_SIGNATURES)
+
+
 # Valid engine choices
 ENGINE_CHOICES = ("playwright", "patchright", "camoufox")
 
@@ -507,6 +557,16 @@ class BrowserManager:
         self.firefox_user_prefs = firefox_user_prefs
         self._browser: Browser | BrowserContext | None = None
         self._playwright: Any = None
+        # Self-healing state (#160). A long-lived server hands the same manager to
+        # every request, so a browser that dies is a silent outage for all of them
+        # until something notices; these track that noticing.
+        self._relaunch_lock = asyncio.Lock()
+        self._ever_started = False
+        self.relaunches = 0
+        self._consecutive_relaunch_failures = 0
+        # None, never 0.0: monotonic() starts near process uptime, so 0.0 reads as
+        # "ages ago" on a long-lived box and "just now" on a fresh container.
+        self._last_relaunch_failure_at: float | None = None
 
     @staticmethod
     def _env_bool(key: str, default: bool) -> bool:
@@ -695,6 +755,7 @@ class BrowserManager:
             await self._start_camoufox()
         else:
             await self._start_playwright()
+        self._ever_started = True
 
     async def _start_playwright(self) -> None:
         """Start browser via Playwright or Patchright."""
@@ -772,8 +833,11 @@ class BrowserManager:
     async def stop(self) -> None:
         """Stop the browser and cleanup resources.
 
-        Safe to call multiple times.
+        Safe to call multiple times. A deliberate stop also retires the manager:
+        a later fetch is a programming error, not an engine to relaunch (only
+        :meth:`_force_stop`, the relaunch path, keeps the manager live).
         """
+        self._ever_started = False
         if self.engine == "camoufox" and hasattr(self, "_camoufox_cm"):
             # Camoufox cleanup via its context manager
             try:
@@ -790,6 +854,210 @@ class BrowserManager:
                 await self._playwright.stop()
                 self._playwright = None
         LOGGER.debug("Browser stopped")
+
+    @property
+    def is_alive(self) -> bool:
+        """Whether the underlying browser process is still connected.
+
+        A local flag read (no IPC), so it is cheap enough to check on every page
+        checkout. Camoufox's persistent context exposes no ``is_connected``; when
+        liveness genuinely cannot be determined the answer is optimistic, and the
+        relaunch-on-detect path in :meth:`_open_page` is the backstop.
+        """
+        browser = self._browser
+        if browser is None:
+            return False
+        for candidate in (browser, getattr(browser, "browser", None)):
+            is_connected = getattr(candidate, "is_connected", None)
+            if callable(is_connected):
+                try:
+                    return bool(is_connected())
+                except Exception:  # a raising is_connected() means it is not connected
+                    return False
+        return True
+
+    async def ensure_started(self) -> None:
+        """Guarantee a live browser before a page is opened, relaunching a dead one.
+
+        This is the liveness check on checkout. A crashed browser otherwise stays
+        crashed for the life of the process: every ``new_context()`` fails with
+        "Target page, context or browser has been closed" and the caller cannot
+        tell a dead engine from a broken site.
+
+        Raises:
+            RuntimeError: If the browser was never started, or was deliberately
+                stopped — a programming error, distinct from an engine that died
+                under a running server and can be relaunched.
+            BrowserUnavailableError: If the relaunch failed or is in backoff.
+        """
+        if self._browser is None and not self._ever_started:
+            raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+        if self.is_alive:
+            return
+        LOGGER.warning("Browser engine is not connected before fetch; relaunching in-process")
+        await self.relaunch()
+
+    async def relaunch(self) -> None:
+        """Tear down a dead browser and start a fresh one, in-process.
+
+        Serialised so concurrent requests that all notice the same dead browser
+        relaunch it once, not once each. Consecutive failures back off
+        exponentially: a genuinely broken environment must not be hammered with a
+        launch attempt per inbound request.
+
+        Raises:
+            BrowserUnavailableError: If the relaunch failed, or a previous one
+                failed recently enough that the backoff has not elapsed.
+        """
+        async with self._relaunch_lock:
+            if self.is_alive:
+                return  # a concurrent caller already healed it
+            self._assert_relaunch_allowed()
+            await self._force_stop()
+            try:
+                await self.start()
+            except Exception as e:
+                self._note_relaunch_failure()
+                raise BrowserUnavailableError(f"Browser engine relaunch failed: {e}") from e
+            if not self.is_alive:
+                self._note_relaunch_failure()
+                raise BrowserUnavailableError("Browser engine exited immediately after relaunch")
+            self._consecutive_relaunch_failures = 0
+            self.relaunches += 1
+            LOGGER.warning(
+                "Browser engine relaunched in-process (engine=%s, relaunches=%d)",
+                self.engine,
+                self.relaunches,
+            )
+
+    def _assert_relaunch_allowed(self) -> None:
+        """Refuse a relaunch while the crash-loop backoff is still running."""
+        failures = self._consecutive_relaunch_failures
+        if failures == 0:
+            return
+        backoff = min(_RELAUNCH_BACKOFF_BASE_S * 2 ** (failures - 1), _RELAUNCH_BACKOFF_MAX_S)
+        last_failure = self._last_relaunch_failure_at
+        elapsed = float("inf") if last_failure is None else time.monotonic() - last_failure
+        if elapsed < backoff:
+            raise BrowserUnavailableError(
+                f"Browser engine relaunch failed {failures} time(s) in a row; waiting "
+                f"{backoff - elapsed:.0f}s before trying again. The scraper environment is likely broken "
+                f"(missing browser binaries, out of memory, or no shared memory)."
+            )
+
+    def _note_relaunch_failure(self) -> None:
+        """Record a failed relaunch so the next attempt backs off further."""
+        self._consecutive_relaunch_failures += 1
+        self._last_relaunch_failure_at = time.monotonic()
+
+    async def _force_stop(self) -> None:
+        """Tear down the current browser, tolerating a corpse that cannot be closed.
+
+        Unlike :meth:`stop`, this keeps the manager live: it is the first half of a
+        relaunch, not a retirement, so a failed relaunch still leaves a manager
+        that will try again (under backoff) rather than one that reads as never
+        started.
+        """
+        try:
+            await self.stop()
+        except Exception as e:
+            LOGGER.debug("Ignoring teardown error on a dead browser: %s", e)
+        finally:
+            self._browser = None
+            self._playwright = None
+            self._ever_started = True
+            if hasattr(self, "_camoufox_cm"):
+                del self._camoufox_cm
+
+    async def _open_page(
+        self,
+        *,
+        owns_context: bool,
+        device: str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[BrowserContext | None, Page]:
+        """Open a fresh context and page, relaunching once if the browser is dead.
+
+        The liveness check in :meth:`ensure_started` closes the common case; this
+        closes the race where the browser dies between that check and this call.
+        The relaunch is gated on the browser actually being disconnected, so a
+        closed *page* — which produces the same Playwright message — is never
+        mistaken for a dead engine and never triggers a retry of a site failure.
+
+        Args:
+            owns_context: True when a separate BrowserContext must be created
+                (every engine except Camoufox, whose browser *is* the context).
+            device: Playwright device name for mobile emulation, or None.
+            extra_headers: Custom request headers for this context.
+
+        Returns:
+            The created context (None for Camoufox) and the page.
+
+        Raises:
+            BrowserUnavailableError: If the browser is dead and cannot be revived.
+        """
+        try:
+            return await self._new_context_and_page(
+                owns_context=owns_context, device=device, extra_headers=extra_headers
+            )
+        except Exception as e:
+            if not (is_closed_browser_error(e) and not self.is_alive):
+                raise
+            LOGGER.warning("Browser engine died (%s); relaunching in-process and retrying this fetch", e)
+            await self.relaunch()
+            try:
+                return await self._new_context_and_page(
+                    owns_context=owns_context, device=device, extra_headers=extra_headers
+                )
+            except Exception as retry_error:
+                raise BrowserUnavailableError(
+                    f"Browser engine was relaunched but still cannot open a page: {retry_error}"
+                ) from retry_error
+
+    async def _new_context_and_page(
+        self,
+        *,
+        owns_context: bool,
+        device: str | None,
+        extra_headers: dict[str, str] | None,
+    ) -> tuple[BrowserContext | None, Page]:
+        """Create the context and page, cleaning up a half-built context on failure."""
+        if not owns_context:
+            # Camoufox: the browser IS the context, so just create a page.
+            return None, await cast("BrowserContext", self._browser).new_page()
+
+        context_options = self._build_context_options(device=device, extra_headers=extra_headers)
+        context = await cast("Browser", self._browser).new_context(**context_options)
+        try:
+            # Inject stealth scripts at context level so all pages inherit them.
+            # Patchright and Camoufox handle anti-detection at the engine level.
+            if self.engine == "playwright":
+                for script in STEALTH_SCRIPTS:
+                    await context.add_init_script(script)
+                LOGGER.debug("Injected %d stealth scripts at context level", len(STEALTH_SCRIPTS))
+            page = await context.new_page()
+        except Exception:
+            try:
+                await context.close()
+            except Exception:
+                pass
+            raise
+        return context, page
+
+    def _as_engine_failure(self, error: BaseException) -> BaseException:
+        """Re-label a mid-fetch error that was really the engine dying.
+
+        A browser that dies *after* the page opened surfaces as an ordinary
+        Playwright error indistinguishable from a site problem. Naming it lets the
+        caller report an infrastructure fault instead of blaming the site; the
+        engine itself is relaunched on the next checkout rather than here, so a
+        fetch with side-effecting actions is never silently replayed.
+        """
+        if isinstance(error, BrowserUnavailableError):
+            return error
+        if is_closed_browser_error(error) and not self.is_alive:
+            return BrowserUnavailableError(f"Browser engine died mid-fetch: {error}")
+        return error
 
     async def fetch_page(
         self,
@@ -843,6 +1111,8 @@ class BrowserManager:
 
         Raises:
             RuntimeError: If browser not initialized or fetch fails
+            BrowserUnavailableError: If the browser engine is dead and cannot be
+                relaunched — a scraper-side fault, not a statement about the site.
             ValueError: If device is specified with Camoufox engine or device
                 name is not recognised.
             ValidationError: If the URL or its resolved address is blocked (#152).
@@ -852,8 +1122,7 @@ class BrowserManager:
                 connect is not pinned (see services/url_guard.py's module
                 docstring for why the browser paths cannot close that gap).
         """
-        if not self._browser:
-            raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+        await self.ensure_started()
 
         # Pre-flight SSRF check (#152): refuses now if the URL or its resolved
         # address is blocked. Not a full pin — see the Raises note above.
@@ -872,22 +1141,7 @@ class BrowserManager:
         owns_context = self.engine != "camoufox"
 
         try:
-            if owns_context:
-                # Playwright/Patchright: create fresh context for isolation
-                context_options = self._build_context_options(device=device, extra_headers=extra_headers)
-                context = await cast("Browser", self._browser).new_context(**context_options)
-
-                # Inject stealth scripts at context level so all pages inherit them.
-                # Patchright and Camoufox handle anti-detection at the engine level.
-                if self.engine == "playwright":
-                    for script in STEALTH_SCRIPTS:
-                        await context.add_init_script(script)
-                    LOGGER.debug("Injected %d stealth scripts at context level", len(STEALTH_SCRIPTS))
-
-                page = await context.new_page()
-            else:
-                # Camoufox: browser is already a context, just create a page
-                page = await self._browser.new_page()
+            context, page = await self._open_page(owns_context=owns_context, device=device, extra_headers=extra_headers)
 
             # Navigate to URL - use parameter if provided, else fall back to env var
             if wait_until is None:
@@ -986,6 +1240,14 @@ class BrowserManager:
                 pdf=pdf_bytes,
                 action_results=action_results_list,
             )
+
+        except Exception as e:
+            # An engine that dies mid-fetch reads as an ordinary Playwright error;
+            # re-label it so the caller is told the scraper broke, not the site.
+            relabelled = self._as_engine_failure(e)
+            if relabelled is e:
+                raise
+            raise relabelled from e
 
         finally:
             if page:
@@ -1205,11 +1467,12 @@ class BrowserManager:
 
         Raises:
             RuntimeError: If browser not initialized or fetch fails
+            BrowserUnavailableError: If the browser engine is dead and cannot be
+                relaunched — a scraper-side fault, not a statement about the site.
             ValidationError: If the URL or its resolved address is blocked
                 (#152); see :meth:`fetch_page` for the pre-flight-only caveat.
         """
-        if not self._browser:
-            raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+        await self.ensure_started()
 
         # Pre-flight SSRF check (#152): see fetch_page's Raises note.
         # Off the event loop: resolve_and_pin does a blocking getaddrinfo.
@@ -1220,18 +1483,7 @@ class BrowserManager:
         owns_context = self.engine != "camoufox"
 
         try:
-            if owns_context:
-                context_options = self._build_context_options(extra_headers=extra_headers)
-                context = await cast("Browser", self._browser).new_context(**context_options)
-
-                if self.engine == "playwright":
-                    for script in STEALTH_SCRIPTS:
-                        await context.add_init_script(script)
-                    LOGGER.debug("Injected %d stealth scripts at context level", len(STEALTH_SCRIPTS))
-
-                page = await context.new_page()
-            else:
-                page = await self._browser.new_page()
+            context, page = await self._open_page(owns_context=owns_context, extra_headers=extra_headers)
 
             # Navigate to URL - use parameter if provided, else fall back to env var
             if wait_until is None:
@@ -1257,6 +1509,12 @@ class BrowserManager:
             )
 
             return links
+
+        except Exception as e:
+            relabelled = self._as_engine_failure(e)
+            if relabelled is e:
+                raise
+            raise relabelled from e
 
         finally:
             if page:

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # =============================================================================
 # Device Emulation
@@ -367,6 +367,7 @@ class QualityVerdict(str, Enum):
     ERROR_STATUS = "error_status"  # an HTTP >= 400 response (including soft-404 shells)
     GARBLED_PDF = "garbled_pdf"  # PDF text extracted but spacing/encoding is corrupt
     EMPTY = "empty"  # no content could be extracted at all
+    INFRASTRUCTURE = "infrastructure"  # supacrawl's own engine failed; says nothing about the site
 
 
 # Verdicts that mean no usable content was returned, so ``success`` must be False.
@@ -377,7 +378,65 @@ HARD_FAIL_VERDICTS: frozenset[QualityVerdict] = frozenset(
         QualityVerdict.ERROR_STATUS,
         QualityVerdict.GARBLED_PDF,
         QualityVerdict.EMPTY,
+        QualityVerdict.INFRASTRUCTURE,
     }
+)
+
+# The one verdict that indicts supacrawl itself rather than the target. Kept as a
+# set so a caller (and our own code) can branch on "is this our fault?" without
+# enumerating verdict names.
+SCRAPER_FAULT_VERDICTS: frozenset[QualityVerdict] = frozenset({QualityVerdict.INFRASTRUCTURE})
+
+# The concrete next step a caller should take for each non-OK verdict. This is the
+# single source of the documented contract that a non-ok verdict always carries a
+# suggestion; ``QualityAssessment`` fills it from here so no construction site can
+# hand a caller a bare verdict with nothing to act on.
+VERDICT_SUGGESTIONS: dict[QualityVerdict, str] = {
+    QualityVerdict.BOT_CHALLENGE: (
+        "The site served an anti-bot challenge. supacrawl auto-escalates stealth engines; if it persists, "
+        "install supacrawl[stealth] or supacrawl[camoufox], or route through a proxy."
+    ),
+    QualityVerdict.CAPTCHA: (
+        "A CAPTCHA was presented. Enable supacrawl[captcha] with CAPTCHA_API_KEY and solve_captcha=True, "
+        "or fetch the same information from a different source."
+    ),
+    QualityVerdict.JS_SHELL: (
+        "The page returned a pre-hydration shell; the real content is rendered client-side. Increase wait_for "
+        "(e.g. 5000) so the content can hydrate."
+    ),
+    QualityVerdict.THIN: (
+        "Very little content was extracted. Try only_main_content=False to keep more of the page, a larger "
+        "wait_for if it loads late, or check whether the page needs authentication."
+    ),
+    QualityVerdict.PAYWALL: (
+        "The page appears to require login or a subscription; only the wall page was returned. Supply session "
+        "headers/cookies if you have access."
+    ),
+    QualityVerdict.GARBLED_PDF: (
+        "PDF text was extracted but inter-word spacing looks corrupt. Try --parse-pdf ocr for a clean re-read."
+    ),
+    QualityVerdict.EMPTY: (
+        "No content could be extracted. Try a larger wait_for, only_main_content=False, or a different engine."
+    ),
+    QualityVerdict.ERROR_STATUS: (
+        "The server answered with an HTTP error, so there was never any content to extract. Check the URL is "
+        "current (it may have moved or been withdrawn) and try the canonical or an archived copy. Re-running "
+        "the same URL with different scrape options will not change an HTTP status."
+    ),
+    QualityVerdict.INFRASTRUCTURE: (
+        "supacrawl's own browser engine failed — this is a scraper-side fault and says nothing about the "
+        "target site. The engine is relaunched automatically, so retry this scrape once. If it fails again, "
+        "the scraper's environment is broken (missing browser binaries, out of memory, or no shared memory): "
+        "restart the supacrawl server and check its logs. Changing engine, wait_for, or other scrape options "
+        "will not help."
+    ),
+}
+
+# Used when a verdict somehow has no mapped suggestion, so the contract holds even
+# for a verdict added without a mapping.
+FALLBACK_SUGGESTION = (
+    "The scrape did not return clean content. Read quality.reasons for why, then retry with "
+    "only_main_content=False, a larger wait_for, or a different source."
 )
 
 
@@ -398,10 +457,28 @@ class QualityAssessment(BaseModel):
     attempts: int = 1  # how many strategies were tried (set by auto-escalation)
     escalated: bool = False  # whether auto-escalation moved beyond the cheapest strategy
 
+    @model_validator(mode="after")
+    def _guarantee_suggestion(self) -> "QualityAssessment":
+        """Fill ``suggestion`` for any non-OK verdict that arrived without one.
+
+        The tool contract promises a caller that a non-ok verdict always carries a
+        concrete next step, and callers act on that (retry vs escalate vs give up).
+        Enforcing it here rather than at each construction site is what makes the
+        promise true for every failure path, including ones added later.
+        """
+        if self.verdict is not QualityVerdict.OK and self.suggestion is None:
+            self.suggestion = VERDICT_SUGGESTIONS.get(self.verdict, FALLBACK_SUGGESTION)
+        return self
+
     @property
     def is_usable(self) -> bool:
         """Whether the result carries usable content (verdict is not a hard fail)."""
         return self.verdict not in HARD_FAIL_VERDICTS
+
+    @property
+    def is_scraper_fault(self) -> bool:
+        """Whether the failure was supacrawl's own, not the target site's."""
+        return self.verdict in SCRAPER_FAULT_VERDICTS
 
 
 class ScrapeData(BaseModel):
