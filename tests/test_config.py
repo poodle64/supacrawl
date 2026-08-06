@@ -201,6 +201,22 @@ def test_metrics_password_reported_in_secrets_presence(monkeypatch: pytest.Monke
     assert "hunter2" not in str(configured)
 
 
+@pytest.mark.unit
+def test_searxng_credentials_reported_in_secrets_presence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`config secrets` must answer "is my SearXNG credential picked up?".
+
+    Reporting both halves is what makes a half-configured pair diagnosable from
+    the CLI rather than only from a log line at request time.
+    """
+    monkeypatch.setenv("SEARXNG_USERNAME", "searxng-user-placeholder")
+    monkeypatch.delenv("SEARXNG_PASSWORD", raising=False)
+    secrets = SupacrawlSecrets.from_env(dotenv_file=None)
+    configured = secrets.configured()
+    assert configured["searxng_username"] is True
+    assert configured["searxng_password"] is False
+    assert "searxng-user-placeholder" not in str(configured)
+
+
 # ---------------------------------------------------------------------------
 # New telemetry config fields
 # ---------------------------------------------------------------------------

@@ -120,6 +120,34 @@ class TestGetSearchConfigStatic:
         assert result["status"] == "ready"
         assert result["effective_provider"] == "tavily"
 
+    def test_searxng_url_present_gives_ready(self) -> None:
+        """A self-hosted backend is configured by URL, not by API key.
+
+        The static dict enumerated only the keyed providers, so a correctly
+        configured SearXNG instance reported ``effective_provider: "none"`` and
+        ``degraded`` no matter what SEARXNG_URL said.
+        """
+        env = {"BRAVE_API_KEY": "", "SEARXNG_URL": "http://searxng.invalid"}
+        with (
+            patch(_SETTINGS_PATH, **_settings_kwargs(search_providers="searxng")),
+            patch.dict("os.environ", env, clear=False),
+        ):
+            result = _get_search_config()
+
+        assert result["status"] == "ready"
+        assert result["effective_provider"] == "searxng"
+
+    def test_searxng_without_url_stays_degraded(self) -> None:
+        env = {"BRAVE_API_KEY": "", "SEARXNG_URL": ""}
+        with (
+            patch(_SETTINGS_PATH, **_settings_kwargs(search_providers="searxng")),
+            patch.dict("os.environ", env, clear=False),
+        ):
+            result = _get_search_config()
+
+        assert result["status"] == "degraded"
+        assert result["effective_provider"] == "none"
+
     def test_mixed_configured_unconfigured_uses_first_configured(self) -> None:
         env = {"BRAVE_API_KEY": "", "TAVILY_API_KEY": "", "SERPER_API_KEY": "sr-key"}
         with (

@@ -56,9 +56,13 @@ def _split_url_credentials(url: str) -> tuple[str, httpx.BasicAuth | None]:
     if parts.username is None and parts.password is None:
         return url, None
 
-    netloc = parts.hostname or ""
-    if parts.port:
-        netloc = f"{netloc}:{parts.port}"
+    host = parts.hostname or ""
+    # urlsplit strips the brackets an IPv6 literal needs in an authority, and a
+    # bare hostname can never contain a colon (the port is split off already),
+    # so a colon here means IPv6 and the brackets must go back on.
+    if ":" in host:
+        host = f"[{host}]"
+    netloc = f"{host}:{parts.port}" if parts.port else host
     clean = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
     auth = httpx.BasicAuth(unquote(parts.username or ""), unquote(parts.password or ""))
     return clean, auth
@@ -95,11 +99,19 @@ class SearXNGProvider:
         else:
             if explicit_username or explicit_password:
                 missing = "SEARXNG_PASSWORD" if explicit_username else "SEARXNG_USERNAME"
+                # Say what will ACTUALLY happen: a URL still carrying userinfo
+                # takes over, so "nothing will be sent" would send an operator
+                # debugging this config down the wrong path entirely.
+                outcome = (
+                    "the deprecated credential embedded in SEARXNG_URL is being used instead"
+                    if url_auth is not None
+                    else "no credential will be sent"
+                )
                 LOGGER.warning(
-                    "SearXNG HTTP Basic auth is half-configured: %s is not set, so the credential is "
-                    "incomplete and will not be sent. Set both SEARXNG_USERNAME and SEARXNG_PASSWORD, "
-                    "or neither.",
+                    "SearXNG HTTP Basic auth is half-configured: %s is not set, so %s. "
+                    "Set both SEARXNG_USERNAME and SEARXNG_PASSWORD, or neither.",
                     missing,
+                    outcome,
                 )
             self._auth = url_auth
 

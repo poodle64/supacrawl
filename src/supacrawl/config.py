@@ -386,6 +386,8 @@ _SECRET_ENV: dict[str, str] = {
     "serper_api_key": "SERPER_API_KEY",
     "serpapi_api_key": "SERPAPI_API_KEY",
     "exa_api_key": "EXA_API_KEY",
+    "searxng_username": "SEARXNG_USERNAME",
+    "searxng_password": "SEARXNG_PASSWORD",
     "openai_api_key": "OPENAI_API_KEY",
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "proxy": "SUPACRAWL_PROXY",
@@ -410,6 +412,8 @@ class SupacrawlSecrets(BaseModel):
     serper_api_key: str | None = None
     serpapi_api_key: str | None = None
     exa_api_key: str | None = None
+    searxng_username: str | None = None
+    searxng_password: str | None = None
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
     proxy: str | None = None

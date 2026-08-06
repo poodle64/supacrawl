@@ -430,6 +430,46 @@ class TestBasicAuth:
         assert provider._url == "https://searxng.invalid:8443/base"
         assert URL_USERINFO_PASSWORD not in provider._url
 
+    @pytest.mark.parametrize(
+        ("host", "expected"),
+        [
+            ("[::1]:8080", "http://[::1]:8080"),
+            ("[2001:db8::1]", "http://[2001:db8::1]"),
+            ("searxng.invalid:8080", "http://searxng.invalid:8080"),
+            ("192.0.2.10:8080", "http://192.0.2.10:8080"),
+        ],
+    )
+    def test_stripping_userinfo_preserves_the_authority(self, host: str, expected: str) -> None:
+        """Removing the credential must not also mangle the host.
+
+        An IPv6 literal is the trap: ``urlsplit`` reports ``hostname`` with its
+        brackets removed, so a naive rebuild yields ``http://::1:8080`` and every
+        later request dies on an opaque port-parsing error rather than anything
+        that points at the URL.
+        """
+        provider = SearXNGProvider(url=f"http://{URL_USERINFO_USERNAME}:{URL_USERINFO_PASSWORD}@{host}")
+
+        assert provider._url == expected
+        # The rebuilt URL must still be one httpx will accept.
+        httpx.URL(f"{provider._url}/search")
+
+    @pytest.mark.asyncio
+    async def test_ipv6_instance_still_authenticates_from_url_userinfo(self) -> None:
+        """The deprecated shape must keep working on an IPv6 host, not just a name."""
+        requests: list[httpx.Request] = []
+        client = _recording_client(requests)
+        provider = SearXNGProvider(
+            url=f"http://{URL_USERINFO_USERNAME}:{URL_USERINFO_PASSWORD}@[::1]:8080",
+            http_client=client,
+        )
+        try:
+            await provider.search_web("q", 5, CORRELATION_ID)
+        finally:
+            await client.aclose()
+
+        assert _basic_credential(requests[0]) == (URL_USERINFO_USERNAME, URL_USERINFO_PASSWORD)
+        assert requests[0].url.host == "::1"
+
     @pytest.mark.asyncio
     async def test_url_userinfo_never_reaches_the_request_url(self) -> None:
         requests: list[httpx.Request] = []
@@ -478,6 +518,38 @@ class TestBasicAuth:
             await client.aclose()
 
         assert _basic_credential(requests[0]) is None
+
+    @pytest.mark.asyncio
+    async def test_half_configured_warning_names_the_url_credential_taking_over(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The warning must describe what actually happens, not what usually happens.
+
+        With half a discrete pair AND a URL still carrying userinfo, the URL
+        credential is what goes out. A warning saying "no credential will be
+        sent" would send an operator debugging this exact config hunting the
+        wrong problem.
+        """
+        with caplog.at_level(logging.WARNING, logger="supacrawl.services.search.searxng"):
+            provider = SearXNGProvider(
+                url=f"http://{URL_USERINFO_USERNAME}:{URL_USERINFO_PASSWORD}@searxng.invalid",
+                username=PLACEHOLDER_USERNAME,
+            )
+
+        joined = " ".join(r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING)
+        assert "SEARXNG_PASSWORD" in joined
+        assert "SEARXNG_URL" in joined, f"the warning does not say the URL credential took over: {joined}"
+        assert "no credential will be sent" not in joined
+
+        requests: list[httpx.Request] = []
+        client = _recording_client(requests)
+        provider._http_client = client
+        try:
+            await provider.search_web("q", 5, CORRELATION_ID)
+        finally:
+            await client.aclose()
+
+        assert _basic_credential(requests[0]) == (URL_USERINFO_USERNAME, URL_USERINFO_PASSWORD)
 
     @pytest.mark.asyncio
     async def test_auth_failure_does_not_expose_the_password(self, caplog: pytest.LogCaptureFixture) -> None:
