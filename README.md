@@ -320,10 +320,15 @@ If the primary provider hits a rate limit or quota, the next provider in the cha
 | `SERPER_API_KEY` | - | [Serper.dev](https://serper.dev/) API key. Google Search results |
 | `SERPAPI_API_KEY` | - | [SerpAPI](https://serpapi.com/) API key. Google Search results |
 | `EXA_API_KEY` | - | [Exa.ai](https://exa.ai/) API key. Neural search for web and news |
+| `SEARXNG_URL` | - | Self-hosted [SearXNG](https://docs.searxng.org/) instance URL, with no credentials embedded (e.g. `https://searxng.example.invalid`). Keyless: no third-party API key needed |
+| `SEARXNG_USERNAME` | - | HTTP Basic username, only needed when the SearXNG instance sits behind a Basic-auth gate. Optional, paired with `SEARXNG_PASSWORD` |
+| `SEARXNG_PASSWORD` | - | HTTP Basic password. Optional, paired with `SEARXNG_USERNAME` |
 | `SUPACRAWL_SEARCH_PROVIDERS` | `brave` | Comma-separated provider chain with fallback order (e.g., `brave,tavily,serper`) |
 | `SUPACRAWL_SEARCH_RATE_LIMIT` | - | Override default rate limit (requests/second). Provider defaults: Brave 1/s, DuckDuckGo 0.5/s |
 
 Providers are tried in order; providers without keys are skipped. DuckDuckGo is a last-resort fallback only — it has no official API and is aggressively bot-walled.
+
+The older `SEARXNG_URL=https://user:pass@host` shape (credentials embedded directly in the URL) still works as a deprecated fallback, but avoid it for new setups: it turns the whole URL into a secret, and a secret that travels as a URL leaks easily. Anything that resolves `${SEARXNG_URL}` prints the password wherever it renders, and an HTTP error quotes the request URL verbatim, so a single 401 puts the password in the logs. Use `SEARXNG_USERNAME` / `SEARXNG_PASSWORD` instead, which win when both are set.
 
 ### Caching
 

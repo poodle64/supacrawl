@@ -72,6 +72,8 @@ supacrawl config secrets   # presence only, never the value
 
 Honoured: `CAPTCHA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `EXA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `SUPACRAWL_PROXY` (a proxy URL can carry credentials), `SUPACRAWL_METRICS_TOKEN` (bearer token for the remote log endpoint), and `SUPACRAWL_METRICS_PASSWORD` (HTTP basic-auth password for the remote log endpoint — for Grafana Cloud, the Access Policy API token).
 
+SearXNG's own credential is environment-only too, but is read directly by the SearXNG provider rather than through this shared secrets model, so it does not appear in `supacrawl config secrets`. `SEARXNG_URL` is a clean instance URL with no credentials embedded (e.g. `https://searxng.example.invalid`); when the instance sits behind an HTTP Basic-auth gate, pair it with `SEARXNG_USERNAME` and `SEARXNG_PASSWORD`. Embedding a credential directly in `SEARXNG_URL` (`https://user:pass@host`) still works as a deprecated fallback, but turns the whole URL into a secret, so prefer the discrete username/password pair.
+
 ## Shipping telemetry to a remote store (Grafana / Loki)
 
 supacrawl always writes telemetry to the local `events.jsonl` (the durable record). It can **also** ship each event to any Grafana [Loki](https://grafana.com/oss/loki/) — local, on the Docker network, or an external managed one — so a central dashboard can see quality and usage across runs. This is opt-in: set the push URL and whatever auth that endpoint needs, then verify it.

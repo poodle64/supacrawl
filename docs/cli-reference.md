@@ -754,6 +754,10 @@ supacrawl scrape https://example.com --language en-AU --timezone Australia/Sydne
 ### Search Configuration
 
 - `BRAVE_API_KEY` - Brave Search API key (for `--provider brave`)
+- `SEARXNG_URL` - Self-hosted SearXNG instance URL, no credentials embedded (for `--provider searxng`)
+- `SEARXNG_USERNAME` - HTTP Basic username for a Basic-auth-gated SearXNG instance (optional, paired with `SEARXNG_PASSWORD`)
+- `SEARXNG_PASSWORD` - HTTP Basic password for a Basic-auth-gated SearXNG instance (optional, paired with `SEARXNG_USERNAME`)
+- Embedding credentials directly in `SEARXNG_URL` (`https://user:pass@host`) still works as a deprecated fallback, but is discouraged: it turns the whole URL into a secret. Prefer `SEARXNG_USERNAME` / `SEARXNG_PASSWORD`, which win when both are set
 
 ### Browser Configuration
 

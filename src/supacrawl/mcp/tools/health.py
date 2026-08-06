@@ -109,6 +109,7 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
             "serper": "SERPER_API_KEY",
             "serpapi": "SERPAPI_API_KEY",
             "exa": "EXA_API_KEY",
+            "searxng": "SEARXNG_URL",
         }
         effective_provider = "none"
         status = "degraded"

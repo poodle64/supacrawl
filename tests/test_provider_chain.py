@@ -1,5 +1,6 @@
 """Tests for multi-provider search chain with automatic fallback."""
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -545,6 +546,86 @@ class TestProviderRegistry:
             chain = build_provider_chain(brave_api_key="key")
             names = [p.name for p in chain.providers]
             assert names == ["tavily", "serper"]
+
+
+# ---------------------------------------------------------------------------
+# Provider selection when the self-hosted backend URL is absent
+# ---------------------------------------------------------------------------
+
+
+class TestSearXNGBackendAbsent:
+    """A missing SEARXNG_URL must never route queries to a third-party engine.
+
+    supacrawl#156 was exactly this incident: the self-hosted backend dropped out
+    of the configuration and search quietly kept answering from somewhere else,
+    which for a household that self-hosts search to keep queries in-house is a
+    privacy failure, not a degradation. The failure mode is live again now that
+    the secrets broker can refuse to render a credential-bearing SEARXNG_URL and
+    silently drop the variable — so it is asserted against here rather than
+    rediscovered in production.
+    """
+
+    def test_absent_url_does_not_append_a_third_party_engine(self):
+        chain = build_provider_chain("searxng")
+
+        names = [p.name for p in chain.providers]
+        assert names == ["searxng"], f"an engine nobody configured joined the chain: {names}"
+        assert chain.providers[0].is_available() is False
+        assert chain.active_providers == []
+        assert chain.effective_provider is None
+        assert chain.unconfigured_fallback_active is False
+
+    def test_absent_url_fails_loudly_naming_the_variable(self):
+        chain = build_provider_chain("searxng")
+
+        with pytest.raises(RuntimeError) as excinfo:
+            asyncio.run(chain.search("web", "anything", 1, "corr-searxng"))
+
+        message = str(excinfo.value)
+        assert "searxng" in message
+        assert "SEARXNG_URL" in message, f"the error does not name the missing variable: {message}"
+
+    def test_absent_url_alongside_an_unkeyed_provider_still_appends_nothing(self):
+        """Two unusable providers is still not a licence to invent a third."""
+        with patch.dict("os.environ", {"BRAVE_API_KEY": ""}, clear=False):
+            chain = build_provider_chain("searxng,brave", brave_api_key=None)
+
+        names = [p.name for p in chain.providers]
+        assert names == ["searxng", "brave"]
+        assert "duckduckgo" not in names
+        assert chain.effective_provider is None
+
+    def test_present_url_selects_searxng(self):
+        """The inverse: a configured backend serves, and nothing reads as fallback."""
+        with patch.dict("os.environ", {"SEARXNG_URL": "http://searxng.invalid"}):
+            chain = build_provider_chain("searxng")
+
+        assert [p.name for p in chain.providers] == ["searxng"]
+        assert chain.effective_provider == "searxng"
+        assert chain.unconfigured_fallback_active is False
+
+    def test_credentials_alone_do_not_make_the_backend_usable(self):
+        """The URL is the availability gate; a credential without one is nothing."""
+        with patch.dict(
+            "os.environ",
+            {"SEARXNG_USERNAME": "searxng-user-placeholder", "SEARXNG_PASSWORD": "searxng-password-placeholder"},
+        ):
+            chain = build_provider_chain("searxng")
+
+        assert chain.providers[0].is_available() is False
+        assert chain.effective_provider is None
+
+    def test_service_search_fails_rather_than_answering_from_elsewhere(self):
+        """The operator-observable outcome, driven through the real service."""
+        service = SearchService(providers=["searxng"])
+        try:
+            result = asyncio.run(service.search("anything", limit=1))
+        finally:
+            asyncio.run(service.close())
+
+        assert result.success is False, "search answered from somewhere while the backend was unconfigured"
+        assert result.error is not None
+        assert "SEARXNG_URL" in result.error, f"the failure does not name the missing variable: {result.error}"
 
 
 # ---------------------------------------------------------------------------
