@@ -18,6 +18,14 @@ repos:
       - id: gitleaks
         name: '🔒 security · Detect hardcoded secrets'
 
+  - repo: local
+    hooks:
+      - id: check-pii
+        name: '🔒 security · Detect PII (names, mobiles, personal emails)'
+        entry: python3 .claude/hooks/master/check-pii.py
+        language: system
+        types: [text]
+
   # ---------------------------------------------------------------------------- #
   #                              📁 File Validation                              #
   # ---------------------------------------------------------------------------- #
