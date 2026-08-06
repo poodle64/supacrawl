@@ -171,6 +171,8 @@ class SearchService:
         provider: Literal["duckduckgo", "brave"] | None = None,
         providers: str | list[str] | None = None,
         brave_api_key: str | None = None,
+        searxng_username: str | None = None,
+        searxng_password: str | None = None,
         rate_limit: float | None = None,
         locale_config: LocaleConfig | None = None,
         telemetry: "MetricsSink | None" = None,
@@ -186,6 +188,11 @@ class SearchService:
                 SUPACRAWL_SEARCH_PROVIDERS env var.
             brave_api_key: API key for Brave Search. Also read from
                 BRAVE_API_KEY environment variable.
+            searxng_username: SearXNG HTTP Basic username supplied by the caller
+                rather than the environment — the shape a secrets broker vends
+                into, so the credential never has to be an env var. Beats
+                SEARXNG_USERNAME and any userinfo left in SEARXNG_URL.
+            searxng_password: The matching password, same precedence.
             rate_limit: Requests per second (overrides provider default).
             locale_config: Optional locale configuration for Accept-Language.
             telemetry: Optional field telemetry sink (#137). When provided, one
@@ -209,7 +216,11 @@ class SearchService:
         if providers is not None:
             # Explicit multi-provider chain
             self._chain = build_provider_chain(
-                providers, brave_api_key=self._brave_api_key, http_client=self._http_client
+                providers,
+                brave_api_key=self._brave_api_key,
+                searxng_username=searxng_username,
+                searxng_password=searxng_password,
+                http_client=self._http_client,
             )
         elif provider is not None:
             # Legacy single-provider mode
@@ -221,11 +232,20 @@ class SearchService:
                     stacklevel=2,
                 )
             self._chain = build_provider_chain(
-                [provider], brave_api_key=self._brave_api_key, http_client=self._http_client
+                [provider],
+                brave_api_key=self._brave_api_key,
+                searxng_username=searxng_username,
+                searxng_password=searxng_password,
+                http_client=self._http_client,
             )
         else:
             # Auto-detect from env or defaults
-            self._chain = build_provider_chain(brave_api_key=self._brave_api_key, http_client=self._http_client)
+            self._chain = build_provider_chain(
+                brave_api_key=self._brave_api_key,
+                searxng_username=searxng_username,
+                searxng_password=searxng_password,
+                http_client=self._http_client,
+            )
 
         # Resolve effective provider name (for backwards compat)
         active = self._chain.active_providers

@@ -128,9 +128,19 @@ class SupacrawlServices:
         logger.info("Supacrawl services closed")
 
 
-async def create_supacrawl_services() -> SupacrawlServices:
+async def create_supacrawl_services(
+    *,
+    searxng_username: str | None = None,
+    searxng_password: str | None = None,
+) -> SupacrawlServices:
     """
     Factory function to create and initialise all supacrawl services.
+
+    Args:
+        searxng_username: SearXNG HTTP Basic username resolved by the caller
+            (the MCP server vends it from Portcullis). None leaves the provider
+            to read SEARXNG_USERNAME / the deprecated SEARXNG_URL userinfo.
+        searxng_password: The matching password, same precedence.
 
     Returns:
         Initialised SupacrawlServices wrapper
@@ -227,6 +237,8 @@ async def create_supacrawl_services() -> SupacrawlServices:
         providers=config.search_providers,
         provider=config.search_provider if not config.search_providers else None,
         brave_api_key=secrets.brave_api_key,
+        searxng_username=searxng_username,
+        searxng_password=searxng_password,
         rate_limit=config.search_rate_limit,
         locale_config=locale_config,
         telemetry=telemetry,

@@ -217,6 +217,56 @@ def test_searxng_credentials_reported_in_secrets_presence(monkeypatch: pytest.Mo
     assert "searxng-user-placeholder" not in str(configured)
 
 
+@pytest.mark.unit
+def test_brokered_searxng_credential_is_not_a_secret_field() -> None:
+    """The catalogue NAME is an identifier, not a credential.
+
+    Listing it among the secrets would say a value is present when none is —
+    the value never leaves the broker.
+    """
+    assert "searxng_portcullis_credential" not in SupacrawlSecrets.model_fields
+
+
+@pytest.mark.unit
+def test_config_secrets_explains_the_brokered_searxng_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A broker-configured operator must not be sent after a missing env var.
+
+    With the MCP server fetching the pair from the broker, `SEARXNG_USERNAME` and
+    `SEARXNG_PASSWORD` are absent on purpose; a bare "-" against each reads as a
+    misconfiguration and sends the operator after the wrong problem.
+    """
+    from click.testing import CliRunner
+
+    from supacrawl.cli.config import config_secrets
+
+    monkeypatch.delenv("SEARXNG_USERNAME", raising=False)
+    monkeypatch.delenv("SEARXNG_PASSWORD", raising=False)
+    monkeypatch.setenv("SEARXNG_PORTCULLIS_CREDENTIAL", "searxng-credential-name-placeholder")
+
+    result = CliRunner().invoke(config_secrets, [])
+
+    assert result.exit_code == 0
+    assert "searxng-credential-name-placeholder" in result.output
+    assert "secrets broker" in result.output
+    assert "expected to be unset" in result.output
+
+
+@pytest.mark.unit
+def test_config_secrets_says_nothing_about_the_broker_when_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default install must not be told about a path it does not use."""
+    from click.testing import CliRunner
+
+    from supacrawl.cli.config import config_secrets
+
+    monkeypatch.delenv("SEARXNG_PORTCULLIS_CREDENTIAL", raising=False)
+
+    result = CliRunner().invoke(config_secrets, [])
+
+    assert result.exit_code == 0
+    assert "searxng_portcullis_credential" not in result.output
+    assert "broker" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # New telemetry config fields
 # ---------------------------------------------------------------------------

@@ -758,6 +758,7 @@ supacrawl scrape https://example.com --language en-AU --timezone Australia/Sydne
 - `SEARXNG_USERNAME` - HTTP Basic username for a Basic-auth-gated SearXNG instance (optional, paired with `SEARXNG_PASSWORD`)
 - `SEARXNG_PASSWORD` - HTTP Basic password for a Basic-auth-gated SearXNG instance (optional, paired with `SEARXNG_USERNAME`)
 - Embedding credentials directly in `SEARXNG_URL` (`https://user:pass@host`) still works as a deprecated fallback, but is discouraged: it turns the whole URL into a secret. Prefer `SEARXNG_USERNAME` / `SEARXNG_PASSWORD`, which win when both are set
+- `SEARXNG_PORTCULLIS_CREDENTIAL` - **MCP server only.** Catalogue name of a Portcullis credential carrying the `username`/`password` pair, fetched from the broker at server startup so it never has to be an environment variable. The CLI does not read the broker; when this is set, `supacrawl config secrets` says so rather than reporting the absent env pair as a misconfiguration
 
 ### Browser Configuration
 

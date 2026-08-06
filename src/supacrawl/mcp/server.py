@@ -13,6 +13,10 @@ Security: ``--transport http`` with a non-loopback ``--host`` and no
 ``SUPACRAWL_MCP_AUTH_TOKEN`` refuses to start unless ``--insecure`` is
 explicitly passed. This prevents accidentally exposing the tool surface to
 the network without any authentication.
+
+Credentials: when ``SEARXNG_PORTCULLIS_CREDENTIAL`` names a catalogue entry,
+the SearXNG HTTP Basic pair is vended from the Portcullis broker in-process at
+startup, so it never has to exist as an environment variable on the host.
 """
 
 from __future__ import annotations
@@ -26,9 +30,22 @@ import anyio
 from mcp_common.auth import StaticBearerVerifier
 from mcp_common.server import BaseMCPServer
 
-from supacrawl.mcp.config import ALLOWED_HOSTS, ALLOWED_ORIGINS, SUPACRAWL_MASK_ERROR_DETAILS, logger
+from supacrawl.mcp.config import (
+    ALLOWED_HOSTS,
+    ALLOWED_ORIGINS,
+    SUPACRAWL_MASK_ERROR_DETAILS,
+    SupacrawlSettings,
+    get_settings,
+    logger,
+)
+from supacrawl.mcp.exceptions import SupacrawlConnectionError
 from supacrawl.mcp.wiring import register_all_tools, register_prompts, register_resources
 from supacrawl.services.registry import create_supacrawl_services
+
+# The vendor label carried in a broker-gap error's ``context`` and message. The
+# server's own label would be "supacrawl", which names the consumer rather than
+# the credential family that could not be produced.
+_SEARXNG_VENDOR = "searxng"
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -65,7 +82,13 @@ class SupacrawlServer(BaseMCPServer):
     # Use module-level logger
     logger = logger
 
-    def __init__(self, server_name: str = "supacrawl"):
+    # Rule 17 (mcp-servers ``17-portcullis-consumer-boundary.md``): a broker gap
+    # surfaces as this typed error, which is NOT a builtin ConnectionError, so
+    # FastMCP's RetryMiddleware sees a non-retryable type instead of hammering a
+    # dependency that will not recover inside its retry window.
+    portcullis_connection_error_cls = SupacrawlConnectionError
+
+    def __init__(self, server_name: str = "supacrawl", settings: SupacrawlSettings | None = None):
         # Read at construction time (not at module import time) so tests can
         # patch supacrawl.mcp.config.SUPACRAWL_MCP_AUTH_TOKEN and see the
         # effect without reimporting this module.
@@ -76,17 +99,67 @@ class SupacrawlServer(BaseMCPServer):
             if SUPACRAWL_MCP_AUTH_TOKEN
             else None
         )
+        # Held under its own name as well as base's ``self.settings`` (typed
+        # BaseMCPSettings | None there) so supacrawl's own fields stay typed.
+        self._settings: SupacrawlSettings = settings or get_settings()
         super().__init__(
             server_name,
             instructions=SUPACRAWL_INSTRUCTIONS,
             mask_error_details=SUPACRAWL_MASK_ERROR_DETAILS,
             auth=auth,
+            settings=self._settings,
         )
 
     async def create_api_client(self) -> Any:
         """Create and return the supacrawl services wrapper."""
         self.logger.info("Initialising Supacrawl services")
-        return await create_supacrawl_services()
+        searxng_username, searxng_password = await self._vend_searxng_credential()
+        return await create_supacrawl_services(
+            searxng_username=searxng_username,
+            searxng_password=searxng_password,
+        )
+
+    async def _vend_searxng_credential(self) -> tuple[str | None, str | None]:
+        """Fetch the SearXNG HTTP Basic pair from Portcullis, when one is named.
+
+        Vending in-process is the whole point: the credential reaches the process
+        without ever being an environment variable, a rendered config value, or a
+        file on the host. ``SEARXNG_PORTCULLIS_CREDENTIAL`` unset returns
+        ``(None, None)``, leaving the provider to resolve its credential exactly
+        as it did before — from ``SEARXNG_USERNAME`` / ``SEARXNG_PASSWORD``, or
+        any userinfo still embedded in ``SEARXNG_URL``.
+
+        A failure is deliberately not swallowed. It propagates out of
+        ``create_api_client``, which the base server treats as a non-fatal
+        degraded start: the server comes up, health reports the gap, and tools
+        return a typed unavailable error. What it must never do is continue
+        without the credential, because a chain that cannot reach the household
+        backend would otherwise answer from a third-party engine nobody
+        configured — the silent fallback this whole path exists to prevent.
+
+        Returns:
+            The vended ``(username, password)`` pair, or ``(None, None)`` when no
+            credential is named.
+
+        Raises:
+            SupacrawlConnectionError: When the broker cannot produce a usable
+                credential, or produces one missing either half of the pair.
+        """
+        name = self._settings.searxng_portcullis_credential
+        if not name:
+            return None, None
+
+        fields = await self.vend_static_fields(name, vendor=_SEARXNG_VENDOR)
+        username = fields.get("username") or None
+        password = fields.get("password") or None
+        if not (username and password):
+            # Half a pair cannot authenticate, and letting it through would look
+            # like a working vend right up to the 401. Names the gap only — the
+            # field names it looked for stay out of the message.
+            raise self._no_session(_SEARXNG_VENDOR)
+
+        self.logger.info("SearXNG credential resolved from Portcullis")
+        return username, password
 
     def register_tools(self) -> None:
         """Register all MCP tools, resources, and prompts."""

@@ -25,8 +25,11 @@ import httpx
 import pytest
 
 from supacrawl.models import SearchFilters, SearchSourceType
+from supacrawl.services.registry import create_supacrawl_services
 from supacrawl.services.search.duckduckgo import DuckDuckGoProvider
+from supacrawl.services.search.registry import build_provider_chain
 from supacrawl.services.search.searxng import SearXNGProvider
+from supacrawl.services.search.service import SearchService
 
 CORRELATION_ID = "test-1234"
 
@@ -607,3 +610,174 @@ class TestBasicAuth:
     def test_availability_does_not_depend_on_credentials(self) -> None:
         """A URL with no credential is still a usable configuration."""
         assert SearXNGProvider(url="http://searxng.invalid").is_available()
+
+
+async def _credential_on_the_wire(provider: SearXNGProvider) -> tuple[str, str] | None:
+    """Drive one search through a recording client and decode what it carried.
+
+    Asserting on the outgoing header rather than the provider's stored ``_auth``
+    keeps these tests measuring the thing that matters: what actually reaches
+    the instance.
+    """
+    requests: list[httpx.Request] = []
+    client = _recording_client(requests)
+    provider._http_client = client
+    try:
+        await provider.search_web("q", 5, CORRELATION_ID)
+    finally:
+        await client.aclose()
+    return _basic_credential(requests[0])
+
+
+def _searxng_from(chain: Any) -> SearXNGProvider:
+    """Pull the SearXNG provider out of a built chain."""
+    for provider in chain.providers:
+        if isinstance(provider, SearXNGProvider):
+            return provider
+    raise AssertionError(f"no SearXNG provider in the chain: {[p.name for p in chain.providers]}")
+
+
+class TestBrokeredCredentialThreading:
+    """A credential supplied by the caller reaches the provider (#164).
+
+    The MCP server vends the pair from the household secrets broker at startup
+    precisely so it never has to be an environment variable. That is only worth
+    anything if the vended value survives every hop between the server and the
+    outgoing request, so each hop is asserted rather than assumed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_chain_forwards_the_supplied_credential(self) -> None:
+        with patch.dict(os.environ, {"SEARXNG_URL": "http://searxng.invalid"}):
+            chain = build_provider_chain(
+                ["searxng"],
+                searxng_username=PLACEHOLDER_USERNAME,
+                searxng_password=PLACEHOLDER_PASSWORD,
+            )
+
+        assert await _credential_on_the_wire(_searxng_from(chain)) == (PLACEHOLDER_USERNAME, PLACEHOLDER_PASSWORD)
+
+    @pytest.mark.asyncio
+    async def test_supplied_credential_beats_the_environment(self) -> None:
+        """The broker is the stronger source: a stale env pair must not win."""
+        with patch.dict(
+            os.environ,
+            {
+                "SEARXNG_URL": "http://searxng.invalid",
+                "SEARXNG_USERNAME": URL_USERINFO_USERNAME,
+                "SEARXNG_PASSWORD": URL_USERINFO_PASSWORD,
+            },
+        ):
+            chain = build_provider_chain(
+                ["searxng"],
+                searxng_username=PLACEHOLDER_USERNAME,
+                searxng_password=PLACEHOLDER_PASSWORD,
+            )
+
+        assert await _credential_on_the_wire(_searxng_from(chain)) == (PLACEHOLDER_USERNAME, PLACEHOLDER_PASSWORD)
+
+    @pytest.mark.asyncio
+    async def test_supplied_credential_beats_url_userinfo(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"SEARXNG_URL": f"http://{URL_USERINFO_USERNAME}:{URL_USERINFO_PASSWORD}@searxng.invalid"},
+        ):
+            chain = build_provider_chain(
+                ["searxng"],
+                searxng_username=PLACEHOLDER_USERNAME,
+                searxng_password=PLACEHOLDER_PASSWORD,
+            )
+
+        assert await _credential_on_the_wire(_searxng_from(chain)) == (PLACEHOLDER_USERNAME, PLACEHOLDER_PASSWORD)
+
+    @pytest.mark.asyncio
+    async def test_no_supplied_credential_leaves_the_environment_in_charge(self) -> None:
+        """The unset case must be byte-for-byte what it was before the vend existed."""
+        with patch.dict(
+            os.environ,
+            {
+                "SEARXNG_URL": "http://searxng.invalid",
+                "SEARXNG_USERNAME": PLACEHOLDER_USERNAME,
+                "SEARXNG_PASSWORD": PLACEHOLDER_PASSWORD,
+            },
+        ):
+            chain = build_provider_chain(["searxng"])
+
+        assert await _credential_on_the_wire(_searxng_from(chain)) == (PLACEHOLDER_USERNAME, PLACEHOLDER_PASSWORD)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"providers": "searxng"}, id="explicit-chain"),
+            pytest.param({"provider": "searxng"}, id="legacy-single-provider"),
+            pytest.param({}, id="auto-detected-from-env"),
+        ],
+    )
+    async def test_search_service_forwards_the_credential_on_every_construction_path(
+        self, kwargs: dict[str, Any]
+    ) -> None:
+        """SearchService builds its chain at three separate call sites.
+
+        A forward missed at any one of them silently drops the vended credential
+        for that configuration only, which is exactly the kind of gap that is
+        invisible until an operator hits the one path nobody covered.
+        """
+        with patch.dict(
+            os.environ,
+            {"SEARXNG_URL": "http://searxng.invalid", "SUPACRAWL_SEARCH_PROVIDERS": "searxng"},
+        ):
+            service = SearchService(
+                searxng_username=PLACEHOLDER_USERNAME,
+                searxng_password=PLACEHOLDER_PASSWORD,
+                **kwargs,
+            )
+
+        try:
+            provider = _searxng_from(service.provider_chain)
+            assert await _credential_on_the_wire(provider) == (PLACEHOLDER_USERNAME, PLACEHOLDER_PASSWORD)
+        finally:
+            await service.close()
+
+    @pytest.mark.asyncio
+    async def test_services_factory_hands_the_credential_to_the_search_service(self) -> None:
+        """The seam the MCP server actually calls.
+
+        The browser and search service are stubbed: this asserts the wiring
+        between ``create_supacrawl_services`` and ``SearchService``, not the
+        behaviour of either.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        browser = MagicMock()
+        browser.start = AsyncMock()
+        search_service = MagicMock()
+
+        with (
+            patch("supacrawl.services.BrowserManager", return_value=browser),
+            patch("supacrawl.services.SearchService", return_value=search_service) as search_cls,
+        ):
+            await create_supacrawl_services(
+                searxng_username=PLACEHOLDER_USERNAME,
+                searxng_password=PLACEHOLDER_PASSWORD,
+            )
+
+        assert search_cls.call_args.kwargs["searxng_username"] == PLACEHOLDER_USERNAME
+        assert search_cls.call_args.kwargs["searxng_password"] == PLACEHOLDER_PASSWORD
+
+    @pytest.mark.asyncio
+    async def test_services_factory_defaults_to_no_supplied_credential(self) -> None:
+        """The REST API calls this factory with no arguments and must stay unchanged."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        browser = MagicMock()
+        browser.start = AsyncMock()
+
+        with (
+            patch("supacrawl.services.BrowserManager", return_value=browser),
+            patch("supacrawl.services.SearchService", return_value=MagicMock()) as search_cls,
+        ):
+            await create_supacrawl_services()
+
+        assert search_cls.call_args.kwargs["searxng_username"] is None
+        assert search_cls.call_args.kwargs["searxng_password"] is None

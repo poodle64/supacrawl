@@ -104,6 +104,12 @@ playwright install chromium
 
 `supacrawl-mcp --transport http` exposes the tool surface over the network instead of stdio. It requires `SUPACRAWL_MCP_AUTH_TOKEN` (a shared bearer token every caller must present in an `Authorization: Bearer <token>` header) whenever `--host` is not loopback (`127.0.0.1`/`localhost`/`::1`) — the server refuses to start on a non-loopback host with no token configured, unless `--insecure` is passed explicitly. Loopback binds (the default `--host`) work unauthenticated.
 
+### Fetching the SearXNG credential from a secrets broker
+
+The MCP server can take its SearXNG HTTP Basic credential from a [Portcullis](https://github.com/poodle64/portcullis) secrets broker instead of the environment. Set `SEARXNG_PORTCULLIS_CREDENTIAL` to the catalogue name of a credential carrying `username` and `password` fields, and the pair is fetched in-process at startup — so it never has to exist as an environment variable, a rendered config value, or a file on the host. The broker address and machine identity come from the usual `PORTCULLIS_URL` / `SIGNET_*` variables.
+
+This is opt-in and MCP-only. Leave `SEARXNG_PORTCULLIS_CREDENTIAL` unset (the default) and nothing changes: the credential resolves from `SEARXNG_USERNAME` / `SEARXNG_PASSWORD` exactly as before, and the CLI and REST API are unaffected either way. When it is set and the broker cannot produce a usable credential, the server starts in a degraded state and search fails loudly rather than quietly handing the query to a different engine.
+
 ### Available Tools
 
 | Tool                 | Description                                         |
@@ -323,6 +329,7 @@ If the primary provider hits a rate limit or quota, the next provider in the cha
 | `SEARXNG_URL` | - | Self-hosted [SearXNG](https://docs.searxng.org/) instance URL, with no credentials embedded (e.g. `https://searxng.example.invalid`). Keyless: no third-party API key needed |
 | `SEARXNG_USERNAME` | - | HTTP Basic username, only needed when the SearXNG instance sits behind a Basic-auth gate. Optional, paired with `SEARXNG_PASSWORD` |
 | `SEARXNG_PASSWORD` | - | HTTP Basic password. Optional, paired with `SEARXNG_USERNAME` |
+| `SEARXNG_PORTCULLIS_CREDENTIAL` | - | **MCP server only.** Catalogue name of a Portcullis credential carrying the `username`/`password` pair, fetched in-process at startup so it never has to be an environment variable. Unset means no fetch — see [Fetching the SearXNG credential from a secrets broker](#fetching-the-searxng-credential-from-a-secrets-broker) |
 | `SUPACRAWL_SEARCH_PROVIDERS` | `brave` | Comma-separated provider chain with fallback order (e.g., `brave,tavily,serper`) |
 | `SUPACRAWL_SEARCH_RATE_LIMIT` | - | Override default rate limit (requests/second). Provider defaults: Brave 1/s, DuckDuckGo 0.5/s |
 

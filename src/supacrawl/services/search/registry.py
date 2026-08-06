@@ -35,6 +35,8 @@ def create_provider(
     name: str,
     *,
     brave_api_key: str | None = None,
+    searxng_username: str | None = None,
+    searxng_password: str | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> SearchProvider:
     """Create a search provider by name.
@@ -44,6 +46,10 @@ def create_provider(
     Args:
         name: Provider name (must be in SUPPORTED_PROVIDERS).
         brave_api_key: Override for Brave API key (for backwards compat).
+        searxng_username: SearXNG HTTP Basic username supplied by the caller
+            rather than the environment — the shape a secrets broker vends into.
+            Beats SEARXNG_USERNAME and any userinfo left in SEARXNG_URL.
+        searxng_password: The matching password, same precedence.
         http_client: Optional shared HTTP client.
 
     Returns:
@@ -85,7 +91,11 @@ def create_provider(
     if name == "searxng":
         from supacrawl.services.search.searxng import SearXNGProvider
 
-        return SearXNGProvider(http_client=http_client)
+        return SearXNGProvider(
+            http_client=http_client,
+            username=searxng_username,
+            password=searxng_password,
+        )
 
     raise ValueError(f"Unknown search provider: {name!r}. Supported providers: {', '.join(SUPPORTED_PROVIDERS)}")
 
@@ -104,6 +114,8 @@ def build_provider_chain(
     providers: str | list[str] | None = None,
     *,
     brave_api_key: str | None = None,
+    searxng_username: str | None = None,
+    searxng_password: str | None = None,
     http_client: httpx.AsyncClient | None = None,
     strict: bool | None = None,
 ) -> ProviderChain:
@@ -114,6 +126,10 @@ def build_provider_chain(
             If None, reads from SUPACRAWL_SEARCH_PROVIDERS env var,
             then falls back to DEFAULT_PROVIDERS.
         brave_api_key: Override for Brave API key.
+        searxng_username: SearXNG HTTP Basic username supplied by the caller
+            rather than the environment. Beats SEARXNG_USERNAME and any userinfo
+            left in SEARXNG_URL.
+        searxng_password: The matching password, same precedence.
         http_client: Optional shared HTTP client for providers that accept it.
         strict: When True, never append an unconfigured fallback provider — a
             chain with no usable provider fails loudly at search time instead
@@ -154,7 +170,13 @@ def build_provider_chain(
 
     chain = ProviderChain(configured_names=list(unique_names))
     for name in unique_names:
-        provider = create_provider(name, brave_api_key=brave_api_key, http_client=http_client)
+        provider = create_provider(
+            name,
+            brave_api_key=brave_api_key,
+            searxng_username=searxng_username,
+            searxng_password=searxng_password,
+            http_client=http_client,
+        )
         chain.add(provider)
 
     # If the only provider is brave and it doesn't have a key, add DDG as fallback

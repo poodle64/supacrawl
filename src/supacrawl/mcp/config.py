@@ -15,18 +15,25 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from mcp_common.config import parse_comma_separated
+from mcp_common.config import BaseMCPSettings
 from mcp_common.logging import setup_server_logging
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
 
 import supacrawl
 
 load_dotenv()
 
 
-class SupacrawlSettings(BaseSettings):
-    """Supacrawl MCP server settings."""
+class SupacrawlSettings(BaseMCPSettings):
+    """Supacrawl MCP server settings.
+
+    Extends the household base settings, which carry the fleet-wide broker
+    fields (``PORTCULLIS_URL``, ``SIGNET_*``) the Portcullis consumer mixin
+    reads, the shared ``ALLOWED_ORIGINS`` / ``ALLOWED_HOSTS`` /
+    ``mask_error_details`` fields, and the lenient env source that lets a
+    comma-separated list env var through.
+    """
 
     model_config = SettingsConfigDict(
         env_prefix="SUPACRAWL_",
@@ -34,15 +41,6 @@ class SupacrawlSettings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
-    )
-
-    # Error handling
-    mask_error_details: bool = Field(
-        default=True,
-        description=(
-            "Strip exception messages and tracebacks from tool error responses. "
-            "Set to false in dev/CI to see full exception details."
-        ),
     )
 
     # Logging
@@ -136,20 +134,30 @@ class SupacrawlSettings(BaseSettings):
         ),
     )
 
+    # The catalogue name of the SearXNG HTTP Basic credential to vend from the
+    # Portcullis broker at server startup. Empty (the default) changes nothing:
+    # the provider resolves its credential exactly as it always has, from
+    # SEARXNG_USERNAME / SEARXNG_PASSWORD or any userinfo left in SEARXNG_URL.
+    # Set it and the pair is fetched in-process instead, so the credential never
+    # has to exist as an environment variable, a rendered config value, or a
+    # file on the host running the server.
+    searxng_portcullis_credential: str = Field(
+        default="",
+        alias="SEARXNG_PORTCULLIS_CREDENTIAL",
+        description=(
+            "Portcullis catalogue credential name carrying the SearXNG HTTP Basic "
+            "username/password pair. Empty means no vend."
+        ),
+    )
+
     # Bearer token for HTTP transport auth. No default — an empty/absent value
     # means the HTTP surface starts unauthenticated. The token is consumed at
     # startup only; it never appears in logs, errors, or tool responses.
     mcp_auth_token: str | None = Field(default=None, alias="SUPACRAWL_MCP_AUTH_TOKEN")
 
-    # MCP Server Configuration (without SUPACRAWL_ prefix)
-    allowed_origins: list[str] = Field(
-        default_factory=lambda: ["*"],
-        alias="ALLOWED_ORIGINS",
-    )
-    allowed_hosts: list[str] = Field(
-        default_factory=lambda: ["*"],
-        alias="ALLOWED_HOSTS",
-    )
+    # MCP Server Configuration (without SUPACRAWL_ prefix). ALLOWED_ORIGINS and
+    # ALLOWED_HOSTS are inherited from BaseMCPSettings; SERVICE_NAME stays here
+    # because its default IS this server's identity.
     service_name: str = Field(default="supacrawl-mcp", alias="SERVICE_NAME")
 
     @field_validator("log_level")
@@ -171,12 +179,6 @@ class SupacrawlSettings(BaseSettings):
         if lower not in valid_values:
             raise ValueError(f"Invalid wait_until: {v}. Must be one of {valid_values}")
         return lower
-
-    @field_validator("allowed_origins", "allowed_hosts", mode="before")
-    @classmethod
-    def validate_comma_separated(cls, v: str | list[str]) -> list[str]:
-        """Parse comma-separated string into list."""
-        return parse_comma_separated(v)
 
     @field_validator("mcp_auth_token", mode="before")
     @classmethod

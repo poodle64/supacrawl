@@ -8,6 +8,7 @@ this is the terminal-native view of the same surface.
 """
 
 import json
+import os
 
 import click
 from pydantic import ValidationError
@@ -128,3 +129,17 @@ def config_secrets() -> None:
     for name, present in configured.items():
         mark = "set" if present else "-"
         click.echo(f"{name}: {mark}")
+
+    # Without this, an operator running the MCP server against a secrets broker
+    # reads "searxng_username: -" and goes looking for a missing env var that is
+    # missing on purpose. The catalogue NAME is reported, never a value — it is
+    # an identifier, not a credential, which is why it is not in the list above.
+    brokered = os.environ.get("SEARXNG_PORTCULLIS_CREDENTIAL")
+    if brokered:
+        click.echo(
+            f"\nsearxng_portcullis_credential: {brokered}\n"
+            "  The MCP server fetches the SearXNG username/password from the secrets broker "
+            "at startup, so SEARXNG_USERNAME / SEARXNG_PASSWORD are expected to be unset here.\n"
+            "  This CLI and the REST API do not read the broker; for them the environment is "
+            "still the only source."
+        )
