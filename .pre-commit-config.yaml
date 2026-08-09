@@ -22,7 +22,7 @@ repos:
     hooks:
       - id: check-pii
         name: '🔒 security · Detect PII (names, mobiles, personal emails)'
-        entry: python3 .claude/hooks/master/check-pii.py
+        entry: python3 .claude/hooks/master/precommit/pii.py
         language: system
         types: [text]
 

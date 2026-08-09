@@ -4,7 +4,7 @@ paths: '**/*'
 
 # Development Environment
 
-This rule extends `rules-library/python/20-python-development-environment.md` with supacrawl-specific patterns. Universal uv environment and environment variable patterns are covered in the master rule.
+This rule extends `rules-library/stacks/python-environment.md` with supacrawl-specific patterns. Universal uv environment and environment variable patterns are covered in the master rule.
 
 ## uv Environment
 
@@ -36,5 +36,5 @@ This rule extends `rules-library/python/20-python-development-environment.md` wi
 
 ## References
 
-- `rules-library/python/20-python-development-environment.md` - Universal uv environment mechanics
+- `rules-library/stacks/python-environment.md` - Universal uv environment mechanics
 - `.claude/rules/50-scraper-provider-patterns.md` - Playwright scraper patterns
