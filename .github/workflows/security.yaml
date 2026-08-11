@@ -48,6 +48,14 @@ permissions:
 jobs:
   gitleaks:
     name: Secret scan (gitleaks)
+    # by-exception (2026-08-11): GitHub-hosted runner, not [self-hosted, atlas].
+    # This repo is PUBLIC and takes fork pull requests; running fork-authored
+    # code on the household runner would be arbitrary code execution inside the
+    # home network. GitHub would permit the self-hosted runner here (same owner)
+    # — this is a deliberate refusal, not a limitation. Rationale in full at the
+    # head of this file; repeated at the line because ci-workflow-standard.md
+    # requires the deviation beside the code it explains, and the fleet CI
+    # hygiene audit enforces exactly that.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -84,6 +92,14 @@ jobs:
 
   trivy-fs:
     name: Trivy filesystem scan
+    # by-exception (2026-08-11): GitHub-hosted runner, not [self-hosted, atlas].
+    # This repo is PUBLIC and takes fork pull requests; running fork-authored
+    # code on the household runner would be arbitrary code execution inside the
+    # home network. GitHub would permit the self-hosted runner here (same owner)
+    # — this is a deliberate refusal, not a limitation. Rationale in full at the
+    # head of this file; repeated at the line because ci-workflow-standard.md
+    # requires the deviation beside the code it explains, and the fleet CI
+    # hygiene audit enforces exactly that.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
