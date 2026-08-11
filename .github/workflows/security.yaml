@@ -1,0 +1,104 @@
+name: Security
+
+# Supply-chain and secret scanning: a gitleaks secret scan over full history
+# plus a Trivy filesystem scan (dependency vulnerabilities + working-tree
+# secrets). Trivy auto-detects whichever lockfiles this repo commits
+# (go.sum, Cargo.lock, uv.lock, pnpm-lock.yaml), so this file is byte-identical
+# across every public repo in the estate — one pattern, not a per-repo variant.
+#
+# by-exception (2026-08-11): this is a BESPOKE in-repo workflow, not the estate
+# standard thin caller of poodle64/master-project's security-checks.yaml
+# reusable (ci-workflow-standard.md §"The factory, in preference order",
+# preference 1). It CANNOT be the thin caller: this repo is PUBLIC and
+# master-project, which hosts the shared reusable, is PRIVATE. GitHub's own
+# access table is explicit — a `public` caller repository can reach reusable
+# workflows only in `public` repositories, and no repository-level Access
+# setting overrides it (docs.github.com/en/actions/reference/workflows-and-
+# actions/reusing-workflow-configurations §"Access to reusable workflows").
+# Proven on design-system, whose caller died twice at startup validation with
+# zero jobs (runs 31097907321, 31363763671). Preference 3 (bespoke) applies
+# because preferences 1 and 2 genuinely cannot. Recorded on
+# poodle64/master-project#169.
+#
+# by-exception (2026-08-11): GitHub-hosted runners (ubuntu-latest), not the
+# [self-hosted, atlas] label the reusable and every private repo default to.
+# GitHub permits a same-owner caller to reach the self-hosted runner, so this
+# is a deliberate security choice rather than a limitation: a public repo takes
+# fork pull requests, and running fork-authored code on a household runner is
+# arbitrary code execution inside the home network.
+#
+# by-exception (2026-08-11): no ntfy-failure notify step. That composite action
+# also lives in the private master-project and is unusable here for the same
+# reason, and this repo holds no NTFY_TOKEN for the inline-curl fallback
+# (ci-workflow-standard.md §failure-notify). Failures surface in the run/PR UI.
+#
+# Uses `pull_request`, never `pull_request_target`: the latter would run with a
+# writable token in the base repo's context while checking out fork-controlled
+# code (ci-workflow-standard.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history so the secret scan sees every commit, not just the tip.
+          # The estate reusable scopes to a commit range instead, purely to stop
+          # pre-existing history findings turning a repo permanently red. Each
+          # public repo's full history was scanned clean before this workflow was
+          # added (2026-08-11), so the stricter scan is safe here and stays green
+          # until a real secret lands. Any verified false positive is pinned in
+          # .gitleaksignore with its reason, never by loosening the scan.
+          fetch-depth: 0
+
+      - name: Scan for secrets (gitleaks CLI)
+        # Pinned release binary, checksum-verified — no third-party action on the
+        # supply chain. The estate reusable makes the same explicit choice of the
+        # CLI over gitleaks/gitleaks-action.
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          curl -fsSL "$url" -o "$tarball"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+          # --redact is not optional: without it a real finding prints the secret
+          # into a PUBLIC run log, turning the guard into the leak
+          # (core/secret-handling.md).
+          ./gitleaks detect --source . --redact --no-banner --verbose
+
+  trivy-fs:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Trivy filesystem scan
+        # Dependency vulnerabilities (over whichever lockfiles are committed)
+        # plus working-tree secrets, in one pass. ignore-unfixed keeps the gate
+        # on what a version bump can actually fix.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
