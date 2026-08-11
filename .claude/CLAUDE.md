@@ -23,3 +23,7 @@ Zero-infrastructure CLI web scraper with LLM extraction, for developers working 
 ## Pitfalls
 
 - **Playwright/Patchright lower bound `>=1.40.0` is intentional** (NixOS compatibility; #79, #104). Do NOT bump it unless new Playwright APIs are actually used.
+
+## CI deviations from the household standard
+
+- **No `auto-label-issues` caller.** `rules-library/core/ci-workflow-standard.md` requires every repo to delegate issue auto-labelling to the master-project reusable, and permits a public repo that cannot resolve it to omit the caller provided the omission is recorded. supacrawl is public and `poodle64/master-project` is private, so the reusable is unresolvable here; labels are applied at creation time by the `/git-issue` skill instead. Recorded 2026-08-11 — the omission was correct but had never been written down, which the umbrella rule treats as a defect in its own right.
