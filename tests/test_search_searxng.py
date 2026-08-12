@@ -24,11 +24,12 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from supacrawl.exceptions import ProviderError
 from supacrawl.models import SearchFilters, SearchSourceType
 from supacrawl.services.registry import create_supacrawl_services
 from supacrawl.services.search.duckduckgo import DuckDuckGoProvider
 from supacrawl.services.search.registry import build_provider_chain
-from supacrawl.services.search.searxng import SearXNGProvider
+from supacrawl.services.search.searxng import SearXNGProvider, _parse_unresponsive_engines
 from supacrawl.services.search.service import SearchService
 
 CORRELATION_ID = "test-1234"
@@ -290,6 +291,87 @@ class TestSearXNGProvider:
     def test_url_is_stripped_of_trailing_slash(self) -> None:
         provider = SearXNGProvider(url="http://searxng.invalid/")
         assert provider._url == "http://searxng.invalid"
+
+
+EMPTY_WITH_FAILURES = {
+    "results": [],
+    "unresponsive_engines": [["brave", "timeout"], ["wikibooks", "SSL error"]],
+}
+
+
+class TestUpstreamEngineFailure:
+    """An empty result set caused by dead engines must say so, not read as no-match (#161)."""
+
+    @pytest.mark.asyncio
+    async def test_empty_with_unresponsive_engines_raises_provider_error(self) -> None:
+        provider = SearXNGProvider(url="http://searxng.invalid")
+        try:
+            provider._http_client = _FakeClient(EMPTY_WITH_FAILURES)  # type: ignore[assignment]
+
+            with pytest.raises(ProviderError) as excinfo:
+                await provider.search_web("prometheus alertmanager grouping", 5, CORRELATION_ID)
+
+            message = str(excinfo.value)
+            assert "brave" in message and "wikibooks" in message, f"the failure must name the dead engines: {message}"
+            assert excinfo.value.context["unresponsive_engines"] == [
+                {"engine": "brave", "reason": "timeout"},
+                {"engine": "wikibooks", "reason": "SSL error"},
+            ]
+        finally:
+            await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_results_present_with_unresponsive_does_not_raise(self) -> None:
+        """Partial degradation still returns what it got — only a *total* empty raises."""
+        body = {"results": WEB_RESPONSE["results"], "unresponsive_engines": [["brave", "timeout"]]}
+        provider = SearXNGProvider(url="http://searxng.invalid")
+        try:
+            provider._http_client = _FakeClient(body)  # type: ignore[assignment]
+
+            results = await provider.search_web("q", 5, CORRELATION_ID)
+
+            assert len(results) == 2
+        finally:
+            await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_empty_without_unresponsive_returns_empty(self) -> None:
+        """A genuine no-match must NOT be dressed up as an upstream failure."""
+        provider = SearXNGProvider(url="http://searxng.invalid")
+        try:
+            provider._http_client = _FakeClient({"results": []})  # type: ignore[assignment]
+
+            assert await provider.search_web("no such thing anywhere", 5, CORRELATION_ID) == []
+        finally:
+            await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_news_empty_with_unresponsive_also_raises(self) -> None:
+        provider = SearXNGProvider(url="http://searxng.invalid")
+        try:
+            provider._http_client = _FakeClient(EMPTY_WITH_FAILURES)  # type: ignore[assignment]
+
+            with pytest.raises(ProviderError):
+                await provider.search_news("q", 5, CORRELATION_ID)
+        finally:
+            await provider.close()
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ([["brave", "timeout"]], [{"engine": "brave", "reason": "timeout"}]),
+            ([["brave"]], [{"engine": "brave", "reason": "unresponsive"}]),
+            (["brave"], [{"engine": "brave", "reason": "unresponsive"}]),
+            ([["brave", ""]], [{"engine": "brave", "reason": "unresponsive"}]),
+            ([["a", "x"], ["b", "y"]], [{"engine": "a", "reason": "x"}, {"engine": "b", "reason": "y"}]),
+            ([], []),
+            (None, []),
+            ("garbage", []),
+            ([[""]], []),
+        ],
+    )
+    def test_parse_unresponsive_engines_shapes(self, raw: Any, expected: list[dict[str, str]]) -> None:
+        assert _parse_unresponsive_engines(raw) == expected
 
 
 def _basic_credential(request: httpx.Request) -> tuple[str, str] | None:

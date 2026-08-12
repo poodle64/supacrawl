@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Literal
 
 import httpx
 
-from supacrawl.exceptions import generate_correlation_id
+from supacrawl.exceptions import ProviderError, generate_correlation_id
 from supacrawl.models import LocaleConfig, SearchFilters, SearchResult, SearchResultItem, SearchSourceType
 from supacrawl.services.search.providers import ProviderChain
 from supacrawl.services.search.registry import build_provider_chain
@@ -42,6 +42,21 @@ def _describe_error(exc: BaseException) -> str:
     always gets a useful string.
     """
     return str(exc).strip() or type(exc).__name__
+
+
+def _unresponsive_engines_from_error(exc: BaseException) -> list[dict[str, str]]:
+    """Pull SearXNG's unresponsive-engine list out of a ProviderError, if present.
+
+    SearXNG raises a ProviderError carrying its failed engines when a query came
+    back empty because those engines were down. Surfacing them on the returned
+    SearchResult is what lets a caller with no fallback read WHY the set was
+    empty, rather than an inscrutable success:false (#161).
+    """
+    if isinstance(exc, ProviderError):
+        engines = exc.context.get("unresponsive_engines")
+        if isinstance(engines, list):
+            return engines
+    return []
 
 
 # Type alias for source types
@@ -458,7 +473,14 @@ class SearchService:
                 error=msg,
             )
             return self._record_search_telemetry(
-                SearchResult(success=False, data=[], error=msg), query, telemetry_started
+                SearchResult(
+                    success=False,
+                    data=[],
+                    error=msg,
+                    unresponsive_engines=_unresponsive_engines_from_error(e),  # type: ignore[arg-type]
+                ),
+                query,
+                telemetry_started,
             )
 
     def _record_search_telemetry(self, result: SearchResult, query: str, started: float | None) -> SearchResult:

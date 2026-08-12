@@ -604,6 +604,19 @@ class SearchResultItem(BaseModel):
     metadata: ScrapeMetadata | None = None
 
 
+class SearchEngineError(BaseModel):
+    """An upstream engine that failed during a SearXNG metasearch query.
+
+    SearXNG reports these as ``unresponsive_engines``: the per-engine failures
+    that thinned or emptied a result set. Surfacing them lets a caller tell "no
+    results exist for this query" from "every engine that would have answered
+    was down" — the ambiguity that made an empty result set unreadable (#161).
+    """
+
+    engine: str
+    reason: str
+
+
 class SearchResult(BaseModel):
     """Search operation result."""
 
@@ -615,6 +628,10 @@ class SearchResult(BaseModel):
     # provider from a silent fallback (#158).
     provider: str | None = None
     provider_fallback: bool = False
+    # Upstream engines that failed on this query (SearXNG only). Populated when
+    # an empty/failed result was caused by engines being down, so `data: []` is
+    # never mistaken for "no such thing exists" (#161).
+    unresponsive_engines: list[SearchEngineError] = Field(default_factory=list)
 
 
 # =============================================================================

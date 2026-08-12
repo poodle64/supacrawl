@@ -24,15 +24,46 @@ Prefer SEARXNG_USERNAME / SEARXNG_PASSWORD, which win when both are set.
 
 import logging
 import os
+from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 import httpx
 
+from supacrawl.exceptions import ProviderError
 from supacrawl.models import SearchFilters, SearchResultItem, SearchSourceType
 from supacrawl.services.search.filters import domain_operator_query
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _parse_unresponsive_engines(raw: Any) -> list[dict[str, str]]:
+    """Normalise SearXNG's ``unresponsive_engines`` into ``{engine, reason}`` dicts.
+
+    SearXNG returns a list of ``[engine, reason]`` pairs (JSON arrays), but the
+    reason element has varied across versions (string, or a small object), so
+    this is defensive about the second element's shape and tolerates a bare
+    engine name with no reason.
+    """
+    parsed: list[dict[str, str]] = []
+    if not isinstance(raw, list):
+        return parsed
+    for entry in raw:
+        if isinstance(entry, (list, tuple)):
+            engine = str(entry[0]) if entry else ""
+            reason = str(entry[1]) if len(entry) > 1 and entry[1] else "unresponsive"
+        elif isinstance(entry, str):
+            engine, reason = entry, "unresponsive"
+        else:
+            continue
+        if engine:
+            parsed.append({"engine": engine, "reason": reason})
+    return parsed
+
+
+def _format_unresponsive(engines: list[dict[str, str]]) -> str:
+    """Render engine failures as ``brave (timeout), wikibooks (error)`` for a message."""
+    return ", ".join(f"{e['engine']} ({e['reason']})" for e in engines)
 
 
 def _split_url_credentials(url: str) -> tuple[str, httpx.BasicAuth | None]:
@@ -138,8 +169,14 @@ class SearXNGProvider:
         categories: str,
         correlation_id: str,
         filters: SearchFilters | None = None,
-    ) -> list[dict]:
-        """Execute a search against the SearXNG JSON API."""
+    ) -> tuple[list[dict], list[dict[str, str]]]:
+        """Execute a search against the SearXNG JSON API.
+
+        Returns the (limited) result list AND the engines SearXNG reported as
+        unresponsive for this query. The caller needs the second half to tell an
+        empty result set caused by upstream engine failure from a genuine
+        no-match (#161).
+        """
         client = await self._get_client()
         if filters and not filters.is_empty():
             query = domain_operator_query(query, filters.include_domains, filters.exclude_domains)
@@ -162,12 +199,43 @@ class SearXNGProvider:
         response.raise_for_status()
 
         data = response.json()
-        return data.get("results", [])[:limit]
+        unresponsive = _parse_unresponsive_engines(data.get("unresponsive_engines"))
+        return data.get("results", [])[:limit], unresponsive
+
+    def _guard_upstream_failure(
+        self,
+        results: list[SearchResultItem],
+        unresponsive: list[dict[str, str]],
+        correlation_id: str,
+    ) -> None:
+        """Raise when a query came back empty *because* its engines were down.
+
+        An empty result set with unresponsive engines is an upstream/instance
+        failure, not a no-match: returning ``[]`` here is what let a broken
+        SearXNG read "healthy" while every real query came back empty (#161).
+        Raising instead lets the chain fall back and records the failure, and
+        carries the engine list so a caller with no fallback still learns why.
+
+        The trade-off, recorded deliberately: a genuinely empty query that also
+        had one flaky engine is treated as a failure. That is rare, self-corrects
+        on the next non-empty query, and is far less harmful than the silent
+        empty it replaces.
+        """
+        if results or not unresponsive:
+            return
+        raise ProviderError(
+            f"SearXNG returned no results and {len(unresponsive)} upstream engine(s) were unresponsive "
+            f"({_format_unresponsive(unresponsive)}). Every engine that would have answered was down — "
+            "this is an instance/upstream failure, not an empty query.",
+            provider="searxng",
+            correlation_id=correlation_id,
+            context={"unresponsive_engines": unresponsive},
+        )
 
     async def search_web(
         self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
     ) -> list[SearchResultItem]:
-        raw_results = await self._search(query, limit, "general", correlation_id, filters)
+        raw_results, unresponsive = await self._search(query, limit, "general", correlation_id, filters)
         results: list[SearchResultItem] = []
         for item in raw_results:
             results.append(
@@ -186,12 +254,13 @@ class SearXNGProvider:
             correlation_id=correlation_id,
             query=query,
         )
+        self._guard_upstream_failure(results, unresponsive, correlation_id)
         return results
 
     async def search_images(
         self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
     ) -> list[SearchResultItem]:
-        raw_results = await self._search(query, limit, "images", correlation_id)
+        raw_results, unresponsive = await self._search(query, limit, "images", correlation_id)
         results: list[SearchResultItem] = []
         for item in raw_results:
             results.append(
@@ -217,12 +286,13 @@ class SearXNGProvider:
             correlation_id=correlation_id,
             query=query,
         )
+        self._guard_upstream_failure(results, unresponsive, correlation_id)
         return results
 
     async def search_news(
         self, query: str, limit: int, correlation_id: str, filters: SearchFilters | None = None
     ) -> list[SearchResultItem]:
-        raw_results = await self._search(query, limit, "news", correlation_id, filters)
+        raw_results, unresponsive = await self._search(query, limit, "news", correlation_id, filters)
         results: list[SearchResultItem] = []
         for item in raw_results:
             results.append(
@@ -243,6 +313,7 @@ class SearXNGProvider:
             correlation_id=correlation_id,
             query=query,
         )
+        self._guard_upstream_failure(results, unresponsive, correlation_id)
         return results
 
     async def close(self) -> None:
