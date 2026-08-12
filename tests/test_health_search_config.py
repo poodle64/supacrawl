@@ -39,6 +39,10 @@ def _make_chain(active_names: list[str], all_names: list[str]) -> MagicMock:
     # for, so no unconfigured fallback is in play (#158).
     chain.configured_names = list(all_names)
     chain.unconfigured_fallback_active = False
+    # Mirror the real contract for a chain that has not served yet: nothing has
+    # answered, so no fallback is in play (a bare MagicMock would read truthy).
+    chain.fallback_serving = False
+    chain.last_provider = None
     return chain
 
 

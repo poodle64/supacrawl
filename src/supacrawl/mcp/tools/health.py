@@ -104,7 +104,14 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
             # A chain answering from a provider outside the configured set is
             # NOT ready. Every field below can read fine while the server serves
             # from somewhere nobody chose — that is exactly what #158 is about.
-            fallback_active = chain.unconfigured_fallback_active
+            # `unconfigured_fallback_active` catches who would serve NEXT;
+            # `fallback_serving` catches who served LAST, so a configured backend
+            # that is up but failing every request (served by DDG behind it) is
+            # not reported ready (#161).
+            fallback_active = chain.unconfigured_fallback_active or chain.fallback_serving
+            if chain.fallback_serving and chain.last_provider:
+                # The fallback is what is actually answering right now.
+                effective_provider = chain.last_provider
             status = "degraded" if fallback_active else "ready"
         else:
             status = "degraded"
@@ -177,6 +184,12 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
         )
 
     return config
+
+
+def _fallback_is_serving(search_service: Any) -> bool:
+    """Whether the chain's most recent search was answered by an unconfigured provider."""
+    chain = getattr(search_service, "provider_chain", None)
+    return bool(chain is not None and chain.fallback_serving)
 
 
 async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None:
@@ -339,6 +352,24 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
                     search_config["warning"] = (
                         f"{existing_warning} {probe_note}".strip() if existing_warning else probe_note
                     )
+                # The probe just ran a real search, so the chain now knows which
+                # provider actually answered. If a fallback served it — the
+                # configured backend is down and DuckDuckGo picked it up — health
+                # must read degraded even though the probe returned results, or we
+                # have only moved the "healthy while the backend is down" lie one
+                # layer along (#161).
+                if _fallback_is_serving(api_client.search_service) and not search_config.get(
+                    "provider_fallback_active"
+                ):
+                    all_healthy = False
+                    search_config["provider_fallback_active"] = True
+                    search_config["status"] = "degraded"
+                    fb_note = (
+                        "Search is being served by the DuckDuckGo fallback because the configured backend "
+                        "is failing — results are arriving via a provider you did not configure."
+                    )
+                    existing_warning = search_config.get("warning")
+                    search_config["warning"] = f"{existing_warning} {fb_note}".strip() if existing_warning else fb_note
 
         return {
             "status": "healthy" if all_healthy else "degraded",

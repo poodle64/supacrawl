@@ -211,6 +211,10 @@ FALLBACK_ERROR_PATTERNS = (
     "bot detection",
     "payment required",
     "subscription",
+    # SearXNG raising because every upstream engine was down: a genuine outage
+    # of the configured backend, so the chain should try the next provider
+    # rather than surface a bare empty set (#161).
+    "unresponsive",
 )
 
 
@@ -335,6 +339,21 @@ class ProviderChain:
             return False
         effective = self.effective_provider
         return effective is not None and effective not in self.configured_names
+
+    @property
+    def fallback_serving(self) -> bool:
+        """Whether the MOST RECENT search was served by an unconfigured provider.
+
+        ``unconfigured_fallback_active`` reasons about who would serve NEXT, which
+        stays False while a configured provider is still first in line but failing
+        every request (the window before it circuit-breaks). This reads who
+        actually served LAST, so a health surface can tell an operator that every
+        real query is currently being answered by the DuckDuckGo fallback because
+        the configured backend is down (#161).
+        """
+        if not self.configured_names or self.last_provider is None:
+            return False
+        return self.last_provider not in self.configured_names
 
     def get_health(self) -> dict[str, dict]:
         """Get health status for all providers (for health endpoint).

@@ -358,6 +358,10 @@ class TestHealthToolLowCreditWarning:
         chain.active_providers[0].name = "brave"
         chain.configured_names = ["brave"]
         chain.unconfigured_fallback_active = False
+        # Real-contract fields for a chain that has not served yet; a bare
+        # MagicMock would read truthy and fabricate a fallback signal.
+        chain.fallback_serving = False
+        chain.last_provider = None
         chain.get_health.return_value = {
             "brave": {
                 "status": "healthy",
@@ -391,6 +395,10 @@ class TestHealthToolLowCreditWarning:
         chain.active_providers[0].name = "brave"
         chain.configured_names = ["brave"]
         chain.unconfigured_fallback_active = False
+        # Real-contract fields for a chain that has not served yet; a bare
+        # MagicMock would read truthy and fabricate a fallback signal.
+        chain.fallback_serving = False
+        chain.last_provider = None
         chain.get_health.return_value = {
             "brave": {
                 "status": "healthy",
@@ -422,6 +430,10 @@ class TestHealthToolLowCreditWarning:
         chain.active_providers[0].name = "serper"
         chain.configured_names = ["serper"]
         chain.unconfigured_fallback_active = False
+        # Real-contract fields for a chain that has not served yet; a bare
+        # MagicMock would read truthy and fabricate a fallback signal.
+        chain.fallback_serving = False
+        chain.last_provider = None
         chain.get_health.return_value = {
             "serper": {
                 "status": "healthy",

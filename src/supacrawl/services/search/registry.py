@@ -110,6 +110,21 @@ def strict_providers_enabled() -> bool:
     return os.getenv("SUPACRAWL_SEARCH_STRICT_PROVIDERS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def public_fallback_enabled() -> bool:
+    """Whether the operator has opted into a public fallback behind a WORKING backend.
+
+    Off by default, and deliberately so. A self-hosted SearXNG is chosen to keep
+    queries in-house, so silently answering from DuckDuckGo the moment SearXNG's
+    engines flake would betray exactly that intent — a privacy failure, not a
+    degradation (#156/#158). By default such a failure surfaces as a loud typed
+    error naming the dead engines (#161) instead. An operator who would rather
+    have degraded-but-answering search — an OSINT sweep that values a result over
+    a clean provenance — sets this to route a failed configured backend on to
+    DuckDuckGo. SUPACRAWL_SEARCH_STRICT_PROVIDERS still overrides it to off.
+    """
+    return os.getenv("SUPACRAWL_SEARCH_PUBLIC_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def build_provider_chain(
     providers: str | list[str] | None = None,
     *,
@@ -179,29 +194,76 @@ def build_provider_chain(
         )
         chain.add(provider)
 
-    # If the only provider is brave and it doesn't have a key, add DDG as fallback
-    # so a fresh install still answers. The fallback is never silent: it is named
-    # against what was configured, and can be refused outright (#158).
-    if len(chain.providers) == 1 and chain.providers[0].name == "brave" and not chain.providers[0].is_available():
-        if strict if strict is not None else strict_providers_enabled():
-            LOGGER.error(
-                "Brave Search configured but BRAVE_API_KEY is not set, and strict provider mode is on "
-                "(SUPACRAWL_SEARCH_STRICT_PROVIDERS). Refusing to fall back to DuckDuckGo — search will "
-                "fail loudly until the configured provider is usable."
-            )
-        else:
-            LOGGER.warning(
-                "SEARCH PROVIDER FALLBACK — configured provider(s) %s cannot be used (BRAVE_API_KEY not set); "
-                "falling back to 'duckduckgo', which the operator did NOT configure. Every query will be served "
-                "by a public third-party engine until this is fixed. Set BRAVE_API_KEY "
-                "(https://brave.com/search/api/), or set SUPACRAWL_SEARCH_STRICT_PROVIDERS=1 to fail instead "
-                "of falling back.",
-                unique_names,
-            )
-            ddg = create_provider("duckduckgo", http_client=http_client)
-            chain.add(ddg)
+    _append_keyless_fallback(chain, unique_names, http_client=http_client, strict=strict)
 
     available = [p.name for p in chain.providers if p.is_available()]
     LOGGER.debug(f"Search provider chain: {[p.name for p in chain.providers]} (available: {available})")
 
     return chain
+
+
+def _append_keyless_fallback(
+    chain: ProviderChain,
+    configured_names: list[str],
+    *,
+    http_client: httpx.AsyncClient | None,
+    strict: bool | None,
+) -> None:
+    """Append DuckDuckGo as a keyless last-resort behind the configured chain.
+
+    Two distinct cases, kept apart because their privacy stance differs:
+
+    - **Sole Brave with no key** (default-on): Brave can never answer without a
+      key, and it is a third-party API anyway, so a keyless DDG stand-in loses no
+      privacy the operator had. Appended unless strict mode refuses it (#158).
+      Deliberately NOT triggered when a self-hosted backend (SearXNG) is in the
+      configured set — leaking those queries to a public engine is a privacy
+      failure, so that case fails loudly instead (#156).
+
+    - **A working backend that fails at runtime** (opt-in, default-off): SearXNG's
+      engines going down, a keyed provider's quota exhausted. Routing on to DDG
+      here means a configured query leaving in-house, so it is gated on
+      SUPACRAWL_SEARCH_PUBLIC_FALLBACK (see ``public_fallback_enabled``) rather
+      than done silently — the #161 default is a loud typed error, not a quiet
+      leak.
+
+    Never silent (a warning/flag on every result it serves, degraded health) and
+    never forced. Skipped when the operator configured DDG themselves.
+    """
+    if "duckduckgo" in configured_names:
+        return
+
+    strict_on = strict if strict is not None else strict_providers_enabled()
+
+    sole_brave_no_key = (
+        len(chain.providers) == 1 and chain.providers[0].name == "brave" and not chain.providers[0].is_available()
+    )
+    if sole_brave_no_key:
+        if strict_on:
+            LOGGER.error(
+                "Brave Search configured but BRAVE_API_KEY is not set, and strict provider mode is on "
+                "(SUPACRAWL_SEARCH_STRICT_PROVIDERS). Refusing to fall back to DuckDuckGo — search will "
+                "fail loudly until the configured provider is usable."
+            )
+            return
+        LOGGER.warning(
+            "SEARCH PROVIDER FALLBACK — configured provider(s) %s cannot be used (BRAVE_API_KEY not set); "
+            "falling back to 'duckduckgo', which the operator did NOT configure. Every query will be served "
+            "by a public third-party engine until this is fixed. Set BRAVE_API_KEY "
+            "(https://brave.com/search/api/), or set SUPACRAWL_SEARCH_STRICT_PROVIDERS=1 to fail instead "
+            "of falling back.",
+            configured_names,
+        )
+        chain.add(create_provider("duckduckgo", http_client=http_client))
+        return
+
+    # Opt-in runtime fallback behind a configured backend that can actually work.
+    any_available = any(p.is_available() for p in chain.providers)
+    if any_available and not strict_on and public_fallback_enabled():
+        LOGGER.info(
+            "SUPACRAWL_SEARCH_PUBLIC_FALLBACK is on — adding DuckDuckGo as a keyless last-resort behind %s. "
+            "It serves only if every configured provider fails at runtime (e.g. SearXNG engines down); "
+            "queries then leave via a public engine. Unset it to fail loudly instead.",
+            configured_names,
+        )
+        chain.add(create_provider("duckduckgo", http_client=http_client))

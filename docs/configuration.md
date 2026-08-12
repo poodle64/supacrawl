@@ -53,6 +53,8 @@ Every setting is a standing default; a per-request flag or API argument still ov
 | search | `search_providers` | `SUPACRAWL_SEARCH_PROVIDERS` | _(none)_ | Ordered fallback chain, e.g. `brave,tavily,serper`. |
 | search | `search_provider` | `SUPACRAWL_SEARCH_PROVIDER` | `brave` | Legacy single provider. |
 | search | `search_rate_limit` | `SUPACRAWL_SEARCH_RATE_LIMIT` | _(provider default)_ | Requests per second. |
+| search | — | `SUPACRAWL_SEARCH_STRICT_PROVIDERS` | `false` | Refuse the built-in DuckDuckGo fallback: a configured provider that cannot be used fails loudly instead of quietly leaving via a provider you did not choose. |
+| search | — | `SUPACRAWL_SEARCH_PUBLIC_FALLBACK` | `false` | Opt in to a DuckDuckGo fallback behind a backend that FAILS AT RUNTIME (e.g. SearXNG engines down). Off by default so a self-hosted backend's failure surfaces as a loud error rather than a query silently leaving in-house; `STRICT_PROVIDERS` overrides it. |
 | memory | `strategy_memory` | `SUPACRAWL_STRATEGY_MEMORY` | `true` | Per-domain strategy learning. |
 | telemetry | `metrics` | `SUPACRAWL_METRICS` | `true` | Record one quality/usage event per scrape/search. |
 | telemetry | `metrics_full_url` | `SUPACRAWL_METRICS_FULL_URL` | `false` | Log full URLs, not just the domain. Off for privacy. |
@@ -88,13 +90,13 @@ supacrawl metrics replay-remote               # optional: backfill events record
 
 **Authentication — point at any Loki.** supacrawl mirrors the Grafana Alloy / Promtail client convention, so the same tool reaches an unauthenticated LAN Loki, a bearer-gated proxy, a multi-tenant Loki, or Grafana Cloud:
 
-| Target | What to set |
-| --- | --- |
-| Local / LAN Loki, no auth | just `metrics_remote_url` |
-| Bearer-gated endpoint | `metrics_remote_url` + `SUPACRAWL_METRICS_TOKEN` |
-| HTTP basic auth | `metrics_remote_url` + `metrics_remote_username` + `SUPACRAWL_METRICS_PASSWORD` |
-| Grafana Cloud Loki | the `logs-prod-*.grafana.net` push URL + `metrics_remote_username` (numeric user ID) + `SUPACRAWL_METRICS_PASSWORD` (Access Policy token) |
-| Self-hosted multi-tenant | add `metrics_remote_tenant` (sent as the `X-Scope-OrgID` header) |
+| Target                    | What to set                                                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Local / LAN Loki, no auth | just `metrics_remote_url`                                                                                                                 |
+| Bearer-gated endpoint     | `metrics_remote_url` + `SUPACRAWL_METRICS_TOKEN`                                                                                          |
+| HTTP basic auth           | `metrics_remote_url` + `metrics_remote_username` + `SUPACRAWL_METRICS_PASSWORD`                                                           |
+| Grafana Cloud Loki        | the `logs-prod-*.grafana.net` push URL + `metrics_remote_username` (numeric user ID) + `SUPACRAWL_METRICS_PASSWORD` (Access Policy token) |
+| Self-hosted multi-tenant  | add `metrics_remote_tenant` (sent as the `X-Scope-OrgID` header)                                                                          |
 
 Basic auth takes precedence over a bearer token when both are set. The password is environment-only (never written to the store); the username and tenant are plain config.
 
@@ -141,10 +143,10 @@ supacrawl is the control plane; a UI is a separate plane that plugs into it — 
 
 When `supacrawl serve` is running, the settings and telemetry state are also exposed read-only over HTTP, so a front-end can plug in without shelling out to the CLI:
 
-| Endpoint | Returns |
-| --- | --- |
-| `GET /supacrawl/config/schema` | the `x-ui` settings schema, to render a form |
-| `GET /supacrawl/config` | effective non-secret values plus a secret **presence** map (never values) |
-| `GET /supacrawl/metrics/summary?days=N` | the telemetry rollup, without parsing the raw JSONL |
+| Endpoint                                | Returns                                                                   |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| `GET /supacrawl/config/schema`          | the `x-ui` settings schema, to render a form                              |
+| `GET /supacrawl/config`                 | effective non-secret values plus a secret **presence** map (never values) |
+| `GET /supacrawl/metrics/summary?days=N` | the telemetry rollup, without parsing the raw JSONL                       |
 
 Writes still go through the store, and credentials stay environment-only, so these read endpoints never expose a secret. For live dashboards a UI reads Loki directly; for a local control panel it reads these endpoints. Either way supacrawl provides the seam and stays UI-agnostic.

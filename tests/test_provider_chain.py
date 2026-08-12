@@ -176,6 +176,15 @@ class TestFallbackErrorDetection:
         error = ProviderError("API key not configured", provider="brave")
         assert not is_fallback_error(error)
 
+    def test_unresponsive_engines_provider_error_is_fallback(self):
+        """SearXNG raising because every engine was down must let the chain try
+        the next provider, not surface a bare empty set (#161)."""
+        error = ProviderError(
+            "SearXNG returned no results and 4 upstream engine(s) were unresponsive (brave (timeout))",
+            provider="searxng",
+        )
+        assert is_fallback_error(error)
+
     def test_connect_timeout_is_fallback(self):
         error = httpx.ConnectTimeout("connection timed out")
         assert is_fallback_error(error)
