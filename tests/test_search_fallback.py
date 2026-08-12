@@ -9,7 +9,11 @@ degraded-but-answering search gets DuckDuckGo behind the configured backend.
 These drive the real registry, service, and health surfaces: the fallback
 engages on a SearXNG whose engines are all down, the caller is told a fallback
 answered, and health reports degraded rather than pretending the configured
-backend is fine.
+backend is fine. Everything except the one health-tool assertion is a
+services-layer test that runs in CI without the mcp extra; that assertion defers
+its ``supacrawl.mcp`` import and is marked ``mcp`` (the test_search_quota.py
+convention) so a CI job without the extra deselects it rather than crashing on
+collection.
 """
 
 from __future__ import annotations
@@ -21,15 +25,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from supacrawl.mcp.tools.health import supacrawl_health
 from supacrawl.models import SearchResultItem, SearchSourceType
 from supacrawl.services.search.duckduckgo import DuckDuckGoProvider
 from supacrawl.services.search.providers import ProviderChain
 from supacrawl.services.search.registry import build_provider_chain
 from supacrawl.services.search.searxng import SearXNGProvider
 from supacrawl.services.search.service import ScrapeOptions, SearchService
-
-pytestmark = pytest.mark.mcp
 
 _BROKEN_SEARXNG = {
     "results": [],
@@ -145,8 +146,13 @@ class TestFallbackEngages:
             await service.close()
             await client.aclose()
 
+
+@pytest.mark.mcp
+class TestFallbackHealthSurface:
     @pytest.mark.asyncio
     async def test_health_reports_fallback_active_and_degraded(self) -> None:
+        from supacrawl.mcp.tools.health import supacrawl_health
+
         service, client = _searxng_service_with_public_fallback()
         try:
             with patch.dict(os.environ, {"SEARXNG_URL": "http://searxng.invalid"}):

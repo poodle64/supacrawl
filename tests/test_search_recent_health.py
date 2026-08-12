@@ -5,6 +5,12 @@ nothing — because a zero-result success is counted as a failure nowhere.
 SearchService now keeps a rolling window of whether recent CALLER searches came
 back empty, and health degrades when the whole window is empty. The probe is
 excluded (record_recent=False) so a health check never answers its own question.
+
+The window itself is a services-layer concern and is tested there so it runs in
+CI without the mcp extra; the two tests that assert the mcp health tool reacts
+to it defer their ``supacrawl.mcp`` import and are marked ``mcp`` (the
+test_search_quota.py convention), so a CI job without the extra deselects them
+rather than crashing on collection.
 """
 
 from __future__ import annotations
@@ -13,11 +19,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from supacrawl.mcp.tools.health import _get_search_config
 from supacrawl.models import SearchResultItem
 from supacrawl.services.search.service import SearchService
-
-pytestmark = pytest.mark.mcp
 
 _WINDOW = SearchService.RECENT_WINDOW
 
@@ -89,8 +92,15 @@ class TestRecentSearchHealth:
         finally:
             await service.close()
 
+
+@pytest.mark.mcp
+class TestRecentSearchHealthConfig:
+    """The mcp health tool must react to the recent-traffic signal."""
+
     @pytest.mark.asyncio
     async def test_health_config_degrades_when_recent_all_empty(self) -> None:
+        from supacrawl.mcp.tools.health import _get_search_config
+
         service = _service()
         try:
             for _ in range(_WINDOW):
@@ -106,6 +116,8 @@ class TestRecentSearchHealth:
 
     @pytest.mark.asyncio
     async def test_health_config_stays_ready_with_recent_results(self) -> None:
+        from supacrawl.mcp.tools.health import _get_search_config
+
         service = _service()
         try:
             for _ in range(_WINDOW):

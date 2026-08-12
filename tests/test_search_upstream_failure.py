@@ -8,6 +8,10 @@ typed error the caller reads AND turns the health probe red — the inverse of
 the "healthy + []" the report saw. Strict-provider mode is on so no DuckDuckGo
 fallback is appended: this file isolates the no-fallback "say why" behaviour;
 the fallback path is covered in test_search_fallback.py.
+
+The typed-failure proof is a services-layer test so it runs in CI without the
+mcp extra; the probe/health-tool assertions defer their ``supacrawl.mcp`` import
+and are marked ``mcp`` (the test_search_quota.py convention).
 """
 
 from __future__ import annotations
@@ -19,11 +23,8 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from supacrawl.mcp.tools.health import _run_search_health_probe, supacrawl_health
 from supacrawl.services.search.searxng import SearXNGProvider
 from supacrawl.services.search.service import SearchService
-
-pytestmark = pytest.mark.mcp
 
 # All four general-category engines down — the real instance-config failure.
 _BROKEN_BODY = {
@@ -76,6 +77,8 @@ class _StubServices:
 
 
 class TestBrokenSearxngSurfacesTheCause:
+    """Services-layer: the caller gets a typed failure naming the dead engines."""
+
     @pytest.mark.asyncio
     async def test_search_returns_typed_failure_naming_the_engines(self) -> None:
         service, client = _broken_searxng_service()
@@ -93,9 +96,16 @@ class TestBrokenSearxngSurfacesTheCause:
             await service.close()
             await client.aclose()
 
+
+@pytest.mark.mcp
+class TestBrokenSearxngHealthSurface:
+    """The mcp health probe and tool must go red against the broken backend."""
+
     @pytest.mark.asyncio
     async def test_health_probe_goes_red(self) -> None:
         """The task's demand: prove the probe FAILS when search is genuinely broken."""
+        from supacrawl.mcp.tools.health import _run_search_health_probe
+
         service, client = _broken_searxng_service()
         try:
             probe = await _run_search_health_probe(service)
@@ -109,6 +119,8 @@ class TestBrokenSearxngSurfacesTheCause:
 
     @pytest.mark.asyncio
     async def test_top_level_health_is_degraded(self) -> None:
+        from supacrawl.mcp.tools.health import supacrawl_health
+
         service, client = _broken_searxng_service()
         try:
             with patch.dict(os.environ, {"SEARXNG_URL": "http://searxng.invalid"}):
