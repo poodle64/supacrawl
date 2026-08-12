@@ -8,7 +8,7 @@ import asyncio
 from typing import Any, Literal
 
 import httpx
-from api_common.correlation import generate_correlation_id, get_correlation_id
+from api_common.correlation import generate_correlation_id
 from fastmcp import Context
 
 from supacrawl.mcp.config import logger
@@ -258,8 +258,12 @@ async def supacrawl_search(
         - Scraping is only applied to "web" source type results.
         - Metadata fetch uses lightweight HEAD requests (fast, no page content).
     """
-    # Generate correlation ID for request tracking
-    correlation_id = get_correlation_id() or generate_correlation_id()
+    # Mint a fresh correlation ID per request. Reading the contextvar first
+    # (get_correlation_id()) reused the previous call's ID: the var is
+    # process-wide and the server task is long-lived, so the first tool call to
+    # set it pinned that value onto every later response — a correlation ID that
+    # never varies cannot correlate anything (#161).
+    correlation_id = generate_correlation_id()
 
     try:
         # Validate inputs - provides helpful error messages

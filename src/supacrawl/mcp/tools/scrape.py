@@ -6,7 +6,7 @@ Wraps supacrawl library's ScrapeService for MCP consumption.
 
 from typing import Any, Literal
 
-from api_common.correlation import generate_correlation_id, get_correlation_id
+from api_common.correlation import generate_correlation_id
 
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import validate_timeout, validate_url
@@ -242,7 +242,7 @@ async def supacrawl_scrape(
           SUPACRAWL_LLM_MODEL (e.g., qwen3:8b, gpt-4o-mini)
     """
     # Generate correlation ID for request tracking
-    correlation_id = get_correlation_id() or generate_correlation_id()
+    correlation_id = generate_correlation_id()
 
     try:
         # Validate inputs

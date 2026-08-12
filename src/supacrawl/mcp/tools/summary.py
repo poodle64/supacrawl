@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from api_common.correlation import generate_correlation_id, get_correlation_id
+from api_common.correlation import generate_correlation_id
 
 from supacrawl.mcp.exceptions import log_tool_exception, map_exception
 from supacrawl.services.registry import SupacrawlServices
@@ -72,7 +72,7 @@ async def supacrawl_summary(
         No internal LLM is used - you (the MCP client) perform the summarisation
         using the provided context.
     """
-    correlation_id = get_correlation_id() or generate_correlation_id()
+    correlation_id = generate_correlation_id()
     try:
         return await _supacrawl_summary(api_client, url, max_length=max_length, focus=focus)
     except Exception as e:

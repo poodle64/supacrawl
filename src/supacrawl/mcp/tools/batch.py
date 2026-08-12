@@ -9,7 +9,7 @@ API ``/v1/batch/scrape`` endpoint; all three delegate to the shared
 
 from typing import Any, Literal
 
-from api_common.correlation import generate_correlation_id, get_correlation_id
+from api_common.correlation import generate_correlation_id
 
 from supacrawl.mcp.exceptions import log_tool_exception
 from supacrawl.mcp.validators import validate_urls
@@ -119,7 +119,7 @@ async def supacrawl_batch(
             "correlation_id": "..."
         }
     """
-    correlation_id = get_correlation_id() or generate_correlation_id()
+    correlation_id = generate_correlation_id()
 
     try:
         validated_urls = validate_urls(urls, "urls", min_count=1, max_count=100)

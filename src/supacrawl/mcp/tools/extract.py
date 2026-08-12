@@ -8,7 +8,7 @@ performs the extraction.
 
 from typing import Any
 
-from api_common.correlation import generate_correlation_id, get_correlation_id
+from api_common.correlation import generate_correlation_id
 
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.exceptions import log_tool_exception
@@ -99,7 +99,7 @@ async def supacrawl_extract(
         using the provided schema and prompt.
     """
     # Generate correlation ID for request tracking
-    correlation_id = get_correlation_id() or generate_correlation_id()
+    correlation_id = generate_correlation_id()
 
     try:
         # Validate inputs
