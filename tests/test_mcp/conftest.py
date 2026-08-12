@@ -44,30 +44,27 @@ def mock_scrape_service() -> MagicMock:
 
 @pytest.fixture
 def mock_search_service() -> MagicMock:
-    """Create mock search service."""
+    """Create mock search service.
+
+    Returns several results, not one: a working backend clears the health
+    probe's result-count floor (#161), so a single-result stub would make the
+    shared fixture read as *degraded* the moment verify_search runs.
+    """
+    items = [
+        {
+            "url": f"https://example.com/{i}",
+            "title": f"Example {i}",
+            "description": f"Example description {i}",
+            "source_type": "web",
+        }
+        for i in range(5)
+    ]
     mock = MagicMock()
     mock.search = AsyncMock(
         return_value=MagicMock(
             success=True,
-            data=[
-                MagicMock(
-                    url="https://example.com",
-                    title="Example",
-                    description="Example description",
-                    source_type="web",
-                )
-            ],
-            model_dump=lambda: {
-                "success": True,
-                "data": [
-                    {
-                        "url": "https://example.com",
-                        "title": "Example",
-                        "description": "Example description",
-                        "source_type": "web",
-                    }
-                ],
-            },
+            data=[MagicMock(**item) for item in items],
+            model_dump=lambda: {"success": True, "data": [dict(item) for item in items]},
         )
     )
     mock.close = AsyncMock()

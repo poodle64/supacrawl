@@ -1,10 +1,13 @@
-"""Unit tests for the live search health probe (#156).
+"""Unit tests for the live search health probe (#156, #161).
 
 ``_get_search_config`` only ever checked that a provider was *configured*
 (``is_available()``), never that a search actually returns results — the
 exact gap that let SearXNG's multi-word query bug report "healthy" while
-every real search came back empty. These tests cover the probe helper and
-its effect on ``supacrawl_health``'s reported status.
+every real search came back empty. The probe now judges a real multi-word
+query against a result-count FLOOR, so a token single result no longer
+passes for "healthy" (the #161 defect: ``result_count: 1`` read healthy
+while every real query returned zero). These tests cover the probe helper
+and its effect on ``supacrawl_health``'s reported status.
 """
 
 from __future__ import annotations
@@ -14,11 +17,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from supacrawl.mcp.tools import health as health_module
-from supacrawl.mcp.tools.health import _run_search_health_probe, supacrawl_health
+from supacrawl.mcp.tools.health import _SEARCH_PROBE_MIN_RESULTS, _run_search_health_probe, supacrawl_health
 
 pytestmark = pytest.mark.mcp
 
 _SETTINGS_PATH = "supacrawl.mcp.tools.health.settings"
+
+# A count that clears the floor, so "healthy" fixtures don't hard-code a number
+# that a future floor change would silently invalidate.
+_ABOVE_FLOOR = _SEARCH_PROBE_MIN_RESULTS + 2
 
 
 def _settings_kwargs(**overrides):
@@ -46,13 +53,30 @@ class TestRunSearchHealthProbe:
         assert await _run_search_health_probe(MagicMock(spec=[])) is None
 
     @pytest.mark.asyncio
-    async def test_ok_true_when_probe_returns_results(self) -> None:
+    async def test_ok_true_when_probe_clears_the_floor(self) -> None:
+        svc = _make_search_service(success=True, data=[MagicMock() for _ in range(_ABOVE_FLOOR)])
+
+        probe = await _run_search_health_probe(svc)
+        assert probe is not None
+
+        assert probe["ok"] is True
+        assert probe["result_count"] == _ABOVE_FLOOR
+        assert probe["min_results"] == _SEARCH_PROBE_MIN_RESULTS
+        svc.search.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ok_false_when_below_floor(self) -> None:
+        """The #161 defect: a single scraped result read "healthy" while real
+        multi-word queries returned zero. A success with too few results is not
+        a healthy backend."""
         svc = _make_search_service(success=True, data=[MagicMock()])
 
         probe = await _run_search_health_probe(svc)
+        assert probe is not None
 
-        assert probe == {"probed": True, "ok": True, "result_count": 1, "error": None}
-        svc.search.assert_awaited_once()
+        assert probe["ok"] is False, "one result cleared the health bar — the exact #161 lie"
+        assert probe["result_count"] == 1
+        assert probe["min_results"] == _SEARCH_PROBE_MIN_RESULTS
 
     @pytest.mark.asyncio
     async def test_ok_false_when_probe_returns_empty_results(self) -> None:
@@ -82,7 +106,14 @@ class TestRunSearchHealthProbe:
 
         probe = await _run_search_health_probe(svc)
 
-        assert probe == {"probed": True, "ok": False, "result_count": 0, "error": "upstream exploded"}
+        assert probe == {
+            "probed": True,
+            "ok": False,
+            "result_count": 0,
+            "min_results": _SEARCH_PROBE_MIN_RESULTS,
+            "query": health_module._SEARCH_PROBE_QUERY,
+            "error": "upstream exploded",
+        }
 
     @pytest.mark.asyncio
     async def test_times_out_instead_of_hanging(self) -> None:
@@ -132,8 +163,8 @@ class TestSupacrawlHealthLiveProbeIntegration:
         assert "Live search probe" in result["components"]["search"]["warning"]
 
     @pytest.mark.asyncio
-    async def test_healthy_when_probe_finds_results(self) -> None:
-        svc = _make_search_service(success=True, data=[MagicMock()])
+    async def test_healthy_when_probe_clears_the_floor(self) -> None:
+        svc = _make_search_service(success=True, data=[MagicMock() for _ in range(_ABOVE_FLOOR)])
         client = self._api_client(svc)
 
         with patch(_SETTINGS_PATH, **_settings_kwargs()), patch.dict("os.environ", {"BRAVE_API_KEY": "k"}):
@@ -141,6 +172,21 @@ class TestSupacrawlHealthLiveProbeIntegration:
 
         assert result["status"] == "healthy"
         assert result["components"]["search"]["live_probe"]["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_below_floor_result_downgrades_top_line(self) -> None:
+        """A single result is worse than none: it looks like success. The old
+        `> 0` bar passed it; the floor must drive the top line to degraded."""
+        svc = _make_search_service(success=True, data=[MagicMock()])
+        client = self._api_client(svc)
+
+        with patch(_SETTINGS_PATH, **_settings_kwargs()), patch.dict("os.environ", {"BRAVE_API_KEY": "k"}):
+            result = await supacrawl_health(client)
+
+        assert result["status"] == "degraded"
+        assert result["components"]["search"]["live_probe"]["ok"] is False
+        assert result["components"]["search"]["live_probe"]["result_count"] == 1
+        assert "below the healthy floor" in result["components"]["search"]["warning"]
 
     @pytest.mark.asyncio
     async def test_verify_search_false_skips_the_live_call(self) -> None:

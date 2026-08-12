@@ -7,10 +7,19 @@ from typing import Any
 from supacrawl.mcp.config import SERVICE_VERSION, settings
 from supacrawl.services.registry import SupacrawlServices
 
-# Query used for the live search probe (#156): short, generic, and cheap for
-# every provider (including quota-metered ones) while still exercising the
-# real request/response path a config-only check can never catch.
-_SEARCH_PROBE_QUERY = "supacrawl health check"
+# Query used for the live search probe (#156, #161). It is deliberately a
+# common MULTI-WORD phrase: the regression it exists to catch was multi-word
+# queries coming back empty while a rare one-word probe still scraped a single
+# result and read "healthy". Any working general search returns a full page for
+# this, so a result count below the floor means the backend is broken, not that
+# the query is obscure. limit is per-query, not per-result, so asking for more
+# than one costs a quota-metered provider (Brave) exactly the same one query.
+_SEARCH_PROBE_QUERY = "open source software"
+_SEARCH_PROBE_LIMIT = 5
+# The floor a healthy backend must clear. `result_count > 0` was the old bar and
+# it passed on a single scraped result while real queries returned nothing —
+# the exact lie this probe now refuses to tell.
+_SEARCH_PROBE_MIN_RESULTS = 3
 _SEARCH_PROBE_TIMEOUT_S = 15.0
 
 
@@ -177,32 +186,43 @@ async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None
     URL/API key) — a provider chain can report every provider "available" while
     the underlying search silently returns nothing (#156: SearXNG's multi-word
     query bug went undetected because ``is_available()`` is just ``bool(url)``).
-    This runs a single cheap query through the real search path so that class
-    of failure surfaces in the health payload instead of reading "healthy".
+    This runs one real multi-word query through the search path and judges it
+    against a result-count floor, so a backend that returns nothing (or a token
+    single result) surfaces here instead of reading "healthy" (#161).
 
     Args:
         search_service: The live SearchService, or None if unavailable.
 
     Returns:
         None when there is no search service to probe. Otherwise a dict with
-        ``probed=True``, ``ok`` (whether the probe returned any results), and
-        ``result_count`` / ``error`` detail.
+        ``probed=True``, ``ok`` (whether the count cleared ``min_results``),
+        ``result_count`` / ``min_results`` / ``query`` and any ``error``.
     """
     if search_service is None or not hasattr(search_service, "search"):
         return None
 
     try:
         result = await asyncio.wait_for(
-            search_service.search(_SEARCH_PROBE_QUERY, limit=1),
+            search_service.search(_SEARCH_PROBE_QUERY, limit=_SEARCH_PROBE_LIMIT),
             timeout=_SEARCH_PROBE_TIMEOUT_S,
         )
     except Exception as e:
-        return {"probed": True, "ok": False, "result_count": 0, "error": str(e).strip() or type(e).__name__}
+        return {
+            "probed": True,
+            "ok": False,
+            "result_count": 0,
+            "min_results": _SEARCH_PROBE_MIN_RESULTS,
+            "query": _SEARCH_PROBE_QUERY,
+            "error": str(e).strip() or type(e).__name__,
+        }
 
+    count = len(result.data)
     return {
         "probed": True,
-        "ok": bool(result.success and result.data),
-        "result_count": len(result.data),
+        "ok": bool(result.success) and count >= _SEARCH_PROBE_MIN_RESULTS,
+        "result_count": count,
+        "min_results": _SEARCH_PROBE_MIN_RESULTS,
+        "query": _SEARCH_PROBE_QUERY,
         "error": result.error,
     }
 
@@ -307,11 +327,14 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
                 if not probe["ok"]:
                     all_healthy = False
                     search_config["status"] = "degraded"
-                    probe_note = (
-                        f"Live search probe failed: {probe['error']}"
-                        if probe.get("error")
-                        else "Live search probe returned no results despite provider configuration appearing ready."
-                    )
+                    if probe.get("error"):
+                        probe_note = f"Live search probe failed: {probe['error']}"
+                    else:
+                        probe_note = (
+                            f"Live search probe returned {probe['result_count']} result(s) for "
+                            f"{probe['query']!r}, below the healthy floor of {probe['min_results']} — "
+                            "the search backend is configured but not returning usable results."
+                        )
                     existing_warning = search_config.get("warning")
                     search_config["warning"] = (
                         f"{existing_warning} {probe_note}".strip() if existing_warning else probe_note
