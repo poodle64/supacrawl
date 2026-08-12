@@ -202,12 +202,6 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
     return config
 
 
-def _fallback_is_serving(search_service: Any) -> bool:
-    """Whether the chain's most recent search was answered by an unconfigured provider."""
-    chain = getattr(search_service, "provider_chain", None)
-    return bool(chain is not None and chain.fallback_serving)
-
-
 async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None:
     """Run one real, minimal search to verify the effective provider actually returns results.
 
@@ -225,7 +219,8 @@ async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None
     Returns:
         None when there is no search service to probe. Otherwise a dict with
         ``probed=True``, ``ok`` (whether the count cleared ``min_results``),
-        ``result_count`` / ``min_results`` / ``query`` and any ``error``.
+        ``result_count`` / ``min_results`` / ``query`` / any ``error``, and the
+        probe's own ``served_by`` / ``provider_fallback`` provenance.
     """
     if search_service is None or not hasattr(search_service, "search"):
         return None
@@ -256,6 +251,10 @@ async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None
         "min_results": _SEARCH_PROBE_MIN_RESULTS,
         "query": _SEARCH_PROBE_QUERY,
         "error": result.error,
+        # This probe's OWN provenance, captured on its result — race-free, unlike
+        # reading the shared chain.last_provider back afterwards (#161).
+        "served_by": result.provider,
+        "provider_fallback": bool(result.provider_fallback),
     }
 
 
@@ -371,15 +370,14 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
                     search_config["warning"] = (
                         f"{existing_warning} {probe_note}".strip() if existing_warning else probe_note
                     )
-                # The probe just ran a real search, so the chain now knows which
-                # provider actually answered. If a fallback served it — the
-                # configured backend is down and DuckDuckGo picked it up — health
-                # must read degraded even though the probe returned results, or we
-                # have only moved the "healthy while the backend is down" lie one
-                # layer along (#161).
-                if _fallback_is_serving(api_client.search_service) and not search_config.get(
-                    "provider_fallback_active"
-                ):
+                # If the probe itself was answered by a fallback — the configured
+                # backend is down and DuckDuckGo picked it up — health must read
+                # degraded even though the probe returned results, or we have only
+                # moved the "healthy while the backend is down" lie one layer
+                # along (#161). Read the probe's OWN captured provenance, not the
+                # shared chain.last_provider, which a concurrent request may have
+                # overwritten since the probe ran.
+                if probe.get("provider_fallback") and not search_config.get("provider_fallback_active"):
                     all_healthy = False
                     search_config["provider_fallback_active"] = True
                     search_config["status"] = "degraded"

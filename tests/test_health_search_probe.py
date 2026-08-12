@@ -34,10 +34,18 @@ def _settings_kwargs(**overrides):
     return base
 
 
-def _make_search_service(*, success: bool, data: list, error: str | None = None) -> MagicMock:
+def _make_search_service(
+    *, success: bool, data: list, error: str | None = None, provider_fallback: bool = False
+) -> MagicMock:
     """A search_service double whose .search() resolves to a canned SearchResult."""
     svc = MagicMock(spec=["search"])
-    svc.search = AsyncMock(return_value=MagicMock(success=success, data=data, error=error))
+    # provider/provider_fallback are real values, not bare MagicMocks: the probe
+    # reads them for its own provenance and a truthy mock would fake a fallback.
+    svc.search = AsyncMock(
+        return_value=MagicMock(
+            success=success, data=data, error=error, provider="brave", provider_fallback=provider_fallback
+        )
+    )
     return svc
 
 

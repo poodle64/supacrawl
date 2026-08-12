@@ -423,6 +423,12 @@ class SearchService:
             )
 
             all_results: list[SearchResultItem] = []
+            # Capture which provider actually answered for THIS request as a local,
+            # the instant the chain returns. self._chain is a per-server singleton
+            # shared across concurrent searches, so reading its last_provider after
+            # the scrape await below would race a concurrent request and mislabel
+            # this response — even masking a real fallback leak (#161).
+            served_by: str | None = None
 
             for source in sources:
                 try:
@@ -450,6 +456,9 @@ class SearchService:
                         SearchResult(success=False, data=[], error=msg), query, telemetry_started, record_recent
                     )
 
+                # No await between the chain returning and this read, so the value
+                # is this request's own; the last source that answered wins.
+                served_by = self._chain.last_provider
                 all_results.extend(results)
 
             # Optionally scrape results (web results only)
@@ -486,7 +495,6 @@ class SearchService:
                 correlation_id=correlation_id,
             )
 
-            served_by = self._chain.last_provider
             return self._finalize_search(
                 SearchResult(
                     success=True,

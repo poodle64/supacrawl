@@ -64,6 +64,10 @@ def mock_search_service() -> MagicMock:
         return_value=MagicMock(
             success=True,
             data=[MagicMock(**item) for item in items],
+            # Real provenance: a bare MagicMock reads truthy, which the health
+            # probe would misread as an active fallback (#161).
+            provider="brave",
+            provider_fallback=False,
             model_dump=lambda: {"success": True, "data": [dict(item) for item in items]},
         )
     )

@@ -16,17 +16,18 @@ from __future__ import annotations
 
 import os
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
 from supacrawl.mcp.tools.health import supacrawl_health
+from supacrawl.models import SearchResultItem, SearchSourceType
 from supacrawl.services.search.duckduckgo import DuckDuckGoProvider
 from supacrawl.services.search.providers import ProviderChain
 from supacrawl.services.search.registry import build_provider_chain
 from supacrawl.services.search.searxng import SearXNGProvider
-from supacrawl.services.search.service import SearchService
+from supacrawl.services.search.service import ScrapeOptions, SearchService
 
 pytestmark = pytest.mark.mcp
 
@@ -196,6 +197,43 @@ class _StubProvider:
 
     async def close(self) -> None:
         return None
+
+
+class TestProvenanceUnderConcurrentScrape:
+    """A response must report ITS OWN serving provider, not a concurrent one's.
+
+    self._chain is one server-wide singleton; scrape_results=True adds a
+    multi-second await between the chain answering and the provider being read
+    back. Reading the shared last_provider after that await let a concurrent
+    request overwrite it — mislabeling the response, even masking a real leak.
+    """
+
+    @pytest.mark.asyncio
+    async def test_served_by_is_captured_before_the_scrape_await(self) -> None:
+        service = SearchService(providers=["searxng"], rate_limit=1000)
+
+        async def fake_chain_search(**_kwargs: object) -> list[SearchResultItem]:
+            service._chain.last_provider = "searxng"  # this request's real provider
+            return [SearchResultItem(url="https://x/", title="r", source_type=SearchSourceType.WEB)]
+
+        service._chain.search = AsyncMock(side_effect=fake_chain_search)  # type: ignore[method-assign]
+
+        async def fake_scrape(**_kwargs: object) -> MagicMock:
+            # Mid-scrape, a concurrent request's fallback overwrites the shared field.
+            service._chain.last_provider = "duckduckgo"
+            return MagicMock(success=True, data=MagicMock(markdown="m", html=None, metadata=None))
+
+        scrape_service = MagicMock()
+        scrape_service.scrape = fake_scrape
+        service._scrape_service = scrape_service
+
+        try:
+            result = await service.search("q", scrape_options=ScrapeOptions(formats=["markdown"]))
+
+            assert result.provider == "searxng", "a concurrent request's provider was mislabeled onto this response"
+            assert result.provider_fallback is False, "a genuine non-fallback response was flagged as a leak"
+        finally:
+            await service.close()
 
 
 class TestFallbackServingSignal:
