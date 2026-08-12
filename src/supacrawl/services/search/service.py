@@ -15,6 +15,7 @@ import logging
 import os
 import time
 import warnings
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -180,6 +181,11 @@ class SearchService:
     exactly like the old single-provider mode.
     """
 
+    # How many recent CALLER searches feed the recent-traffic health signal. A
+    # synthetic probe is deliberately excluded (record_recent=False) so this
+    # reflects real traffic, not a health check answering its own question.
+    RECENT_WINDOW = 5
+
     def __init__(
         self,
         scrape_service: "ScrapeService | None" = None,
@@ -287,6 +293,13 @@ class SearchService:
 
         self._rate_limiter = _RateLimiter(effective_rate)
 
+        # Rolling record of whether recent CALLER searches came back empty. A
+        # long-lived server accumulates real traffic here, so health can tell
+        # "the last N queries all returned nothing" — a failure a per-provider
+        # consecutive_failures count misses entirely, because a zero-result
+        # success was never counted as a failure anywhere (#161).
+        self._recent_empty: deque[bool] = deque(maxlen=self.RECENT_WINDOW)
+
         LOGGER.debug(
             f"Search rate limit: {effective_rate} req/s (primary={self._provider}, burst={self._rate_limiter.burst})"
         )
@@ -295,6 +308,25 @@ class SearchService:
     def provider_chain(self) -> ProviderChain:
         """Access the provider chain (for health reporting)."""
         return self._chain
+
+    @property
+    def recent_search_health(self) -> dict[str, int | bool]:
+        """Snapshot of how recent caller searches fared, for the health surface.
+
+        ``all_recent_empty`` is True only once a full window of caller searches
+        has been seen and every one came back empty — the "callers are failing
+        continuously" state that a synthetic probe and a per-provider failure
+        count both miss. One non-empty result rolls out of the window and clears
+        it, so a single genuine no-match query never trips it.
+        """
+        total = len(self._recent_empty)
+        empty = sum(self._recent_empty)
+        return {
+            "window": self.RECENT_WINDOW,
+            "recent_searches": total,
+            "recent_empty": empty,
+            "all_recent_empty": total >= self.RECENT_WINDOW and empty == total,
+        }
 
     def _has_keyed_provider(self) -> bool:
         """Whether any *usable* provider is backed by an API key.
@@ -351,6 +383,7 @@ class SearchService:
         scrape_options: ScrapeOptions | None = None,
         progress_callback: Callable[[int, int, str], Awaitable[None]] | None = None,
         filters: SearchFilters | None = None,
+        record_recent: bool = True,
     ) -> SearchResult:
         """Search the web using the provider chain with automatic fallback.
 
@@ -362,6 +395,10 @@ class SearchService:
             filters: Optional recency/topic/domain filters, mapped onto each
                 provider's native API (or synthesised as ``site:`` query
                 operators where a provider has no native support).
+            record_recent: Whether this search feeds the recent-traffic health
+                signal (``recent_search_health``). Default True for caller
+                traffic; the synthetic health probe passes False so a health
+                check never answers its own question.
 
         Returns:
             SearchResult with search results and optional scraped content.
@@ -409,8 +446,8 @@ class SearchService:
                         f"Rate limit queue timeout for source={source}",
                         correlation_id=correlation_id,
                     )
-                    return self._record_search_telemetry(
-                        SearchResult(success=False, data=[], error=msg), query, telemetry_started
+                    return self._finalize_search(
+                        SearchResult(success=False, data=[], error=msg), query, telemetry_started, record_recent
                     )
 
                 all_results.extend(results)
@@ -440,7 +477,7 @@ class SearchService:
                         "https://brave.com/search/api/) — see .env.example — for reliable search."
                     ),
                 )
-                return self._record_search_telemetry(loud, query, telemetry_started)
+                return self._finalize_search(loud, query, telemetry_started, record_recent)
 
             log_with_correlation(
                 LOGGER,
@@ -450,7 +487,7 @@ class SearchService:
             )
 
             served_by = self._chain.last_provider
-            return self._record_search_telemetry(
+            return self._finalize_search(
                 SearchResult(
                     success=True,
                     data=all_results,
@@ -461,6 +498,7 @@ class SearchService:
                 ),
                 query,
                 telemetry_started,
+                record_recent,
             )
 
         except Exception as e:
@@ -472,7 +510,7 @@ class SearchService:
                 correlation_id=correlation_id,
                 error=msg,
             )
-            return self._record_search_telemetry(
+            return self._finalize_search(
                 SearchResult(
                     success=False,
                     data=[],
@@ -481,14 +519,21 @@ class SearchService:
                 ),
                 query,
                 telemetry_started,
+                record_recent,
             )
 
-    def _record_search_telemetry(self, result: SearchResult, query: str, started: float | None) -> SearchResult:
-        """Emit a field telemetry event for a search, returning it unchanged.
+    def _finalize_search(
+        self, result: SearchResult, query: str, started: float | None, record_recent: bool = True
+    ) -> SearchResult:
+        """Record a completed search (recent-traffic window + telemetry), returning it unchanged.
 
-        A no-op when telemetry is disabled (``started`` is None). Telemetry errors
-        never affect the search result.
+        The recent-traffic window feeds ``recent_search_health``; it counts only
+        caller traffic (``record_recent``), never the synthetic probe. Telemetry
+        is a no-op when disabled (``started`` is None) and its errors never affect
+        the search result.
         """
+        if record_recent:
+            self._recent_empty.append(not result.data)
         if started is not None and self._telemetry is not None:
             latency_ms = int((time.monotonic() - started) * 1000)
             self._telemetry.record_search(

@@ -183,6 +183,22 @@ def _get_search_config(search_service: Any = None) -> dict[str, Any]:
             "Set BRAVE_API_KEY for reliable search — see https://brave.com/search/api/"
         )
 
+    # Recent real traffic, not just a synthetic probe: if the last full window of
+    # caller searches ALL came back empty, the backend is failing continuously
+    # even though a provider is configured — the state that read consecutive_
+    # failures: 0 while every caller was getting nothing (#161).
+    recent = getattr(search_service, "recent_search_health", None) if search_service is not None else None
+    if isinstance(recent, dict):
+        config["recent_search_health"] = recent
+        if recent.get("all_recent_empty"):
+            config["status"] = "degraded"
+            note = (
+                f"The last {recent['recent_searches']} real searches all returned no results — the search "
+                "backend appears to be failing even though a provider is configured."
+            )
+            existing = config.get("warning")
+            config["warning"] = f"{existing} {note}".strip() if existing else note
+
     return config
 
 
@@ -216,7 +232,10 @@ async def _run_search_health_probe(search_service: Any) -> dict[str, Any] | None
 
     try:
         result = await asyncio.wait_for(
-            search_service.search(_SEARCH_PROBE_QUERY, limit=_SEARCH_PROBE_LIMIT),
+            # record_recent=False: the probe is a synthetic query, so it must not
+            # feed the recent-traffic health signal — health checking its own
+            # question would mask what real callers are seeing (#161).
+            search_service.search(_SEARCH_PROBE_QUERY, limit=_SEARCH_PROBE_LIMIT, record_recent=False),
             timeout=_SEARCH_PROBE_TIMEOUT_S,
         )
     except Exception as e:
