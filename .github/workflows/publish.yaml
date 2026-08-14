@@ -1,39 +1,167 @@
-name: Publish to PyPI
+name: Publish wheels
+
+# Publishes supacrawl's wheel to the household private devpi index (poodle64/prod
+# on atlas), so cross-repo consumers resolve `supacrawl` as an ordinary version
+# spec from the index instead of an editable sibling checkout. It also closes a
+# live supply-chain exposure: with nothing uploaded here, the index falls through
+# to its PyPI mirror, where an UNRELATED `supacrawl` squats the name — so a
+# consumer pinning `supacrawl` and syncing from the index installs a stranger's
+# code. Uploading our wheel to poodle64/prod shadows that mirror (master-project#275).
+#
+# INLINED, NOT a thin caller of master-project's publish-wheels.yaml reusable, for
+# one hard reason: supacrawl is a PUBLIC repo and poodle64/master-project is
+# PRIVATE. GitHub blocks a public repo from resolving a reusable workflow (or a
+# referenced action) in a private one — the call dies at startup validation with
+# zero jobs. This is the same constraint that keeps ntfy-failure and the security
+# scan inlined here (ci.yaml, security.yaml) and the auto-label caller omitted
+# (.claude/CLAUDE.md §CI deviations). So this file mirrors the reusable's logic:
+# build-time version stamp, wheel-only build, devpi upload reading the password
+# from a runner-host file, 409-treated-as-skip idempotency. The only deltas forced
+# by the public-repo constraint are the public astral-sh/setup-uv action (in place
+# of master-project's setup-uv composite) and, as a single-package repo, a plain
+# `uv build --wheel` in place of the reusable's workspace `--all-packages`. Keep
+# the rest aligned with poodle64/master-project/.github/workflows/publish-wheels.yaml.
+#
+# The credential is NOT a GitHub secret. The devpi upload password is read from a
+# file on the atlas runner host (/var/lib/devpi-ci/upload_password, mode 0400,
+# runner-owned), minted there by the devpi-credentials systemd oneshot — fleet/ci.md
+# requires a household artefact-store credential to reach CI from the runner host,
+# never through GitHub (master-project#275). devpi and the runner share a host, so
+# the value never transits GitHub. A credential failure here is an atlas host
+# problem to diagnose, NOT a reason to add a GitHub secret.
+#
+# stamp-version behaviour is deliberate. devpi is non-volatile and skips an upload
+# whose version already EXISTS (on existence, not content), so an unstamped repo
+# would freeze at its first upload and no later source change would reach the index.
+# supacrawl[mcp] is consumed cross-repo, so each publish stamps an always-increasing
+# build version (CalVer date + run number) onto the wheel while the source `version`
+# stays a frozen floor (still used for tags/releases/CHANGELOG) — a consumer always
+# resolves current code with no hand-bumping. Rule: platform/common-libraries.md
+# §Distribution — a published wheel must carry current code by exactly one mechanism.
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/publish.yaml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   publish:
     runs-on: [self-hosted, atlas]
-    environment: pypi
-    permissions:
-      id-token: write
-      contents: read
+    env:
+      # Internal devpi upload URL on the atlas Docker network — the same address
+      # the sibling repos' publish-wheels callers use. External read ingress is
+      # https://pypi.godswood.au/poodle64/prod/ (used by the verify step below).
+      INDEX_URL: http://172.21.0.2:3141/poodle64/prod/
+      UPLOAD_PASSWORD_FILE: /var/lib/devpi-ci/upload_password
+      DEVPI_USER: poodle64
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up uv (and Python 3.14)
+        # Public action (not master-project's setup-uv composite): a public repo
+        # cannot resolve an action in the private master-project. Mirrors ci.yaml.
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           python-version: '3.14'
 
-      - name: Build package
-        run: uv build
+      - name: Stamp always-increasing wheel version
+        # The source `version` stays a frozen floor (no hand-bumping); each publish
+        # stamps CalVer date + run number so a consumer's index resolution always
+        # gets current code. Runs only on the CI build checkout; never committed back.
+        run: |
+          STAMP="$(date -u +%Y.%-m.%-d).${GITHUB_RUN_NUMBER}"
+          echo "Stamping wheel version -> ${STAMP}"
+          find . -name pyproject.toml -not -path './.git/*' -not -path './.venv/*' -print0 \
+            | while IFS= read -r -d '' f; do
+                if grep -qE '^version = "' "${f}"; then
+                  sed -i -E "s/^version = \".*\"/version = \"${STAMP}\"/" "${f}"
+                  echo "  stamped: ${f}"
+                fi
+              done
 
-      - name: Publish to PyPI
-        run: uv publish
+      - name: Build wheel
+        # --wheel (no sdist): the index serves wheels to consumers, and a sdist
+        # round-trip can fail on the dev-only external path sources this repo carries.
+        run: |
+          rm -rf dist
+          uv build --wheel --out-dir dist
+          ls -1 dist
 
-      # ntfy-failure inlined: supacrawl is a public repo; GitHub blocks public
-      # repos from referencing actions in private repos (poodle64/master-project).
-      # Logic mirrors poodle64/master-project/.github/actions/ntfy-failure@main.
+      - name: Publish to devpi (idempotent; skips versions already present)
+        run: |
+          # The credential is read from the runner host, never a GitHub secret
+          # (fleet/ci.md) — devpi and this runner share a host. Read straight into
+          # the env twine consumes so it never lands in a variable that could echo.
+          if [ ! -r "${UPLOAD_PASSWORD_FILE}" ]; then
+            echo "::error::devpi upload password file ${UPLOAD_PASSWORD_FILE} is missing or unreadable by the runner. It is minted by the devpi-credentials systemd unit on the atlas host; check that unit rather than adding a GitHub secret."
+            exit 1
+          fi
+          export TWINE_USERNAME="${DEVPI_USER}"
+          export TWINE_PASSWORD
+          TWINE_PASSWORD="$(cat "${UPLOAD_PASSWORD_FILE}")"
+          # Modern hatchling emits Metadata-Version 2.5, which twine<6.2 rejects.
+          # twine 6.2 made --skip-existing PyPI-only, so devpi idempotency is done
+          # here: upload each wheel and treat devpi's 409 "already exists" as a skip.
+          rc=0
+          for f in dist/*; do
+            if out="$(uvx --from 'twine>=6.2' twine upload \
+                        --repository-url "${INDEX_URL}" \
+                        --non-interactive "${f}" 2>&1)"; then
+              printf '%s\n' "${out}"
+            elif printf '%s' "${out}" | grep -qiE '409|conflict|already (exists|been uploaded|uploaded)'; then
+              echo "skip existing (already on index): ${f}"
+            else
+              printf '%s\n' "${out}"
+              rc=1
+            fi
+          done
+          exit "${rc}"
+
+      - name: Verify the index serves our wheel (not the PyPI mirror)
+        # A green build is not evidence the artefact is consumable (core/verification.md).
+        # Query the index and assert a file link under poodle64/prod/+f/ — a locally
+        # uploaded release. A MIRROR-ONLY package has no such link (its files sit
+        # under the mirror), which is exactly the supply-chain exposure this closes.
+        run: |
+          NETRC="$(mktemp)"
+          chmod 600 "${NETRC}"
+          # Write the credential straight into the file curl consumes; never echo it.
+          { printf 'machine 172.21.0.2 login %s password ' "${DEVPI_USER}"; cat "${UPLOAD_PASSWORD_FILE}"; echo; } > "${NETRC}"
+          ok=0
+          for attempt in 1 2 3; do
+            resp="$(curl -s --netrc-file "${NETRC}" -H 'Accept: application/json' "${INDEX_URL}supacrawl" || true)"
+            if printf '%s' "${resp}" | grep -q '/poodle64/prod/+f/'; then
+              ok=1
+              break
+            fi
+            echo "attempt ${attempt}: no local +f/ link yet; retrying"
+            sleep 3
+          done
+          rm -f "${NETRC}"
+          if [ "${ok}" -ne 1 ]; then
+            echo "::error::supacrawl is NOT served locally from poodle64/prod — no +f/ file link found. The index is serving the PyPI mirror (an unrelated squatted package). Upload did not land."
+            printf '%s\n' "${resp}" | head -c 2000
+            exit 1
+          fi
+          echo "verified: supacrawl served locally from poodle64/prod (shadows the PyPI mirror)"
+          printf '%s' "${resp}" | grep -oE 'https?://[^"]*poodle64/prod/\+f/[^"]*\.whl' | sort -u | head
+
       - name: Notify failure (ntfy infra)
+        # ntfy-failure inlined: supacrawl is a public repo; GitHub blocks public
+        # repos from referencing actions in private repos (poodle64/master-project).
+        # Logic mirrors poodle64/master-project/.github/actions/ntfy-failure@main.
         if: failure() && github.event_name != 'pull_request'
         shell: bash
         env:
-          NTFY_TITLE: 'supacrawl: publish failed'
+          NTFY_TITLE: 'supacrawl: wheel publish failed'
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           TOKEN=""
