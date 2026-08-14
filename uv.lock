@@ -161,6 +161,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "asyncssh", marker = "extra == 'ssh'", specifier = ">=2.14.0" },
+    { name = "curl-cffi", marker = "extra == 'curl-http'", specifier = ">=0.10.0" },
     { name = "curl-cffi", marker = "extra == 'curl-websocket'", specifier = ">=0.10.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.20.0" },
@@ -169,7 +170,7 @@ requires-dist = [
     { name = "redactyl-core", index = "https://pypi.godswood.au/poodle64/prod/+simple/" },
     { name = "websockets", marker = "extra == 'websocket'", specifier = ">=12.0" },
 ]
-provides-extras = ["telemetry", "websocket", "ssh", "curl-websocket"]
+provides-extras = ["telemetry", "websocket", "ssh", "curl-websocket", "curl-http"]
 
 [[package]]
 name = "apify-fingerprint-datapoints"
