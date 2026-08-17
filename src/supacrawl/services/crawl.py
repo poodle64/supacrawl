@@ -236,13 +236,43 @@ class CrawlService:
                 ):
                     yield event
             else:
+                # Crawl-level shared-engine seeding (#139): a crawl shares ONE
+                # browser across pages. If the start domain's learned champion
+                # needs a stronger engine than the default (camoufox / stealth),
+                # build the shared browser with it once, so every same-domain page
+                # reuses one strong browser instead of the per-page seed path
+                # spinning up a temporary stealth browser per page. Uses the
+                # exploration-free ``get`` (not ``seed``), so the shared engine is
+                # the deterministic champion and the per-page seeds match it — the
+                # coordination the issue flagged: no shared pin fighting a per-page
+                # explore. A user-pinned engine/stealth still wins over memory.
+                seed_engine, seed_stealth = engine, stealth
+                if self._strategy_store is not None and engine is None and not stealth:
+                    from supacrawl.services.scrape import _engine_available
+                    from supacrawl.services.strategy_memory import _engine_cost, registrable_domain
+
+                    start_domain = registrable_domain(url)
+                    champion = self._strategy_store.get(start_domain) if start_domain else None
+                    if (
+                        champion is not None
+                        and _engine_cost(champion.engine, champion.stealth) > 0
+                        and _engine_available(champion.engine)
+                    ):
+                        seed_engine, seed_stealth = champion.engine, champion.stealth
+                        LOGGER.info(
+                            "Crawl seeding shared %s browser from %s champion (stealth=%s)",
+                            champion.engine or "playwright",
+                            start_domain,
+                            champion.stealth,
+                        )
+
                 # Create and manage own browser lifecycle
                 async with BrowserManager(
                     headless=headless,
                     locale_config=locale_config,
-                    stealth=stealth,
+                    stealth=seed_stealth,
                     proxy=proxy,
-                    engine=engine,
+                    engine=seed_engine,
                 ) as browser:
                     self._browser = browser
                     self._map_service = MapService(
