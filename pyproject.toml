@@ -124,6 +124,7 @@ markers = [
     "integration: Filesystem-heavy tests, may use local HTTP server and Playwright",
     "e2e: End-to-end tests with live network and Playwright",
     "mcp: MCP server tests (requires supacrawl[mcp])",
+    "stealth_smoke: Launches each stealth engine headless (#145); dedicated CI job only",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

@@ -103,6 +103,11 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "e2e: End-to-end tests with live network, Playwright, or external services",
     )
+    config.addinivalue_line(
+        "markers",
+        "stealth_smoke: Launches a real stealth engine headless (#145); run in a dedicated CI job "
+        "that fetches every engine's browser binary, excluded from the main test job.",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -116,7 +121,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         # Skip if already has a category marker
         markers = list(item.iter_markers())
         marker_names = [m.name for m in markers]
-        if any(m in marker_names for m in ("unit", "integration", "e2e")):
+        if any(m in marker_names for m in ("unit", "integration", "e2e", "stealth_smoke")):
             continue
 
         # Default unmarked tests to unit
