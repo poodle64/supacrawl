@@ -286,6 +286,102 @@ async def test_http_first_escalatable_verdict_falls_through_to_browser(monkeypat
     assert len(created) >= 1  # the browser path actually ran
 
 
+def _patch_faithful_browser(monkeypatch: pytest.MonkeyPatch) -> list:
+    """Patch BrowserManager with a fake that resolves engine/stealth EXACTLY like
+    the real one (engine wins; else stealth→patchright; stealth = patchright/
+    camoufox). Records every construction so per-page temporary browsers can be
+    counted. The real BrowserManager's resolution is the crux of #139: a fake that
+    stores the raw kwargs would hide the very bug this exercises.
+    """
+    monkeypatch.setattr("supacrawl.services.scrape._is_patchright_available", lambda: True)
+    monkeypatch.setattr("supacrawl.services.scrape._is_camoufox_available", lambda: True)
+    created: list = []
+
+    class FaithfulBrowser:
+        def __init__(self, **kwargs: object) -> None:
+            engine = kwargs.get("engine")
+            stealth = bool(kwargs.get("stealth", False))
+            self.engine = engine if engine is not None else ("patchright" if stealth else "playwright")
+            self.stealth = self.engine in ("patchright", "camoufox")
+            self.proxy = kwargs.get("proxy")
+            created.append(self)
+
+        async def __aenter__(self) -> "FaithfulBrowser":
+            return self
+
+        async def __aexit__(self, *_: object) -> bool:
+            return False
+
+        async def fetch_page(self, url: str, **_: object) -> PageContent:
+            return PageContent(url=url, html=_GOOD_HTML, title="T", status_code=200)
+
+        async def extract_metadata(self, _html: str) -> PageMetadata:
+            return _meta()
+
+    monkeypatch.setattr("supacrawl.services.scrape.BrowserManager", FaithfulBrowser)
+    return created
+
+
+async def test_shared_champion_browser_needs_no_per_page_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    # #139 crux: when the crawl's shared browser already IS the domain's champion
+    # engine, a same-domain page must reuse it — NOT build a temporary browser.
+    # This exercises the real needs_seed_override comparison against a faithfully
+    # resolved browser (camoufox resolves stealth=True), the exact path the
+    # earlier ScrapeService-mocking wiring tests never touched.
+    from supacrawl.services.scrape import ScrapeService
+    from supacrawl.services.strategy_memory import StrategyStore
+
+    store = StrategyStore(strategy_dir=tmp_path, explore_rate=0.0)
+    assert await _record_camoufox_champion(store, "hard.example")  # sanity
+
+    created = _patch_faithful_browser(monkeypatch)
+    from supacrawl.services.scrape import BrowserManager  # the patched FaithfulBrowser
+
+    shared_browser = BrowserManager(engine="camoufox", stealth=False)  # crawl's shared browser
+    created.clear()  # count only per-page constructions
+
+    service = ScrapeService(browser=shared_browser, strategy_store=store)
+    result = await service.scrape("https://hard.example/page", formats=["markdown"], http_first=False)
+
+    assert result.success is True
+    assert len(created) == 0, "a per-page temporary browser was built despite the shared browser matching the champion"
+
+
+async def test_shared_weaker_browser_does_build_per_page_override(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    # The contrast: a shared playwright browser with a camoufox champion still
+    # builds a per-page temporary camoufox (the pre-#139 waste), proving the test
+    # above is measuring something real, not a resolution that never overrides.
+    from supacrawl.services.scrape import ScrapeService
+    from supacrawl.services.strategy_memory import StrategyStore
+
+    store = StrategyStore(strategy_dir=tmp_path, explore_rate=0.0)
+    await _record_camoufox_champion(store, "hard.example")
+
+    created = _patch_faithful_browser(monkeypatch)
+    from supacrawl.services.scrape import BrowserManager
+
+    shared_browser = BrowserManager(engine="playwright")  # weaker than the champion
+    created.clear()
+
+    service = ScrapeService(browser=shared_browser, strategy_store=store)
+    result = await service.scrape("https://hard.example/page", formats=["markdown"], http_first=False)
+
+    assert result.success is True
+    assert len(created) == 1 and created[0].engine == "camoufox"
+
+
+async def _record_camoufox_champion(store, domain: str) -> bool:
+    from supacrawl.models import QualityAssessment, QualityVerdict, ScrapeData, ScrapeMetadata, ScrapeResult
+
+    good = ScrapeResult(
+        success=True,
+        quality=QualityAssessment(verdict=QualityVerdict.OK, score=90),
+        data=ScrapeData(markdown="ok", metadata=ScrapeMetadata(source_url=f"https://{domain}/")),
+    )
+    store.record(domain, engine="camoufox", stealth=False, wait_for=5000, only_main_content=True, result=good)
+    return store.get(domain) is not None
+
+
 async def test_fetch_exception_yields_clean_failure_not_crash() -> None:
     # A mid-fetch exception must become success=False with a hint, never a crash.
     browser = MagicMock()

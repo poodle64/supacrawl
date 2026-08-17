@@ -248,20 +248,28 @@ class CrawlService:
                 # explore. A user-pinned engine/stealth still wins over memory.
                 seed_engine, seed_stealth = engine, stealth
                 if self._strategy_store is not None and engine is None and not stealth:
-                    from supacrawl.services.scrape import _engine_available
+                    from supacrawl.services.scrape import _engine_available, _resolve_engine_stealth
                     from supacrawl.services.strategy_memory import _engine_cost, registrable_domain
 
                     start_domain = registrable_domain(url)
                     champion = self._strategy_store.get(start_domain) if start_domain else None
+                    # Gate on the RESOLVED engine's availability: a patchright
+                    # champion is stored as (None, True), which the raw check would
+                    # wave through as "playwright" and then fail launching the one
+                    # shared browser — aborting the whole crawl instead of
+                    # degrading to the default engine.
+                    resolved_engine = (
+                        _resolve_engine_stealth(champion.engine, champion.stealth)[0] if champion is not None else None
+                    )
                     if (
                         champion is not None
                         and _engine_cost(champion.engine, champion.stealth) > 0
-                        and _engine_available(champion.engine)
+                        and _engine_available(resolved_engine)
                     ):
                         seed_engine, seed_stealth = champion.engine, champion.stealth
                         LOGGER.info(
                             "Crawl seeding shared %s browser from %s champion (stealth=%s)",
-                            champion.engine or "playwright",
+                            resolved_engine,
                             start_domain,
                             champion.stealth,
                         )

@@ -307,6 +307,30 @@ def _engine_available(engine: str | None) -> bool:
     return False
 
 
+def _resolve_engine_stealth(engine: str | None, stealth: bool) -> tuple[str, bool]:
+    """Resolve a (engine, stealth) request to what a BrowserManager will run.
+
+    Mirrors ``BrowserManager.__init__`` exactly: an explicit engine wins; else
+    ``stealth`` selects patchright; else playwright. ``stealth`` is then a pure
+    function of the resolved engine (True for patchright/camoufox).
+
+    This matters because strategy memory stores a patchright champion as
+    ``(None, True)`` and a camoufox champion as ``("camoufox", False)`` — neither
+    of which equals the ``(engine, stealth)`` the resulting browser reports
+    (``("patchright", True)`` / ``("camoufox", True)``). Comparing a raw seed
+    against a live browser's resolved attributes therefore always mismatches,
+    which would rebuild a temporary browser on every page (#139). Resolve both
+    sides into the same space before comparing.
+    """
+    if engine is not None:
+        resolved = engine
+    elif stealth:
+        resolved = "patchright"
+    else:
+        resolved = "playwright"
+    return resolved, resolved in ("patchright", "camoufox")
+
+
 def _stealth_hint(*, bot_suspected: bool = False) -> str:
     """Return a hint about stealth mode, gated on whether a bot challenge was detected.
 
@@ -987,11 +1011,14 @@ class ScrapeService:
             # A champion learned on a machine that had the engine, replayed where
             # that engine is no longer installed, would hard-fail every hit to the
             # domain (#143). Drop a stale seed so the request degrades to the
-            # default engine instead of cascade-failing on the missing one.
-            if seed is not None and not _engine_available(seed.engine):
+            # default engine instead of cascade-failing on the missing one. Check
+            # the RESOLVED engine: a patchright champion is stored as (None, True),
+            # which _engine_available would wave through as "playwright".
+            if seed is not None and not _engine_available(_resolve_engine_stealth(seed.engine, seed.stealth)[0]):
                 LOGGER.debug(
-                    "Champion engine %r for %s is not installed; ignoring stale strategy seed",
+                    "Champion engine %r (stealth=%s) for %s is not installed; ignoring stale strategy seed",
                     seed.engine,
+                    seed.stealth,
                     memory_domain,
                 )
                 seed = None
@@ -1124,12 +1151,16 @@ class ScrapeService:
             )
             # A learned seed (#130) may want a different engine/stealth than a
             # shared browser; build a temporary one so the champion strategy is
-            # honoured without mutating the shared browser.
+            # honoured without mutating the shared browser. Compare in RESOLVED
+            # space: browser.engine/stealth are post-resolution, so the raw seed
+            # must be resolved too, else a camoufox/patchright champion that the
+            # shared browser already IS would spuriously rebuild every page (#139).
+            seed_resolved_engine, seed_resolved_stealth = _resolve_engine_stealth(attempt_engine, attempt_stealth)
             needs_seed_override = (
                 seed is not None
                 and not owns_browser
                 and browser is not None
-                and (attempt_engine != browser.engine or attempt_stealth != browser.stealth)
+                and (seed_resolved_engine != browser.engine or seed_resolved_stealth != browser.stealth)
             )
 
             if owns_browser or needs_engine_override or needs_proxy_override or needs_seed_override:
@@ -1564,7 +1595,9 @@ class ScrapeService:
         # CAPTCHA is what stopped us (rather than a bare exhausted ladder), record
         # that we chose not to continue and how to override it, so a caller can
         # tell "we deliberately stopped on a CAPTCHA" from "the site was empty".
-        if escalate and captcha_wall and not captcha_escalatable and result.quality is not None:
+        # Only at level 0: a CAPTCHA reached after an earlier rung escalated has
+        # run more than one attempt, so "stopped after one attempt" would be false.
+        if escalate and level == 0 and captcha_wall and not captcha_escalatable and result.quality is not None:
             result.quality.reasons.append(
                 "fail-fast: stopped after one attempt — a stronger engine does not solve a CAPTCHA "
                 "(set SUPACRAWL_CAPTCHA_FAIL_FAST=0 to walk the full ladder, or enable solve_captcha)"

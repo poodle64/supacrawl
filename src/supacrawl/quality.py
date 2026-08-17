@@ -318,12 +318,15 @@ def _classify(
     # (e.g. a comment form) still extracted fine.
     if indicators["captcha_present"] and word_count < _THIN_WORD_FLOOR:
         # A CAPTCHA widget wrapped in a CDN "managed challenge" interstitial
-        # (Cloudflare "just a moment"/Turnstile, or an access-denied block) is
+        # (Cloudflare "just a moment"/"checking your browser"/challenge-form) is
         # passable by a stealth engine, so it stays a BOT_CHALLENGE and keeps
-        # escalating. A bare CAPTCHA widget with no interstitial is a hard
-        # third-party wall (reCAPTCHA/hCaptcha) that a stronger engine will not
-        # defeat — it is a CAPTCHA, and the ladder fails fast on it (#153).
-        if challenge:
+        # escalating. A bare CAPTCHA widget is a hard third-party wall
+        # (reCAPTCHA/hCaptcha) that a stronger engine will not defeat — it is a
+        # CAPTCHA, and the ladder fails fast on it (#153). Key off
+        # challenge_detected only, NOT access_denied: an "access denied"/"blocked"
+        # page carrying a bare CAPTCHA is a terminal wall, not a passable
+        # interstitial, and must keep failing fast.
+        if indicators["challenge_detected"]:
             return QualityVerdict.BOT_CHALLENGE, [
                 "CAPTCHA inside an anti-bot challenge interstitial with no usable content"
             ]
