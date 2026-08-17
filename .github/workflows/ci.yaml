@@ -178,8 +178,8 @@ jobs:
 
       # ntfy-failure inlined (public repo, see lint/typecheck jobs above); this
       # job runs on ubuntu-latest so the atlas host token files below don't
-      # exist — falls through to secrets.NTFY_TOKEN, which is unset for this
-      # repo today (warns and no-ops rather than failing the job).
+      # exist — falls through to secrets.NTFY_TOKEN, provisioned for this repo
+      # (#150) so a red main run pages the infra topic.
       - name: Notify failure (ntfy infra)
         if: failure() && github.event_name != 'pull_request'
         shell: bash
