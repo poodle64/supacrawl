@@ -45,7 +45,14 @@ from supacrawl.models import (
     ScrapeResult,
 )
 from supacrawl.quality import assess_quality
-from supacrawl.services.browser import BrowserManager, BrowserUnavailableError, PageContent, PageMetadata
+from supacrawl.services.browser import (
+    BrowserManager,
+    BrowserUnavailableError,
+    CamoufoxNotAvailableError,
+    PageContent,
+    PageMetadata,
+    StealthNotAvailableError,
+)
 from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.detection import detect_bot_protection, estimate_js_requirement
 from supacrawl.services.http_fetch import fetch_static
@@ -247,6 +254,24 @@ def _is_camoufox_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _engine_available(engine: str | None) -> bool:
+    """Whether an engine can be used, i.e. its package is installed (#143).
+
+    ``playwright`` is a base dependency and always available. Guards escalation
+    choices — a platform short-circuit or a learned strategy-memory champion —
+    from picking a stealth engine that is not installed, which would otherwise
+    turn a scrape into a clear-but-avoidable infrastructure failure instead of
+    degrading to the engine that IS present.
+    """
+    if engine in (None, "playwright"):
+        return True
+    if engine == "patchright":
+        return _is_patchright_available()
+    if engine == "camoufox":
+        return _is_camoufox_available()
+    return False
 
 
 def _stealth_hint(*, bot_suspected: bool = False) -> str:
@@ -522,8 +547,16 @@ def _next_escalation(
     if pinned:
         return None
 
-    # A known site builder: escalate straight to its tuned engine/settings.
-    if platform is not None and platform.engine and platform.engine != (engine or "playwright"):
+    # A known site builder: escalate straight to its tuned engine/settings — but
+    # only if that engine is actually installed (#143). A tuned engine that is
+    # missing must not be chosen: doing so would fail the scrape on an
+    # infrastructure error instead of degrading to the generic ladder below.
+    if (
+        platform is not None
+        and platform.engine
+        and platform.engine != (engine or "playwright")
+        and _engine_available(platform.engine)
+    ):
         return _Rung(
             platform.engine,
             stealth,
@@ -918,6 +951,17 @@ class ScrapeService:
         seed: StrategyChoice | None = None
         if memory_domain and self._strategy_store is not None and not user_pinned and _escalation_level == 0:
             seed = self._strategy_store.seed(memory_domain)
+            # A champion learned on a machine that had the engine, replayed where
+            # that engine is no longer installed, would hard-fail every hit to the
+            # domain (#143). Drop a stale seed so the request degrades to the
+            # default engine instead of cascade-failing on the missing one.
+            if seed is not None and not _engine_available(seed.engine):
+                LOGGER.debug(
+                    "Champion engine %r for %s is not installed; ignoring stale strategy seed",
+                    seed.engine,
+                    memory_domain,
+                )
+                seed = None
 
         attempt_engine = effective_engine
         attempt_stealth = self._stealth
@@ -1355,7 +1399,14 @@ class ScrapeService:
         """
         error_msg = str(error)
         low_error = error_msg.lower()
-        scraper_fault = isinstance(error, BrowserUnavailableError)
+        # A missing/broken stealth engine is a scraper-environment fault, not a
+        # site problem (#143): its typed error already names the engine and how to
+        # install it, so classify it alongside BrowserUnavailableError as
+        # INFRASTRUCTURE rather than letting it fall through to a misleading EMPTY
+        # verdict that reads as "the site returned nothing".
+        scraper_fault = isinstance(
+            error, (BrowserUnavailableError, StealthNotAvailableError, CamoufoxNotAvailableError)
+        )
         bot_suspected = not scraper_fault and any(p in low_error for p in ["403", "429", "blocked", "denied"])
         if scraper_fault:
             # A stealth or wait hint would be actively misleading here: nothing

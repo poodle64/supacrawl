@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from supacrawl.services.browser import all_engine_availability
 from supacrawl.services.detection import (
     detect_bot_protection,
     detect_cdn,
@@ -55,6 +56,10 @@ async def supacrawl_diagnose(
         - content_length: Content-Length or actual length
         - indicators: Detection results (CDN, JS framework, bot protection)
         - recommendations: Suggested scrape settings and explanations
+        - engines: Per-engine availability (playwright/patchright/camoufox),
+          each {installed, available, reason}, computed without launching a
+          browser — so you can see which stealth tiers are usable and why one
+          is not
 
     Example:
         # Pre-check before scraping
@@ -79,6 +84,11 @@ async def supacrawl_diagnose(
         "content_length": None,
         "indicators": {},
         "recommendations": {},
+        # Per-engine availability for each stealth tier (#144). Computed WITHOUT
+        # launching a browser, so it is cheap and safe to include on every call;
+        # turns a "scrape failed" mystery into "camoufox unavailable, patchright
+        # OK". URL-independent, hence set before the network probe below.
+        "engines": all_engine_availability(),
     }
 
     try:

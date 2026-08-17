@@ -283,6 +283,13 @@ def _get_browser_config(browser_manager: Any | None = None) -> dict[str, Any]:
     }
     if browser_manager is not None:
         config["engine"] = browser_manager.engine
+        # Lazy start (#143): a server-side engine does not launch until the first
+        # tool needs it, so a never-launched manager is legitimately not alive —
+        # not a #160 outage. `launched` separates "not started yet" (fine) from
+        # "started then died" (the real outage the verdict must catch). Stubs and
+        # older managers without the property default to launched=True, preserving
+        # the dead-engine signal.
+        config["launched"] = getattr(browser_manager, "has_launched", True)
         config["alive"] = browser_manager.is_alive
         # Relaunches are cumulative for the process: a climbing count is a real
         # signal that something keeps killing the engine.
@@ -324,9 +331,11 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
           "live_probe" key is present only when the probe actually ran (verify_search=True
           and a search service is available), reporting what it found.
         - components.browser: engine, headless, stealth, timeout settings, plus
-          live `alive` / `relaunches` for the shared engine. `alive: false` means
-          the engine crashed; it self-heals on the next scrape, and drives the
-          top-level status to "degraded" with a warning until it does.
+          live `launched` / `alive` / `relaunches` for the shared engine. The
+          engine starts lazily on the first scrape, so `launched: false` with
+          `alive: false` means "not started yet" and is NOT degraded. Once
+          launched, `alive: false` means the engine crashed; it self-heals on the
+          next scrape and drives the top-level status to "degraded" until it does.
         - components.llm: configured provider and model (for json/summary formats)
         - components.cache: path, entry count, size
         - version: supacrawl library and MCP server versions
@@ -338,7 +347,9 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
         browser_config = _get_browser_config(api_client.browser_manager)
         # A dead shared engine is a real outage for every consumer of this server,
         # so it must reach the top-line verdict rather than sit one level down.
-        if browser_config.get("alive") is False:
+        # But only once it has actually launched: with lazy start (#143) a fresh
+        # engine is not-yet-launched, not crashed, and must not read as degraded.
+        if browser_config.get("alive") is False and browser_config.get("launched", True):
             all_healthy = False
             browser_config["warning"] = (
                 "The shared browser engine is not connected. It is relaunched automatically on the next "

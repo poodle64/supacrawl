@@ -42,6 +42,10 @@ async def supacrawl_diagnose(
         - content_length: Content-Length or actual length
         - indicators: Detection results (CDN, JS framework, bot protection)
         - recommendations: Suggested scrape settings and explanations
+        - engines: Per-engine availability (playwright/patchright/camoufox),
+          each {installed, available, reason}, computed without launching a
+          browser — so you can see which stealth tiers are usable and why one
+          is not
 
     Example:
         # Pre-check before scraping

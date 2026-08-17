@@ -43,6 +43,7 @@ Every setting is a standing default; a per-request flag or API argument still ov
 | browser | `headless` | `SUPACRAWL_HEADLESS` | `true` | Run without a visible window. |
 | browser | `wait_until` | `SUPACRAWL_WAIT_UNTIL` | `domcontentloaded` | `domcontentloaded` / `load` / `networkidle`. |
 | browser | `user_agent` | `SUPACRAWL_USER_AGENT` | _(engine default)_ | Override the User-Agent string. |
+| browser | _(env only)_ | `SUPACRAWL_DISABLE_DEV_SHM` | _(auto: on in a container)_ | Pass `--disable-dev-shm-usage` to Chromium so it uses disk instead of the container's small `/dev/shm`, avoiding crashes on heavy pages. Auto-detected inside a container; set `1`/`0` to force on/off. Chromium engines only (playwright/patchright); Camoufox is Firefox. |
 | locale | `locale` | `SUPACRAWL_LOCALE` | `en-US` | Maps to Accept-Language. |
 | locale | `timezone` | `SUPACRAWL_TIMEZONE` | `UTC` | e.g. `Australia/Brisbane`. |
 | anti_bot | `engine` | `SUPACRAWL_ENGINE` | _(auto)_ | `playwright` / `patchright` / `camoufox`. Leave unset to auto-escalate. |

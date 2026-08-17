@@ -38,12 +38,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib.util
 import json
 import logging
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
@@ -353,6 +356,183 @@ def is_closed_browser_error(error: BaseException) -> bool:
 # Valid engine choices
 ENGINE_CHOICES = ("playwright", "patchright", "camoufox")
 
+
+# --- Per-engine availability, without launching a browser (#144) ---------------
+# Report which engines are usable so an operator or agent can see which stealth
+# tiers are available and understand why a tool failed — cheaply and safely,
+# with no browser process started. The companion CI smoke-test (#145) actually
+# launches each engine, so an "available" verdict here is independently proven
+# launchable: this check must never be a confident liar (the supacrawl#158 class,
+# where a component reported ready while it was not).
+
+# Reason categories reported when an engine is unusable. Deliberately coarse and
+# machine-readable — they say WHAT is missing, and never leak an internal path.
+ENGINE_REASON_NOT_INSTALLED = "not_installed"  # the Python package is absent
+ENGINE_REASON_BROWSER_NOT_INSTALLED = "browser_not_installed"  # package present, browser binary not fetched
+
+# The Python package that backs each engine.
+_ENGINE_PACKAGE = {
+    "playwright": "playwright",
+    "patchright": "patchright",
+    "camoufox": "camoufox",
+}
+
+# An actionable install hint per engine, surfaced when it is unavailable.
+_ENGINE_INSTALL_HINT = {
+    "playwright": "playwright is a base dependency; run: playwright install chromium",
+    "patchright": "pip install supacrawl[stealth]; then: patchright install chromium",
+    "camoufox": "pip install supacrawl[camoufox]; then: camoufox fetch",
+}
+
+
+def _package_installed(package: str) -> bool:
+    """Whether an engine's Python package is importable, without importing it."""
+    try:
+        return importlib.util.find_spec(package) is not None
+    except ImportError, ValueError:
+        return False
+
+
+def _playwright_browsers_dir() -> Path | None:
+    """Resolve Playwright's browser-download directory without starting the driver.
+
+    Mirrors Playwright's own default: ``PLAYWRIGHT_BROWSERS_PATH`` when set (the
+    literal ``"0"`` means "bundled next to the package", which cannot be resolved
+    cheaply, so we report it as unknown), otherwise the per-OS cache directory.
+    Both playwright and patchright fetch Chromium into this same registry.
+    """
+    env = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    if env:
+        if env == "0":
+            return None  # bundled next to the package; not resolvable cheaply
+        return Path(env)
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    if sys.platform == "win32":
+        local = os.getenv("LOCALAPPDATA")
+        base = Path(local) if local else Path.home() / "AppData" / "Local"
+        return base / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
+def _chromium_browser_installed() -> bool:
+    """Whether a Chromium build has been fetched (playwright/patchright share it).
+
+    Filesystem-only, no subprocess: looks for a non-empty ``chromium*`` build
+    directory in Playwright's browsers dir. When the location cannot be resolved
+    (``PLAYWRIGHT_BROWSERS_PATH=0``, a bundled install), returns True rather than
+    a false negative — the package is present and the #145 launch smoke-test is
+    the launch-truth backstop; the honest failure direction is never to claim
+    "available" when it is not, and a false "missing" here would do that inverted.
+    """
+    browsers_dir = _playwright_browsers_dir()
+    if browsers_dir is None:
+        return True  # cannot resolve; do not assert "missing" on no evidence
+    try:
+        return any(child.is_dir() and any(child.iterdir()) for child in browsers_dir.glob("chromium*"))
+    except OSError:
+        return True
+
+
+def _camoufox_browser_installed() -> bool:
+    """Whether Camoufox's Firefox build has been fetched, without launching it."""
+    try:
+        from camoufox.pkgman import launch_path
+
+        launch_path()  # raises CamoufoxNotInstalled when the binary is absent
+        return True
+    except Exception:
+        return False
+
+
+def engine_availability(engine: str) -> dict[str, Any]:
+    """Report whether one engine is usable, WITHOUT launching a browser (#144).
+
+    Returns a dict with ``installed`` (package present), ``available`` (package
+    present AND its browser binary fetched), and ``reason`` (None when available,
+    otherwise a coarse ``ENGINE_REASON_*`` category). No internal paths are
+    leaked; an ``install`` hint is included when the engine is unavailable.
+    """
+    if engine not in ENGINE_CHOICES:
+        raise ValueError(f"Invalid engine '{engine}'. Choose from: {', '.join(ENGINE_CHOICES)}")
+    if not _package_installed(_ENGINE_PACKAGE[engine]):
+        return {
+            "installed": False,
+            "available": False,
+            "reason": ENGINE_REASON_NOT_INSTALLED,
+            "install": _ENGINE_INSTALL_HINT[engine],
+        }
+    binary_present = _camoufox_browser_installed() if engine == "camoufox" else _chromium_browser_installed()
+    if not binary_present:
+        return {
+            "installed": True,
+            "available": False,
+            "reason": ENGINE_REASON_BROWSER_NOT_INSTALLED,
+            "install": _ENGINE_INSTALL_HINT[engine],
+        }
+    return {"installed": True, "available": True, "reason": None}
+
+
+def all_engine_availability() -> dict[str, dict[str, Any]]:
+    """Per-engine availability for every stealth tier, no browser launched (#144)."""
+    return {engine: engine_availability(engine) for engine in ENGINE_CHOICES}
+
+
+# --- Container-aware Chromium launch args (#146) -------------------------------
+# Docker's default /dev/shm is 64 MB; Chromium can exhaust it and crash on heavy
+# real pages even when it launches cleanly on a trivial one. --disable-dev-shm-usage
+# makes Chromium use a temp dir on disk instead. Applied only to the Chromium
+# engines (playwright/patchright) — it is a Chromium flag, and Camoufox is Firefox.
+
+
+def _is_containerised() -> bool:
+    """Best-effort detection of running inside a container.
+
+    Checks the two portable signals: Docker's sentinel file and container markers
+    in PID 1's cgroup. Cheap and read-only; any error is treated as "not a
+    container" — the safe default that never adds a flag to a normal desktop run.
+    """
+    try:
+        if os.path.exists("/.dockerenv"):
+            return True
+        cgroup = Path("/proc/1/cgroup")
+        if cgroup.exists():
+            text = cgroup.read_text(errors="ignore")
+            return any(marker in text for marker in ("docker", "containerd", "kubepods", "libpod"))
+    except OSError:
+        pass
+    return False
+
+
+def _should_disable_dev_shm() -> bool:
+    """Whether to pass ``--disable-dev-shm-usage`` to Chromium (#146).
+
+    An explicit ``SUPACRAWL_DISABLE_DEV_SHM`` wins in both directions; otherwise
+    it is on inside a container and off on a normal host.
+    """
+    override = os.getenv("SUPACRAWL_DISABLE_DEV_SHM")
+    if override is not None:
+        return override.strip().lower() in {"1", "true", "yes", "on"}
+    return _is_containerised()
+
+
+def chromium_launch_args() -> list[str]:
+    """Chromium CLI launch args for the current environment (#146).
+
+    Only ``--disable-dev-shm-usage`` is added, and only under a constrained
+    ``/dev/shm`` container. ``--no-sandbox`` is deliberately NOT added here: it
+    weakens the browser sandbox and would regress every non-container user, and a
+    container that needs it sets it in its own launch environment (the downstream
+    Dockerfile already does). Keeping it out of the library is the correct
+    default — it is the one other classic container flag, and it does not belong
+    on by default, so scope is not silently expanded.
+    """
+    args: list[str] = []
+    if _should_disable_dev_shm():
+        args.append("--disable-dev-shm-usage")
+    return args
+
+
 # Domains to skip when expanding iframes (ads, analytics, tracking, CAPTCHA)
 IFRAME_BLOCKED_DOMAINS = frozenset(
     {
@@ -565,6 +745,9 @@ class BrowserManager:
         # until something notices; these track that noticing.
         self._relaunch_lock = asyncio.Lock()
         self._ever_started = False
+        # Distinguishes "never started yet" (lazy-start on first use, #143) from
+        # "deliberately stopped" (a retired manager, not to be resurrected).
+        self._deliberately_stopped = False
         self.relaunches = 0
         self._consecutive_relaunch_failures = 0
         # None, never 0.0: monotonic() starts near process uptime, so 0.0 reads as
@@ -759,6 +942,7 @@ class BrowserManager:
         else:
             await self._start_playwright()
         self._ever_started = True
+        self._deliberately_stopped = False
 
     async def _start_playwright(self) -> None:
         """Start browser via Playwright or Patchright."""
@@ -767,6 +951,12 @@ class BrowserManager:
 
         # Build launch options
         launch_options: dict[str, Any] = {"headless": self.headless}
+
+        # Container-aware Chromium flags (#146): --disable-dev-shm-usage under a
+        # constrained-/dev/shm container so heavy pages do not crash Chromium.
+        launch_args = chromium_launch_args()
+        if launch_args:
+            launch_options["args"] = launch_args
 
         # Add proxy if configured
         if self.proxy:
@@ -841,6 +1031,7 @@ class BrowserManager:
         :meth:`_force_stop`, the relaunch path, keeps the manager live).
         """
         self._ever_started = False
+        self._deliberately_stopped = True
         if self.engine == "camoufox" and hasattr(self, "_camoufox_cm"):
             # Camoufox cleanup via its context manager
             try:
@@ -866,6 +1057,18 @@ class BrowserManager:
         checkout.
         """
         return self._instance_is_alive(self._browser)
+
+    @property
+    def has_launched(self) -> bool:
+        """Whether an engine has ever been launched on this manager.
+
+        With lazy start (#143), a fresh server-side manager has not launched
+        anything until the first tool needs it, so ``is_alive`` is legitimately
+        False without any outage. Health reporting uses this to tell "not started
+        yet" (fine) apart from "started then died" (a real #160 outage), rather
+        than reading an un-launched lazy engine as degraded.
+        """
+        return self._ever_started or self._browser is not None
 
     @staticmethod
     def _instance_is_alive(browser: Any | None) -> bool:
@@ -901,13 +1104,28 @@ class BrowserManager:
         tell a dead engine from a broken site.
 
         Raises:
-            RuntimeError: If the browser was never started, or was deliberately
-                stopped — a programming error, distinct from an engine that died
-                under a running server and can be relaunched.
+            RuntimeError: If the browser was deliberately stopped — a retired
+                manager is a programming error to reuse, distinct from one that
+                has simply never launched (lazy first start) or an engine that
+                died under a running server and can be relaunched.
+            StealthNotAvailableError | CamoufoxNotAvailableError: On lazy first
+                start when the configured stealth engine's package is missing —
+                the typed, per-engine error naming what to install (#143).
             BrowserUnavailableError: If the relaunch failed or is in backoff.
         """
         if self._browser is None and not self._ever_started:
-            raise RuntimeError("Browser not initialized. Use 'async with BrowserManager()' context manager.")
+            if self._deliberately_stopped:
+                raise RuntimeError(
+                    "Browser was stopped and is not initialized. Create a new BrowserManager "
+                    "(or use 'async with BrowserManager()') to use it again."
+                )
+            # Lazy first start (#143): nothing has launched yet. Launch the engine
+            # here, on first real use — not at server startup — so a server whose
+            # configured stealth engine is missing still starts and serves every
+            # non-stealth tool, and only a tool that needs this engine fails, with
+            # the typed per-engine error (Stealth/Camoufox NotAvailableError).
+            await self.start()
+            return
         if self.is_alive:
             return
         LOGGER.warning("Browser engine is not connected before fetch; relaunching in-process")
@@ -986,6 +1204,7 @@ class BrowserManager:
             self._browser = None
             self._playwright = None
             self._ever_started = True
+            self._deliberately_stopped = False
             if hasattr(self, "_camoufox_cm"):
                 del self._camoufox_cm
 

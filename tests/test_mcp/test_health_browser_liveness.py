@@ -68,3 +68,25 @@ async def test_a_server_with_no_shared_engine_reports_no_liveness_claim() -> Non
 
     assert "alive" not in result["components"]["browser"]
     assert result["status"] == "healthy"
+
+
+async def test_a_lazily_unlaunched_engine_is_not_degraded() -> None:
+    """A fresh server whose lazy engine has not launched yet is NOT an outage (#143).
+
+    With lazy start, ``is_alive`` is False until the first scrape. That must read
+    as "not started yet" (healthy), distinct from a launched engine that died —
+    otherwise every just-booted server would falsely report degraded, the same
+    confident-liar failure class the health surface exists to prevent.
+    """
+    from supacrawl.services.browser import BrowserManager
+
+    manager = BrowserManager()  # constructed, never started
+    assert manager.has_launched is False
+
+    result = await supacrawl_health(_StubServices(manager), verify_search=False)  # type: ignore[arg-type]
+
+    browser = result["components"]["browser"]
+    assert browser["launched"] is False
+    assert browser["alive"] is False
+    assert "warning" not in browser
+    assert result["status"] == "healthy"

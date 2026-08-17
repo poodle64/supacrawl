@@ -178,8 +178,12 @@ async def create_supacrawl_services(
         engine=config.engine,
     )
 
-    # Initialise browser
-    await browser_manager.start()
+    # Browser startup is deliberately lazy (#143): the engine is launched on the
+    # first tool that actually needs it, not here. This keeps a single missing or
+    # broken stealth engine from cascade-failing the whole server at init — the
+    # server starts and serves every non-browser tool, and a browser tool that
+    # needs an unavailable engine fails on its own with a typed, per-engine error
+    # naming what to install, rather than taking the entire tool surface down.
 
     # Log enabled features
     features = []
