@@ -632,6 +632,15 @@ class SearchResult(BaseModel):
     # an empty/failed result was caused by engines being down, so `data: []` is
     # never mistaken for "no such thing exists" (#161).
     unresponsive_engines: list[SearchEngineError] = Field(default_factory=list)
+    # True when the last full window of caller searches ALL came back empty — the
+    # signal that lets a caller tell an empty `data` that is a genuine no-match
+    # from one that is a backend which has stopped answering (a CAPTCHA-walled
+    # SearXNG replying 200-with-nothing), without polling the health surface.
+    # A single no-match against a healthy run leaves this False; it only trips
+    # once a full RECENT_WINDOW of real searches has come back empty in a row.
+    # Extends the health-only `recent_search_health.all_recent_empty` (#161) onto
+    # the response itself.
+    all_recent_empty: bool = False
 
 
 # =============================================================================

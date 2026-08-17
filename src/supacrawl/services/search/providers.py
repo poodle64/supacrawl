@@ -58,9 +58,20 @@ class ProviderHealth:
     UNAVAILABLE_THRESHOLD: int = 3
     # Re-check an unavailable provider after this many seconds
     COOLDOWN_SECONDS: float = 300.0  # 5 minutes
+    # An unbroken run of this many empty-but-successful answers marks the provider
+    # degraded. An empty answer is NOT a transport failure, so it never trips the
+    # UNAVAILABLE circuit breaker (a provider that legitimately has no match for a
+    # run of queries must not be dropped) — but a sustained empty run is a health
+    # signal, not a clean record: it is how a CAPTCHA-walled backend answering
+    # 200-with-nothing surfaces instead of banking as healthy.
+    EMPTY_DEGRADED_THRESHOLD: int = 3
 
     status: ProviderStatus = ProviderStatus.HEALTHY
     consecutive_failures: int = 0
+    # Consecutive successful-but-empty answers. Distinct from consecutive_failures
+    # because an empty answer means the provider IS reachable and responding — it
+    # just returned nothing. A result with matches resets this to zero.
+    consecutive_empty: int = 0
     last_failure_time: float = 0.0
     last_error: str | None = None
     requests_made: int = 0
@@ -71,11 +82,37 @@ class ProviderHealth:
     remaining_credits: int | None = None
 
     def record_success(self) -> None:
-        """Record a successful request."""
+        """Record a successful request that returned results."""
         self.consecutive_failures = 0
+        self.consecutive_empty = 0
         self.status = ProviderStatus.HEALTHY
         self.last_error = None
         self.requests_made += 1
+
+    def record_empty_success(self) -> None:
+        """Record a request that succeeded at the transport level but returned no results.
+
+        An empty answer is banked distinctly from a result-bearing one: it clears
+        the consecutive-FAILURE count (the provider did answer) but advances a
+        consecutive-EMPTY count, so a run of them reads as degraded rather than as
+        a clean success. It deliberately does NOT drive the UNAVAILABLE circuit
+        breaker — an empty result may be a genuine no-match, and dropping the
+        provider for that would be wrong. A single empty is not yet a verdict; a
+        run past ``EMPTY_DEGRADED_THRESHOLD`` is. The climbing ``consecutive_empty``
+        is visible via ``to_dict()`` throughout.
+        """
+        self.consecutive_failures = 0
+        self.consecutive_empty += 1
+        self.last_error = None
+        self.requests_made += 1
+        if self.consecutive_empty >= self.EMPTY_DEGRADED_THRESHOLD:
+            self.status = ProviderStatus.DEGRADED
+        elif self.status == ProviderStatus.UNAVAILABLE:
+            # It just answered, so the transport has recovered and the failure
+            # count is back to zero — it is no longer "unavailable". A bare empty
+            # is not a clean bill of health either, so it lands on DEGRADED rather
+            # than HEALTHY, keeping the status consistent with consecutive_failures=0.
+            self.status = ProviderStatus.DEGRADED
 
     def record_failure(self, error: str) -> None:
         """Record a failed request and update status."""
@@ -117,6 +154,7 @@ class ProviderHealth:
             "status": self.status.value,
             "requests_made": self.requests_made,
             "consecutive_failures": self.consecutive_failures,
+            "consecutive_empty": self.consecutive_empty,
             "last_error": self.last_error,
         }
         if self.remaining_credits is not None:
@@ -431,9 +469,31 @@ class ProviderChain:
             raise RuntimeError(msg)
 
         last_error: BaseException | None = None
+        # The first provider to answer with an *empty* result, banked so the chain
+        # can keep trying providers that might have matches while still returning a
+        # genuine no-match (success, no data) if none do. An empty answer is not a
+        # failure — but it is also not a reason to stop looking: stopping on the
+        # first empty is exactly what let a CAPTCHA-walled SearXNG read "healthy"
+        # while a second configured provider sat inert (extends #132/#156/#158/#161).
+        # This only ever iterates providers already IN the chain, so it never
+        # reaches a public engine the operator did not configure or opt into — the
+        # registry decides who is in the chain, honouring the #156/#158 stance.
+        empty_results: list[SearchResultItem] | None = None
+        empty_provider: str | None = None
+        # The last provider NOT in configured_names that this search actually
+        # reached over the wire (it answered, or it raised AFTER making its request
+        # — a CAPTCHA/HTTP/timeout error). A NotImplementedError, raised before any
+        # request, is deliberately NOT a consultation. Under
+        # SUPACRAWL_SEARCH_PUBLIC_FALLBACK the empty-fallthrough can legitimately
+        # reach DuckDuckGo; if the whole chain comes back empty the response must
+        # still say a query left in-house (provider_fallback), not attribute an
+        # all-empty result to the configured backend and hide that the public
+        # engine was queried (#158 audit trail).
+        consulted_unconfigured: str | None = None
 
         for provider in active:
             health = self._health[provider.name]
+            is_unconfigured = bool(self.configured_names) and provider.name not in self.configured_names
             try:
                 LOGGER.debug(f"Trying provider {provider.name} for {source} search [correlation_id={correlation_id}]")
 
@@ -447,37 +507,19 @@ class ProviderChain:
                     LOGGER.warning(f"Unknown source type: {source} [correlation_id={correlation_id}]")
                     return []
 
-                health.record_success()
-                self.last_provider = provider.name
-                if self.configured_names and provider.name not in self.configured_names:
-                    LOGGER.warning(
-                        f"Search served by {provider.name!r}, which is NOT a configured provider "
-                        f"(configured: {self.configured_names}). Queries are leaving via a provider "
-                        f"the operator did not select [correlation_id={correlation_id}]"
-                    )
-
-                # Sync remaining-quota from the provider into health so it is
-                # visible via get_health() / supacrawl_health.  Only providers
-                # that expose quota headers (currently Brave) set this attribute.
-                provider_remaining = getattr(provider, "remaining_credits", None)
-                if provider_remaining is not None:
-                    health.record_quota(provider_remaining)
-                    if provider_remaining < LOW_CREDIT_THRESHOLD:
-                        LOGGER.warning(
-                            f"LOW CREDIT WARNING — {provider.name} has {provider_remaining} API credits "
-                            f"remaining (threshold: {LOW_CREDIT_THRESHOLD}). "
-                            f"{renewal_hint(provider.name)} to avoid search outages "
-                            f"[correlation_id={correlation_id}]"
-                        )
-
-                return results
-
             except NotImplementedError:
                 # Provider doesn't support this source type — skip silently
                 LOGGER.debug(f"Provider {provider.name} does not support {source} search, skipping")
                 continue
 
             except Exception as e:
+                # Any non-NotImplementedError exception is raised BY the provider's
+                # request (CAPTCHA, HTTP error, timeout) — the wire call was made,
+                # so an unconfigured provider reaching here did receive the query.
+                # (NotImplementedError, handled above, is raised before any call and
+                # so must NOT count as a consultation.)
+                if is_unconfigured:
+                    consulted_unconfigured = provider.name
                 last_error = e
                 error_msg = str(e)
                 health.record_failure(error_msg)
@@ -499,13 +541,82 @@ class ProviderChain:
                         f"[correlation_id={correlation_id}]"
                     )
                     continue
-                else:
-                    # Non-fallback error (e.g. malformed query) — don't try other providers
+                # Non-fallback error (e.g. malformed query) — don't try other
+                # providers. But if an earlier provider already answered (even
+                # with an empty set), that is a valid result in hand: a later
+                # provider's hard error must not discard it.
+                if empty_results is not None:
                     LOGGER.error(
-                        f"Provider {provider.name} failed with non-fallback error: {error_msg} "
+                        f"Provider {provider.name} failed with non-fallback error: {error_msg}; "
+                        f"returning the earlier empty result from {empty_provider!r} "
                         f"[correlation_id={correlation_id}]"
                     )
-                    raise
+                    break
+                LOGGER.error(
+                    f"Provider {provider.name} failed with non-fallback error: {error_msg} "
+                    f"[correlation_id={correlation_id}]"
+                )
+                raise
+
+            else:
+                # Provider answered (returned, empty or not) — the wire call was made.
+                if is_unconfigured:
+                    consulted_unconfigured = provider.name
+
+                # A result WITH matches ends the chain here.
+                if results:
+                    health.record_success()
+                    self.last_provider = provider.name
+                    if self.configured_names and provider.name not in self.configured_names:
+                        LOGGER.warning(
+                            f"Search served by {provider.name!r}, which is NOT a configured provider "
+                            f"(configured: {self.configured_names}). Queries are leaving via a provider "
+                            f"the operator did not select [correlation_id={correlation_id}]"
+                        )
+
+                    # Sync remaining-quota from the provider into health so it is
+                    # visible via get_health() / supacrawl_health.  Only providers
+                    # that expose quota headers (currently Brave) set this attribute.
+                    provider_remaining = getattr(provider, "remaining_credits", None)
+                    if provider_remaining is not None:
+                        health.record_quota(provider_remaining)
+                        if provider_remaining < LOW_CREDIT_THRESHOLD:
+                            LOGGER.warning(
+                                f"LOW CREDIT WARNING — {provider.name} has {provider_remaining} API credits "
+                                f"remaining (threshold: {LOW_CREDIT_THRESHOLD}). "
+                                f"{renewal_hint(provider.name)} to avoid search outages "
+                                f"[correlation_id={correlation_id}]"
+                            )
+
+                    return results
+
+                # An empty answer: mark the empty run on this provider's health,
+                # bank the first one for provenance, and try the next provider.
+                # Health now separates "answered with results" from "answered with
+                # nothing", so a sustained empty run is visible instead of being
+                # banked as a clean success.
+                health.record_empty_success()
+                if empty_results is None:
+                    # Bank a fresh empty list, not ``results`` itself: an empty
+                    # answer carries no items, and coercing here means a provider
+                    # that (against the protocol) returned None can never leak a
+                    # None into the returned value or defeat the not-None sentinel.
+                    empty_results = []
+                    empty_provider = provider.name
+                LOGGER.debug(
+                    f"Provider {provider.name} returned no results for {source} search, "
+                    f"trying next provider [correlation_id={correlation_id}]"
+                )
+
+        # Every provider that answered did so with an empty set: a genuine no-match
+        # across the whole configured chain. Return it as success-with-no-data
+        # (never an error — a query with nothing to find is a real outcome). Attribute
+        # it to the unconfigured provider if one was consulted (so the response and
+        # the health surface both show a query reached a public engine), otherwise to
+        # the first configured provider that answered.
+        if empty_results is not None:
+            self.last_provider = consulted_unconfigured or empty_provider
+            return empty_results
 
         # All providers failed with fallback-eligible errors
         if last_error is None:

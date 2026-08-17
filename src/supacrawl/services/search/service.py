@@ -539,9 +539,19 @@ class SearchService:
         caller traffic (``record_recent``), never the synthetic probe. Telemetry
         is a no-op when disabled (``started`` is None) and its errors never affect
         the search result.
+
+        The ``all_recent_empty`` flag is copied onto the result AFTER the window
+        update so a caller can tell a genuine no-match from a backend that has
+        stopped answering, reading it off the response instead of having to poll
+        the health surface (extends #161).
         """
         if record_recent:
             self._recent_empty.append(not result.data)
+        # Gate on ``not result.data`` so the flag can never contradict the result it
+        # rides on: it means "this empty is part of a sustained empty run", so a
+        # response that DID return data always reports False, even if a prior
+        # record_recent=False call left the window stale.
+        result.all_recent_empty = not result.data and bool(self.recent_search_health["all_recent_empty"])
         if started is not None and self._telemetry is not None:
             latency_ms = int((time.monotonic() - started) * 1000)
             self._telemetry.record_search(
