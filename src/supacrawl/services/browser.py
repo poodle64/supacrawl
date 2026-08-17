@@ -748,6 +748,11 @@ class BrowserManager:
         # Distinguishes "never started yet" (lazy-start on first use, #143) from
         # "deliberately stopped" (a retired manager, not to be resurrected).
         self._deliberately_stopped = False
+        # Monotonic: True once any engine has launched, and never reset (stop()
+        # clears _ever_started, but a manager that launched-then-stopped is still
+        # "has launched" — health must not read a retired engine as "never
+        # started, fine"). Backs the public has_launched property.
+        self._has_ever_launched = False
         self.relaunches = 0
         self._consecutive_relaunch_failures = 0
         # None, never 0.0: monotonic() starts near process uptime, so 0.0 reads as
@@ -943,6 +948,7 @@ class BrowserManager:
             await self._start_playwright()
         self._ever_started = True
         self._deliberately_stopped = False
+        self._has_ever_launched = True
 
     async def _start_playwright(self) -> None:
         """Start browser via Playwright or Patchright."""
@@ -1066,9 +1072,11 @@ class BrowserManager:
         anything until the first tool needs it, so ``is_alive`` is legitimately
         False without any outage. Health reporting uses this to tell "not started
         yet" (fine) apart from "started then died" (a real #160 outage), rather
-        than reading an un-launched lazy engine as degraded.
+        than reading an un-launched lazy engine as degraded. Monotonic — a manager
+        that launched then stopped still reads True, so a retired engine is never
+        mistaken for one that simply has not started yet.
         """
-        return self._ever_started or self._browser is not None
+        return self._has_ever_launched
 
     @staticmethod
     def _instance_is_alive(browser: Any | None) -> bool:
@@ -1113,21 +1121,33 @@ class BrowserManager:
                 the typed, per-engine error naming what to install (#143).
             BrowserUnavailableError: If the relaunch failed or is in backoff.
         """
+        if self.is_alive:
+            return
         if self._browser is None and not self._ever_started:
-            if self._deliberately_stopped:
-                raise RuntimeError(
-                    "Browser was stopped and is not initialized. Create a new BrowserManager "
-                    "(or use 'async with BrowserManager()') to use it again."
-                )
             # Lazy first start (#143): nothing has launched yet. Launch the engine
             # here, on first real use — not at server startup — so a server whose
             # configured stealth engine is missing still starts and serves every
             # non-stealth tool, and only a tool that needs this engine fails, with
             # the typed per-engine error (Stealth/Camoufox NotAvailableError).
-            await self.start()
-            return
-        if self.is_alive:
-            return
+            #
+            # Serialised on the relaunch lock: a shared server-side manager takes a
+            # burst of concurrent first-use calls (scrape/crawl/map/search all ride
+            # one manager), and an unguarded start would launch one engine PER
+            # caller and orphan every loser. The double-check under the lock lets
+            # the first caller launch while the rest see the started engine.
+            async with self._relaunch_lock:
+                if self.is_alive:
+                    return  # a concurrent first-use caller already launched it
+                if self._browser is None and not self._ever_started:
+                    if self._deliberately_stopped:
+                        raise RuntimeError(
+                            "Browser was stopped and is not initialized. Create a new BrowserManager "
+                            "(or use 'async with BrowserManager()') to use it again."
+                        )
+                    await self.start()
+                    return
+            # Fell through: another caller started it but it is not alive — a start
+            # that raced with an immediate death. Fall to the relaunch path below.
         LOGGER.warning("Browser engine is not connected before fetch; relaunching in-process")
         await self.relaunch()
 

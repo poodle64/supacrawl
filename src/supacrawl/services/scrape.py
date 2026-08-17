@@ -52,6 +52,7 @@ from supacrawl.services.browser import (
     PageContent,
     PageMetadata,
     StealthNotAvailableError,
+    engine_availability,
 )
 from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.detection import detect_bot_protection, estimate_js_requirement
@@ -257,20 +258,26 @@ def _is_camoufox_available() -> bool:
 
 
 def _engine_available(engine: str | None) -> bool:
-    """Whether an engine can be used, i.e. its package is installed (#143).
+    """Whether an engine can actually be used for an escalation choice (#143).
 
-    ``playwright`` is a base dependency and always available. Guards escalation
-    choices — a platform short-circuit or a learned strategy-memory champion —
-    from picking a stealth engine that is not installed, which would otherwise
-    turn a scrape into a clear-but-avoidable infrastructure failure instead of
-    degrading to the engine that IS present.
+    Guards a platform short-circuit or a learned strategy-memory champion from
+    picking a stealth engine that cannot launch — which would otherwise turn a
+    scrape into a clear-but-avoidable infrastructure failure instead of degrading
+    to the engine that IS present. Uses the same binary-aware check that
+    supacrawl_diagnose reports (#144): a package installed but with its browser
+    binary not fetched (a bare ``uv sync`` / no ``patchright install`` /
+    ``camoufox fetch``) is NOT usable, and must be skipped just like a missing
+    package — otherwise the launch fails with a raw "executable not found" that
+    is not one of the typed engine errors and misclassifies as EMPTY.
+
+    ``playwright`` is the base fallback and is never gated here (the ladder never
+    skips its own floor); its own binary health surfaces via diagnose and, on a
+    real launch, the lazy-start/relaunch path.
     """
     if engine in (None, "playwright"):
         return True
-    if engine == "patchright":
-        return _is_patchright_available()
-    if engine == "camoufox":
-        return _is_camoufox_available()
+    if engine in ("patchright", "camoufox"):
+        return bool(engine_availability(engine)["available"])
     return False
 
 

@@ -74,6 +74,34 @@ class TestLazyStart:
         assert started["count"] == 1  # launched lazily on first use
 
     @pytest.mark.asyncio
+    async def test_concurrent_first_use_launches_exactly_one_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A burst of concurrent first-use must launch ONE engine, not one per caller.
+
+        The shared server-side manager is hit by scrape/crawl/map/search at once
+        on a just-booted server; an unguarded lazy start would launch a browser
+        per caller and orphan every loser (a real regression from moving startup
+        off the synchronous init path).
+        """
+        import asyncio
+
+        started = {"count": 0}
+
+        async def _slow_start(self: BrowserManager) -> None:
+            # Yield so all callers pile up on the lazy branch before any completes.
+            await asyncio.sleep(0.02)
+            started["count"] += 1
+            self._browser = object()  # type: ignore[assignment]
+            self._ever_started = True
+
+        monkeypatch.setattr(BrowserManager, "start", _slow_start)
+        monkeypatch.setattr(BrowserManager, "is_alive", property(lambda self: self._browser is not None))
+
+        manager = BrowserManager()
+        await asyncio.gather(*(manager.ensure_started() for _ in range(8)))
+
+        assert started["count"] == 1, "concurrent first use must launch exactly one engine"
+
+    @pytest.mark.asyncio
     async def test_missing_stealth_engine_raises_typed_error_on_use_not_at_construction(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -123,21 +151,24 @@ class TestMissingEngineClassification:
         assert "camoufox" in result.error.lower()
 
 
+class _Platform:
+    name = "foleon"
+    engine = "camoufox"
+    wait_for = 8000
+    only_main_content = False
+    expand_iframes = "all"
+    actions: list[Any] = []
+
+
 class TestEscalationAvailabilityGating:
     def test_platform_short_circuit_skips_an_uninstalled_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A tuned platform engine that is missing must not be chosen (#143)."""
         from supacrawl.services import scrape as scrape_mod
 
-        class _Platform:
-            name = "foleon"
-            engine = "camoufox"
-            wait_for = 8000
-            only_main_content = False
-            expand_iframes = "all"
-            actions: list[Any] = []
-
-        # camoufox unavailable → the platform rung must be skipped; with nothing
-        # else installed either, the ladder yields None rather than a camoufox rung.
+        # camoufox unavailable (both the binary-aware gate and the generic-ladder
+        # import checks) → the platform rung is skipped and nothing else is
+        # installed, so the ladder yields None rather than a camoufox rung.
+        monkeypatch.setattr(scrape_mod, "engine_availability", lambda engine: {"available": False})
         monkeypatch.setattr(scrape_mod, "_is_camoufox_available", lambda: False)
         monkeypatch.setattr(scrape_mod, "_is_patchright_available", lambda: False)
         rung = scrape_mod._next_escalation(
@@ -148,14 +179,7 @@ class TestEscalationAvailabilityGating:
     def test_platform_short_circuit_used_when_engine_is_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from supacrawl.services import scrape as scrape_mod
 
-        class _Platform:
-            name = "foleon"
-            engine = "camoufox"
-            wait_for = 8000
-            only_main_content = False
-            expand_iframes = "all"
-            actions: list[Any] = []
-
+        monkeypatch.setattr(scrape_mod, "engine_availability", lambda engine: {"available": True})
         monkeypatch.setattr(scrape_mod, "_is_camoufox_available", lambda: True)
         monkeypatch.setattr(scrape_mod, "_is_patchright_available", lambda: True)
         rung = scrape_mod._next_escalation(
@@ -163,6 +187,36 @@ class TestEscalationAvailabilityGating:
         )
         assert rung is not None
         assert rung.engine == "camoufox"
+
+    def test_gate_skips_a_package_present_but_binary_missing_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The #144/#143 join: an installed package with no browser binary is NOT usable.
+
+        This is the common real misconfiguration (a bare ``uv sync``, or no
+        ``patchright install`` / ``camoufox fetch``). It must be skipped exactly
+        like a missing package, or the launch fails with a raw "executable not
+        found" that misclassifies as EMPTY instead of degrading.
+        """
+        from supacrawl.services import browser as browser_mod
+        from supacrawl.services import scrape as scrape_mod
+
+        # Package present, browser binary absent — the binary-aware check the gate
+        # now uses must report the engine unusable.
+        monkeypatch.setattr(browser_mod, "_package_installed", lambda pkg: True)
+        monkeypatch.setattr(browser_mod, "_chromium_browser_installed", lambda: False)
+        monkeypatch.setattr(browser_mod, "_camoufox_browser_installed", lambda: False)
+
+        assert scrape_mod._engine_available("patchright") is False
+        assert scrape_mod._engine_available("camoufox") is False
+        # The base engine is never gated away.
+        assert scrape_mod._engine_available("playwright") is True
+
+        # And the platform short-circuit therefore skips the binary-missing engine.
+        monkeypatch.setattr(scrape_mod, "_is_camoufox_available", lambda: False)
+        monkeypatch.setattr(scrape_mod, "_is_patchright_available", lambda: False)
+        rung = scrape_mod._next_escalation(
+            engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=False, platform=_Platform()
+        )
+        assert rung is None
 
 
 # ---------------------------------------------------------------------------
