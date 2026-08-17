@@ -50,6 +50,7 @@ Every setting is a standing default; a per-request flag or API argument still ov
 | anti_bot | `stealth` | `SUPACRAWL_STEALTH` | `false` | Start with Patchright. Usually unnecessary. |
 | anti_bot | `escalate` | `SUPACRAWL_ESCALATE` | `true` | Auto-climb the engine/stealth ladder on a poor result. |
 | anti_bot | `solve_captcha` | `SUPACRAWL_SOLVE_CAPTCHA` | `false` | Needs a CAPTCHA API key; each solve costs money. |
+| anti_bot | _(env only)_ | `SUPACRAWL_CAPTCHA_FAIL_FAST` | `true` | Stop after one attempt on a bare CAPTCHA wall instead of walking the whole engine ladder — a stronger engine does not solve a CAPTCHA, so the three further escalations are wasted (#153). A CAPTCHA inside a CDN managed-challenge interstitial (Cloudflare "just a moment") is a `bot_challenge`, not a `captcha`, and still escalates. Set `0` to restore the full-ladder walk. |
 | content | `only_main_content` | `SUPACRAWL_ONLY_MAIN_CONTENT` | `true` | Strip nav/header/footer. |
 | search | `search_providers` | `SUPACRAWL_SEARCH_PROVIDERS` | _(none)_ | Ordered fallback chain, e.g. `brave,tavily,serper`. |
 | search | `search_provider` | `SUPACRAWL_SEARCH_PROVIDER` | `brave` | Legacy single provider. |

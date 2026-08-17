@@ -21,6 +21,7 @@ CAPTCHA Solving (optional, requires third-party service):
 
 import base64
 import logging
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Sequence
@@ -103,14 +104,39 @@ _LOW_DENSITY_WORDS_PER_KB = 1.0
 # Verdicts where a stronger fetch (stealth engine, longer hydration wait) could
 # plausibly recover real content. A genuine 404 (ERROR_STATUS), a paywall, or a
 # merely-short page are NOT here: escalating them only burns latency.
+#
+# CAPTCHA is deliberately absent (#153): a bare third-party CAPTCHA wall
+# (reCAPTCHA/hCaptcha/standalone Turnstile) is a terminal condition for the
+# engine ladder — a stronger stealth engine does not solve a CAPTCHA, so the
+# three further escalations are pure wasted wall-clock. Fail fast on it and hand
+# the caller the CAPTCHA suggestion (enable solve_captcha, or fetch elsewhere)
+# after a single attempt. A CAPTCHA widget wrapped in a CDN "managed challenge"
+# interstitial (Cloudflare "just a moment") is a stealth engine's job and is
+# classified BOT_CHALLENGE instead (see quality._classify), so it keeps
+# escalating. SUPACRAWL_CAPTCHA_FAIL_FAST=0 restores the walk-the-whole-ladder
+# behaviour (see _captcha_fail_fast).
 _ESCALATABLE_VERDICTS: frozenset[QualityVerdict] = frozenset(
     {
         QualityVerdict.BOT_CHALLENGE,
-        QualityVerdict.CAPTCHA,
         QualityVerdict.JS_SHELL,
         QualityVerdict.EMPTY,
     }
 )
+
+
+def _captcha_fail_fast() -> bool:
+    """Whether a genuine CAPTCHA verdict should stop the ladder after one attempt.
+
+    Default True (#153): escalating a CAPTCHA wall through the stealth/engine
+    ladder wastes three doomed attempts because no stronger engine solves a
+    CAPTCHA. Set ``SUPACRAWL_CAPTCHA_FAIL_FAST=0`` (or ``false``/``no``) to keep
+    CAPTCHA escalatable — the override that keeps this heuristic falsifiable: a
+    caller who believes a CAPTCHA-classified page would in fact yield to a
+    stronger engine can turn the short-circuit off and see the full ladder run.
+    """
+    return os.environ.get("SUPACRAWL_CAPTCHA_FAIL_FAST", "1").strip().lower() not in ("0", "false", "no")
+
+
 # Maximum number of *extra* attempts beyond the first (the escalation budget).
 # The default ladder is playwright → patchright → camoufox → camoufox+HTTP/1.1,
 # so three escalations cover the full ladder.
@@ -1521,14 +1547,28 @@ class ScrapeService:
 
         has_response = result.data is not None
         verdict = result.quality.verdict if result.quality else None
+        # A CAPTCHA wall fails fast (#153): a stronger engine will not solve a
+        # CAPTCHA, so the ladder stops after one attempt unless the operator has
+        # explicitly opted back into walking it (SUPACRAWL_CAPTCHA_FAIL_FAST=0).
+        captcha_wall = verdict == QualityVerdict.CAPTCHA
+        captcha_escalatable = captcha_wall and not _captcha_fail_fast()
         # A thin result on a known site-builder (Wix/Squarespace/Framer/Foleon) is
         # escalatable even though THIN is not in the generic set: the platform has
         # a tuned engine that reliably renders it, where the generic ladder would
         # not fire. `platform` is only set on a thin browser result.
+        escalatable_verdict = verdict in _ESCALATABLE_VERDICTS or captcha_escalatable
         wants_escalation = http2_error or (
-            has_response
-            and ((verdict in _ESCALATABLE_VERDICTS) or platform is not None or (expect is not None and not expect_met))
+            has_response and (escalatable_verdict or platform is not None or (expect is not None and not expect_met))
         )
+        # Make the fail-fast an audible decision, not a silent skip: when a
+        # CAPTCHA is what stopped us (rather than a bare exhausted ladder), record
+        # that we chose not to continue and how to override it, so a caller can
+        # tell "we deliberately stopped on a CAPTCHA" from "the site was empty".
+        if escalate and captcha_wall and not captcha_escalatable and result.quality is not None:
+            result.quality.reasons.append(
+                "fail-fast: stopped after one attempt — a stronger engine does not solve a CAPTCHA "
+                "(set SUPACRAWL_CAPTCHA_FAIL_FAST=0 to walk the full ladder, or enable solve_captcha)"
+            )
         if not escalate or not wants_escalation or level >= _MAX_ESCALATIONS:
             return result
 

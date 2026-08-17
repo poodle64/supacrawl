@@ -20,6 +20,12 @@ pytestmark = pytest.mark.asyncio
 
 _BLOCKED_HTML = "<html><body><h1>Access Denied</h1><p>You have been blocked.</p></body></html>"
 _GOOD_HTML = "<html><body><main><p>" + " ".join(f"word{i}" for i in range(200)) + "</p></main></body></html>"
+# A bare third-party CAPTCHA wall: a reCAPTCHA widget, no CDN interstitial text,
+# no usable content. A stronger engine cannot solve it (#153).
+_CAPTCHA_HTML = '<html><body><div class="g-recaptcha" data-sitekey="abc"></div></body></html>'
+# A CAPTCHA widget wrapped in a Cloudflare managed-challenge interstitial: a
+# stealth engine's job, so this must keep escalating.
+_CF_INTERSTITIAL_HTML = '<html><body><h1>Just a moment...</h1><div class="cf-turnstile"></div></body></html>'
 
 
 def _meta() -> PageMetadata:
@@ -101,6 +107,60 @@ async def test_escalation_budget_bounds_attempts(monkeypatch: pytest.MonkeyPatch
     # playwright -> patchright -> camoufox -> camoufox+HTTP/1.1 == 4 attempts, no more.
     assert result.quality.attempts == 4
     assert len(created) == 4
+
+
+async def test_captcha_wall_fails_fast_after_one_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A bare CAPTCHA wall is terminal for the engine ladder (#153): stop after a
+    # single attempt rather than burning three doomed escalations, and hand the
+    # caller the CAPTCHA suggestion immediately.
+    monkeypatch.delenv("SUPACRAWL_CAPTCHA_FAIL_FAST", raising=False)
+    created = _patch_ladder(monkeypatch, lambda engine, stealth: (_CAPTCHA_HTML, 200))
+    result = await ScrapeService().scrape("https://x.example", formats=["markdown"], http_first=False)
+
+    assert result.success is False
+    assert result.quality is not None
+    assert result.quality.verdict == QualityVerdict.CAPTCHA
+    assert result.quality.attempts == 1  # was 4 before fail-fast
+    assert result.quality.escalated is False
+    assert len(created) == 1  # only the first attempt ran
+    # The suggestion the escalation used to arrive at only after four attempts is
+    # present on the very first result.
+    assert result.quality.suggestion is not None and "captcha" in result.quality.suggestion.lower()
+    # The fail-fast is an audible decision, not a silent skip.
+    assert any("fail-fast" in r for r in result.quality.reasons)
+
+
+async def test_captcha_fail_fast_override_walks_the_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Falsifiability: SUPACRAWL_CAPTCHA_FAIL_FAST=0 restores the full ladder walk,
+    # so a caller who disagrees with the short-circuit can see it run.
+    monkeypatch.setenv("SUPACRAWL_CAPTCHA_FAIL_FAST", "0")
+    created = _patch_ladder(monkeypatch, lambda engine, stealth: (_CAPTCHA_HTML, 200))
+    result = await ScrapeService().scrape("https://x.example", formats=["markdown"], http_first=False)
+
+    assert result.quality is not None
+    assert result.quality.verdict == QualityVerdict.CAPTCHA
+    assert result.quality.attempts == 4  # ladder walked to exhaustion, as before
+    assert len(created) == 4
+
+
+async def test_cloudflare_interstitial_with_captcha_still_escalates(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A CAPTCHA widget inside a Cloudflare "just a moment" interstitial is a
+    # stealth engine's job — it must NOT be misread as a hard CAPTCHA wall and
+    # fail fast. It classifies BOT_CHALLENGE and keeps escalating (#153 guard).
+    monkeypatch.delenv("SUPACRAWL_CAPTCHA_FAIL_FAST", raising=False)
+
+    def respond(engine: str | None, stealth: bool) -> tuple[str, int]:
+        if stealth or engine == "camoufox":
+            return _GOOD_HTML, 200
+        return _CF_INTERSTITIAL_HTML, 200
+
+    created = _patch_ladder(monkeypatch, respond)
+    result = await ScrapeService().scrape("https://x.example", formats=["markdown"], http_first=False)
+
+    assert result.success is True
+    assert result.quality is not None and result.quality.verdict == QualityVerdict.OK
+    assert result.quality.escalated is True
+    assert len(created) >= 2  # the interstitial escalated to a stealth engine
 
 
 async def test_escalate_false_takes_a_single_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
