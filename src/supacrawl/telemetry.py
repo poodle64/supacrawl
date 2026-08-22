@@ -117,7 +117,12 @@ class MetricsSink:
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
-    def default(cls) -> "MetricsSink | None":
+    def default(
+        cls,
+        metrics_token: str | None = None,
+        *,
+        metrics_token_vended: bool = False,
+    ) -> "MetricsSink | None":
         """Return a default sink, or None when telemetry is disabled.
 
         ``SUPACRAWL_METRICS=0`` (or ``false``/``off``/``no``) disables it, as does
@@ -125,6 +130,19 @@ class MetricsSink:
         ``SUPACRAWL_METRICS_FULL_URL=1`` / ``metrics_full_url = true`` opts into
         full URLs/queries. Used by the CLI and MCP wiring so field telemetry is on
         out of the box for the primary entry points while remaining opt-out and local.
+
+        The Loki push bearer resolves one of two ways, never both:
+
+        - *Env path* (``metrics_token_vended`` False, the default for the CLI and
+          REST API): read ``SUPACRAWL_METRICS_TOKEN`` exactly as before — no
+          broker, no change.
+        - *Broker path* (``metrics_token_vended`` True, the MCP server vends
+          in-process from Portcullis): *metrics_token* is authoritative. When the
+          vend succeeded it carries the bearer; when the vend declined (broker
+          unreachable, vault locked) it is ``None`` and remote telemetry is
+          disabled with NO env fallback — that env token is the stale path the
+          broker replaced, and falling back to it would reintroduce the silent
+          401s that prompted the move. One resolution per mode, not a dual path.
         """
         from supacrawl.config import SupacrawlSecrets, load_config
 
@@ -132,9 +150,10 @@ class MetricsSink:
         if not config.metrics:
             return None
         secrets = SupacrawlSecrets.from_env()
+        token = metrics_token if metrics_token_vended else secrets.metrics_token
         remote = build_remote_sink(
             config.metrics_remote_url,
-            token=secrets.metrics_token,
+            token=token,
             username=config.metrics_remote_username,
             password=secrets.metrics_password,
             tenant=config.metrics_remote_tenant,

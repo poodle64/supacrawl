@@ -46,6 +46,9 @@ from supacrawl.services.registry import create_supacrawl_services
 # server's own label would be "supacrawl", which names the consumer rather than
 # the credential family that could not be produced.
 _SEARXNG_VENDOR = "searxng"
+# The Loki push-token family — also the catalogue entry name, so a warning names
+# the credential an operator can grep for.
+_METRICS_VENDOR = "loki-push"
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -114,9 +117,12 @@ class SupacrawlServer(BaseMCPServer):
         """Create and return the supacrawl services wrapper."""
         self.logger.info("Initialising Supacrawl services")
         searxng_username, searxng_password = await self._vend_searxng_credential()
+        metrics_token, metrics_token_vended = await self._vend_metrics_token()
         return await create_supacrawl_services(
             searxng_username=searxng_username,
             searxng_password=searxng_password,
+            metrics_token=metrics_token,
+            metrics_token_vended=metrics_token_vended,
         )
 
     async def _vend_searxng_credential(self) -> tuple[str | None, str | None]:
@@ -160,6 +166,66 @@ class SupacrawlServer(BaseMCPServer):
 
         self.logger.info("SearXNG credential resolved from Portcullis")
         return username, password
+
+    async def _vend_metrics_token(self) -> tuple[str | None, bool]:
+        """Fetch the Loki push bearer from Portcullis, when one is named.
+
+        Mirrors ``_vend_searxng_credential`` in shape but degrades instead of
+        failing closed. Telemetry is best-effort by design — the remote sink is
+        fail-open and a scrape must never depend on a log-shipping credential —
+        so a broker gap (the vault re-locks within ~15–35 minutes of an unlock,
+        ``portcullis#178``) disables remote metrics with a WARNING and the
+        server keeps serving scrapes and searches. The local ``events.jsonl``
+        is unaffected either way; only the remote push goes quiet. Refusing to
+        start or failing a scrape over a telemetry token would make the
+        recurring "a mechanism that exists, reads correct, and does nothing"
+        shape worse, not better.
+
+        ``metrics_portcullis_credential`` unset ("") returns ``(None, False)``:
+        no vend was requested, so the sink resolves the bearer from
+        ``SUPACRAWL_METRICS_TOKEN`` exactly as it did before — the env var is
+        the unset-case fallback, the same role ``SEARXNG_USERNAME`` /
+        ``SEARXNG_PASSWORD`` play for the SearXNG credential. A vended token
+        (or a failed vend) returns ``vended=True`` so the sink treats the
+        broker as authoritative: there is deliberately NO env fallback on a
+        vend failure, because that env token is the stale path this move
+        replaced — falling back to it would reintroduce the silent 401s.
+
+        Returns:
+            ``(token, vended)``. *token* is the vended bearer, or ``None`` when
+            the vend declined (degraded) or no credential is named. *vended*
+            is ``True`` when the broker path is active (the token, even
+            ``None``, is authoritative — no env fallback) and ``False`` when it
+            is not (the env var resolves as before).
+        """
+        name = self._settings.metrics_portcullis_credential
+        if not name:
+            return None, False
+
+        try:
+            fields = await self.vend_static_fields(name, vendor=_METRICS_VENDOR)
+        except self.portcullis_connection_error_cls:
+            # Broker unreachable, vault locked (423), out of scope, or no
+            # session — every gap maps to the typed connection error. Degrade:
+            # no remote metrics, keep serving. The message names no remedy,
+            # no CLI verb, no vault path (rule 17) — and never the token.
+            self.logger.warning(
+                "Loki push token could not be resolved from Portcullis; remote "
+                "telemetry is disabled. The server keeps serving and the local "
+                "event log is unaffected."
+            )
+            return None, True
+
+        token = fields.get("value") or None
+        if not token:
+            self.logger.warning(
+                "Portcullis returned no Loki push token; remote telemetry is "
+                "disabled. The local event log is unaffected."
+            )
+            return None, True
+
+        self.logger.info("Loki push token resolved from Portcullis")
+        return token, True
 
     def register_tools(self) -> None:
         """Register all MCP tools, resources, and prompts."""

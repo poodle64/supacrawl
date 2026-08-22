@@ -143,3 +143,19 @@ def config_secrets() -> None:
             "  This CLI and the REST API do not read the broker; for them the environment is "
             "still the only source."
         )
+
+    # Same shape for the Loki push token: the MCP server vends it from the broker
+    # at startup (defaulting to the "loki-push" catalogue entry), so an operator
+    # who has set the broker name reads "metrics_token: -" and knows that is the
+    # brokered path, not a missing remote-sink config. The catalogue NAME only —
+    # never a value. Only reported when the env override is set; the MCP server's
+    # own "loki-push" default is a SupacrawlSettings concern this CLI does not read.
+    metrics_brokered = os.environ.get("SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL")
+    if metrics_brokered:
+        click.echo(
+            f"\nmetrics_portcullis_credential: {metrics_brokered}\n"
+            "  The MCP server fetches the Loki push token from the secrets broker at "
+            "startup, so SUPACRAWL_METRICS_TOKEN is expected to be unset here.\n"
+            "  This CLI and the REST API do not read the broker; for them the environment "
+            "is still the only source."
+        )

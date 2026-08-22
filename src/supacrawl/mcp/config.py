@@ -150,6 +150,31 @@ class SupacrawlSettings(BaseMCPSettings):
         ),
     )
 
+    # The catalogue name of the Loki push-token credential to vend from the
+    # Portcullis broker at server startup, so the bearer that authenticates
+    # remote-telemetry pushes never has to exist as an environment variable
+    # on the host. Defaults to "loki-push": the MCP server is the long-running
+    # entry point that ships field telemetry to the household Loki, and the
+    # env-var path it replaces was silently stale (a rotated bearer that
+    # whatever resolves ${SUPACRAWL_METRICS_TOKEN} in the launching shell never
+    # refreshed, so pushes 401'd unnoticed). Unset ("") means no vend and the
+    # token resolves from SUPACRAWL_METRICS_TOKEN exactly as before — the env
+    # var is the unset-case fallback only, never a second source alongside the
+    # broker. When the broker cannot produce a token the server degrades — no
+    # remote metrics, a warning, the server keeps serving — because telemetry
+    # is best-effort, not load-bearing (unlike the SearXNG credential, which
+    # fails closed: a missing search credential degrades search loudly rather
+    # than handing the query to an engine nobody configured).
+    metrics_portcullis_credential: str = Field(
+        default="loki-push",
+        alias="SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL",
+        description=(
+            "Portcullis catalogue credential name carrying the Loki push bearer "
+            "token (a `value`-purpose static credential). Empty means no vend — "
+            "the token resolves from SUPACRAWL_METRICS_TOKEN as before."
+        ),
+    )
+
     # Bearer token for HTTP transport auth. No default — an empty/absent value
     # means the HTTP surface starts unauthenticated. The token is consumed at
     # startup only; it never appears in logs, errors, or tool responses.

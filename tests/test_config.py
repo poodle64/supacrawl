@@ -267,6 +267,62 @@ def test_config_secrets_says_nothing_about_the_broker_when_unconfigured(monkeypa
     assert "broker" not in result.output
 
 
+@pytest.mark.unit
+def test_brokered_metrics_credential_is_not_a_secret_field() -> None:
+    """The catalogue NAME is an identifier, not a credential — never listed as a secret.
+
+    Listing it among the secrets would say a value is present when none is — the
+    token never leaves the broker.
+    """
+    assert "metrics_portcullis_credential" not in SupacrawlSecrets.model_fields
+
+
+@pytest.mark.unit
+def test_config_secrets_explains_the_brokered_metrics_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A broker-configured operator must not be sent after a missing metrics token.
+
+    With the MCP server fetching the Loki push token from the broker,
+    ``SUPACRAWL_METRICS_TOKEN`` is absent on purpose; a bare "-" against it reads
+    as a misconfiguration and sends the operator after the wrong problem.
+    """
+    from click.testing import CliRunner
+
+    from supacrawl.cli.config import config_secrets
+
+    monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
+    monkeypatch.setenv("SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL", "loki-push-credential-name-placeholder")
+
+    result = CliRunner().invoke(config_secrets, [])
+
+    assert result.exit_code == 0
+    assert "loki-push-credential-name-placeholder" in result.output
+    assert "Loki push token" in result.output
+    assert "expected to be unset" in result.output
+
+
+@pytest.mark.unit
+def test_config_secrets_says_nothing_about_metrics_broker_when_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the metrics broker name is not in the env, nothing is said about it.
+
+    The MCP server's own ``loki-push`` default lives in SupacrawlSettings, which
+    this CLI command does not read; the env override is the only signal here, so
+    its absence means the report stays quiet (mirroring the SearXNG behaviour).
+    """
+    from click.testing import CliRunner
+
+    from supacrawl.cli.config import config_secrets
+
+    monkeypatch.delenv("SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL", raising=False)
+
+    result = CliRunner().invoke(config_secrets, [])
+
+    assert result.exit_code == 0
+    assert "metrics_portcullis_credential" not in result.output
+    assert "Loki push token" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # New telemetry config fields
 # ---------------------------------------------------------------------------

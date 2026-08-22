@@ -34,7 +34,13 @@ class TestMCPInitialization:
         """API client should be created when create_api_client is called."""
         server = SupacrawlServer()
 
-        with patch("supacrawl.mcp.server.create_supacrawl_services") as mock_create:
+        # The MCP server vends the SearXNG pair and the Loki push token from
+        # Portcullis at startup (the metrics credential defaults to "loki-push").
+        # Patch the vend surface so no real broker call leaves the test host.
+        with (
+            patch.object(server, "vend_static_fields", AsyncMock(return_value={"value": "placeholder-token"})),
+            patch("supacrawl.mcp.server.create_supacrawl_services") as mock_create,
+        ):
             mock_services = MagicMock()
             mock_create.return_value = mock_services
 
