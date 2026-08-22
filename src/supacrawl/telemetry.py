@@ -139,10 +139,15 @@ class MetricsSink:
         - *Broker path* (``metrics_token_vended`` True, the MCP server vends
           in-process from Portcullis): *metrics_token* is authoritative. When the
           vend succeeded it carries the bearer; when the vend declined (broker
-          unreachable, vault locked) it is ``None`` and remote telemetry is
-          disabled with NO env fallback — that env token is the stale path the
+          unreachable, vault locked) it is ``None`` and NO remote sink is built
+          at all, with NO env fallback — that env token is the stale path the
           broker replaced, and falling back to it would reintroduce the silent
           401s that prompted the move. One resolution per mode, not a dual path.
+
+        A configured basic-auth pair (``metrics_remote_username`` plus
+        ``SUPACRAWL_METRICS_PASSWORD``) is a separate, non-brokered credential
+        and survives a declined vend on its own — it takes precedence over the
+        bearer in ``LokiSink`` anyway, so the broker never gated it.
         """
         from supacrawl.config import SupacrawlSecrets, load_config
 
@@ -151,13 +156,24 @@ class MetricsSink:
             return None
         secrets = SupacrawlSecrets.from_env()
         token = metrics_token if metrics_token_vended else secrets.metrics_token
-        remote = build_remote_sink(
-            config.metrics_remote_url,
-            token=token,
-            username=config.metrics_remote_username,
-            password=secrets.metrics_password,
-            tenant=config.metrics_remote_tenant,
-            job=config.metrics_job,
+        # A declined vend must leave NO remote sink. Building one anyway gives a
+        # LokiSink with no Authorization header that 401s on every batch and
+        # tells the operator to check SUPACRAWL_METRICS_TOKEN — the very env var
+        # the broker replaced. Basic auth is an independent, non-brokered path,
+        # so a configured username/password pair still stands on its own.
+        vend_declined = metrics_token_vended and token is None
+        basic_auth = bool(config.metrics_remote_username and secrets.metrics_password)
+        remote = (
+            None
+            if vend_declined and not basic_auth
+            else build_remote_sink(
+                config.metrics_remote_url,
+                token=token,
+                username=config.metrics_remote_username,
+                password=secrets.metrics_password,
+                tenant=config.metrics_remote_tenant,
+                job=config.metrics_job,
+            )
         )
         try:
             sink = cls(full_url=config.metrics_full_url, remote=remote)

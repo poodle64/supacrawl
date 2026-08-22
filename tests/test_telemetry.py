@@ -8,11 +8,13 @@ aggregation, prune, and the "disabled sink == no file" guarantee.
 from __future__ import annotations
 
 import json
+import types
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from supacrawl.models import QualityAssessment, QualityVerdict, ScrapeData, ScrapeMetadata, ScrapeResult
+from supacrawl.remote_sink import LokiSink
 from supacrawl.telemetry import SCHEMA_VERSION, MetricsReader, MetricsSink
 
 pytestmark = pytest.mark.unit
@@ -150,3 +152,76 @@ def test_reader_missing_file_is_empty(tmp_path) -> None:
     assert list(reader.events()) == []
     assert reader.summary()["scrapes"] == 0
     assert reader.prune(keep_last=1) == 0
+
+
+class TestDefaultTokenResolution:
+    """`MetricsSink.default` resolves the Loki bearer one way per mode (#184).
+
+    Driven against the live broker on 2026-08-22: a declined vend used to build
+    a `LokiSink` carrying no `Authorization` header, which 401s on every batch
+    and whose failure warning names `SUPACRAWL_METRICS_TOKEN` — the env var the
+    broker replaced. "Remote telemetry is disabled" has to mean no sink.
+    """
+
+    @staticmethod
+    def _config(monkeypatch, tmp_path, **overrides):
+        from supacrawl import telemetry
+
+        fields = {
+            "metrics": True,
+            "metrics_full_url": False,
+            "metrics_remote_url": "https://loki.example/loki/api/v1/push",
+            "metrics_remote_username": None,
+            "metrics_remote_tenant": None,
+            "metrics_job": "supacrawl",
+        }
+        fields.update(overrides)
+        cfg = types.SimpleNamespace(**fields)
+        monkeypatch.setattr(telemetry, "load_config", lambda: cfg, raising=False)
+        monkeypatch.setattr("supacrawl.config.load_config", lambda: cfg)
+        monkeypatch.setenv("SUPACRAWL_METRICS_DIR", str(tmp_path))
+        return cfg
+
+    def test_broker_path_declined_builds_no_remote_sink(self, monkeypatch, tmp_path) -> None:
+        """The env token must not resurface — not as a bearer, not as a bare sink."""
+        self._config(monkeypatch, tmp_path)
+        monkeypatch.setenv("SUPACRAWL_METRICS_TOKEN", "stale-env-token")
+        monkeypatch.delenv("SUPACRAWL_METRICS_PASSWORD", raising=False)
+
+        sink = MetricsSink.default(metrics_token=None, metrics_token_vended=True)
+
+        assert sink is not None, "the local event log must survive a broker gap"
+        assert sink._remote is None
+
+    def test_broker_path_vended_builds_a_remote_sink(self, monkeypatch, tmp_path) -> None:
+        self._config(monkeypatch, tmp_path)
+        monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
+
+        sink = MetricsSink.default(metrics_token="vended", metrics_token_vended=True)
+
+        remote = sink._remote if sink is not None else None
+        assert isinstance(remote, LokiSink)
+        assert "Authorization" in remote._build_headers()
+
+    def test_env_path_is_unaffected(self, monkeypatch, tmp_path) -> None:
+        """No vend requested (CLI/REST): the env var resolves exactly as before."""
+        self._config(monkeypatch, tmp_path)
+        monkeypatch.setenv("SUPACRAWL_METRICS_TOKEN", "env-token")
+
+        sink = MetricsSink.default(metrics_token=None, metrics_token_vended=False)
+
+        remote = sink._remote if sink is not None else None
+        assert isinstance(remote, LokiSink)
+        assert "Authorization" in remote._build_headers()
+
+    def test_basic_auth_survives_a_declined_vend(self, monkeypatch, tmp_path) -> None:
+        """Basic auth is a separate credential the broker never gated."""
+        self._config(monkeypatch, tmp_path, metrics_remote_username="12345")
+        monkeypatch.setenv("SUPACRAWL_METRICS_PASSWORD", "basic-pw")
+        monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
+
+        sink = MetricsSink.default(metrics_token=None, metrics_token_vended=True)
+
+        remote = sink._remote if sink is not None else None
+        assert isinstance(remote, LokiSink)
+        assert remote._build_headers()["Authorization"].startswith("Basic ")
