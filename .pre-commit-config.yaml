@@ -26,6 +26,27 @@ repos:
         language: system
         types: [text]
 
+      - id: check-handoff-tracks-work
+        name: '📋 governance · Handoff outstanding work is tracked'
+        entry: python3 .claude/hooks/master/precommit/handoff-tracking.py
+        language: system
+        files: '^docs/development/handoffs/.*\.md$'
+        pass_filenames: true
+
+      - id: check-handoff-status-chain
+        name: '🔗 governance · Handoff status chain is honest'
+        entry: python3 .claude/hooks/master/precommit/handoff-status.py
+        language: system
+        files: '^docs/development/handoffs/.*\.md$'
+        pass_filenames: true
+
+      - id: check-handoff-retention
+        name: '📚 governance · A new handoff prunes its folder'
+        entry: python3 .claude/hooks/master/precommit/handoff-retention.py
+        language: system
+        files: '^docs/development/handoffs/.*\.md$'
+        pass_filenames: true
+
   # ---------------------------------------------------------------------------- #
   #                              📁 File Validation                              #
   # ---------------------------------------------------------------------------- #
