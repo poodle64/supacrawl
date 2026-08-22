@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from supacrawl.mcp.config import SERVICE_VERSION, settings
+from supacrawl.mcp.tools import mask_secrets
 from supacrawl.services.registry import SupacrawlServices
 
 # Query used for the live search probe (#156, #161). It is deliberately a
@@ -399,25 +400,36 @@ async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = 
                     existing_warning = search_config.get("warning")
                     search_config["warning"] = f"{existing_warning} {fb_note}".strip() if existing_warning else fb_note
 
-        return {
-            "status": "healthy" if all_healthy else "degraded",
-            "services": service_status,
-            "components": {
-                "browser": browser_config,
-                "search": search_config,
-                "llm": _get_llm_config(),
-                "cache": _get_cache_info(),
-            },
-            "features": {
-                "captcha_solving": settings.solve_captcha,
-                "stealth_mode": settings.stealth,
-            },
-            "version": _get_version_info(),
-        }
+        # Masked unconditionally, with no reveal_secrets thread: every field
+        # here is deliberately a boolean, a count or a name
+        # (proxy_configured, brave_api_key_configured), so there is nothing an
+        # operator would legitimately want revealed -- and the components
+        # dicts are assembled from settings, which is exactly where a future
+        # field named for a credential would arrive. mcp-servers rule 70
+        # §'Allow-list and helper'.
+        return mask_secrets(
+            {
+                "status": "healthy" if all_healthy else "degraded",
+                "services": service_status,
+                "components": {
+                    "browser": browser_config,
+                    "search": search_config,
+                    "llm": _get_llm_config(),
+                    "cache": _get_cache_info(),
+                },
+                "features": {
+                    "captcha_solving": settings.solve_captcha,
+                    "stealth_mode": settings.stealth,
+                },
+                "version": _get_version_info(),
+            }
+        )
     except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "services": {},
-            "version": _get_version_info(),
-        }
+        return mask_secrets(
+            {
+                "status": "unhealthy",
+                "error": str(e),
+                "services": {},
+                "version": _get_version_info(),
+            }
+        )

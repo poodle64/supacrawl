@@ -33,7 +33,6 @@ from mcp_common.server import BaseMCPServer
 from supacrawl.mcp.config import (
     ALLOWED_HOSTS,
     ALLOWED_ORIGINS,
-    SUPACRAWL_MASK_ERROR_DETAILS,
     SupacrawlSettings,
     get_settings,
     logger,
@@ -108,7 +107,6 @@ class SupacrawlServer(BaseMCPServer):
         super().__init__(
             server_name,
             instructions=SUPACRAWL_INSTRUCTIONS,
-            mask_error_details=SUPACRAWL_MASK_ERROR_DETAILS,
             auth=auth,
             settings=self._settings,
         )
