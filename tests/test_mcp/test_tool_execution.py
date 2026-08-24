@@ -232,9 +232,17 @@ class TestExtractTools:
         assert "error" in failed[0]
 
     @pytest.mark.asyncio
-    async def test_extract_whole_call_failure_returns_structured_error(self, mock_api_client):
-        """A whole-call failure should return a structured error dict, not raise an opaque exception."""
+    async def test_extract_whole_call_failure_raises_a_typed_error(self, mock_api_client):
+        """A whole-call failure raises a typed MCPError, never a success-shaped dict.
+
+        Returning ``{"success": False, ...}`` is the rule-05 forbidden envelope:
+        FastMCP serialises it as a SUCCESSFUL tool result, so the model sees a
+        success and has no signal the call failed. A typed error on the
+        ``MCPError`` lineage inherits ``FastMCPError``, so its real message
+        reaches the model instead of being masked.
+        """
         import supacrawl.mcp.tools.extract as extract_module
+        from supacrawl.mcp.exceptions import SupacrawlMCPError
         from supacrawl.mcp.tools.extract import supacrawl_extract
 
         # Force the outer except by patching the validator to raise a non-validation error.
@@ -246,39 +254,33 @@ class TestExtractTools:
 
         extract_module.validate_urls = exploding_validate  # type: ignore[assignment]  # intentional: mock
         try:
-            result = await supacrawl_extract(
-                api_client=mock_api_client,
-                urls=["https://example.com"],
-                prompt="Extract data",
-            )
+            with pytest.raises(SupacrawlMCPError) as exc_info:
+                await supacrawl_extract(
+                    api_client=mock_api_client,
+                    urls=["https://example.com"],
+                    prompt="Extract data",
+                )
         finally:
             extract_module.validate_urls = original_validate
 
-        # Must be a structured dict (not a raised/masked exception) with diagnostic fields
-        assert isinstance(result, dict)
-        assert result["success"] is False
-        assert result["error"] == "Simulated infrastructure failure"
-        assert result["error_type"] == "RuntimeError"
-        assert "correlation_id" in result
+        assert "Simulated infrastructure failure" in str(exc_info.value)
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
 
     @pytest.mark.asyncio
-    async def test_extract_validation_error_returns_structured_error(self, mock_api_client):
-        """SupacrawlValidationError must return a structured dict, not escape to FastMCP masking."""
+    async def test_extract_validation_error_propagates_untranslated(self, mock_api_client):
+        """A validation error reaches the caller as itself, not remapped or swallowed."""
+        from supacrawl.mcp.exceptions import SupacrawlValidationError
         from supacrawl.mcp.tools.extract import supacrawl_extract
 
         # An empty URL list triggers validate_urls -> SupacrawlValidationError (min_count=1 violated).
-        result = await supacrawl_extract(
-            api_client=mock_api_client,
-            urls=[],
-            prompt="Extract data",
-        )
+        with pytest.raises(SupacrawlValidationError) as exc_info:
+            await supacrawl_extract(
+                api_client=mock_api_client,
+                urls=[],
+                prompt="Extract data",
+            )
 
-        # Must never raise; must return a diagnostic dict
-        assert isinstance(result, dict)
-        assert result["success"] is False
-        assert result["error_type"] == "SupacrawlValidationError"
-        assert result.get("error")  # non-empty error message
-        assert "correlation_id" in result
+        assert str(exc_info.value)
 
 
 class TestSummaryTools:

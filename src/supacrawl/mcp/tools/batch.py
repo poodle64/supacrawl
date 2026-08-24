@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from api_common.correlation import generate_correlation_id
 
-from supacrawl.mcp.exceptions import log_tool_exception
+from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import validate_urls
 from supacrawl.services.batch import run_batch_scrape
 from supacrawl.services.registry import SupacrawlServices
@@ -111,13 +111,11 @@ async def supacrawl_batch(
             "correlation_id": "..."
         }
 
-        On whole-call failure (validation error or unexpected exception):
-        {
-            "success": false,
-            "error": "...",
-            "error_type": "...",
-            "correlation_id": "..."
-        }
+    Raises:
+        SupacrawlValidationError: `urls` is empty, over 100 entries, or not a
+            list of valid URLs.
+        SupacrawlMCPError: any other whole-call failure, mapped from the
+            underlying exception by `map_exception`.
     """
     correlation_id = generate_correlation_id()
 
@@ -161,11 +159,8 @@ async def supacrawl_batch(
             "correlation_id": correlation_id,
         }
 
+    except SupacrawlValidationError:
+        raise
     except Exception as exc:
         log_tool_exception("supacrawl_batch", exc)
-        return {
-            "success": False,
-            "error": str(exc),
-            "error_type": type(exc).__name__,
-            "correlation_id": correlation_id,
-        }
+        raise map_exception(exc, endpoint="/batch/scrape", correlation_id=correlation_id) from exc

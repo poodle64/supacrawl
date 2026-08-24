@@ -11,7 +11,7 @@ from typing import Any
 from api_common.correlation import generate_correlation_id
 
 from supacrawl.mcp.config import logger
-from supacrawl.mcp.exceptions import log_tool_exception
+from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import validate_prompt, validate_urls
 from supacrawl.services.registry import SupacrawlServices
 
@@ -85,13 +85,10 @@ async def supacrawl_extract(
             }
         }
 
-        On whole-call failure (validation error or unexpected exception), returns:
-        {
-            "success": false,
-            "error": "...",
-            "error_type": "...",
-            "correlation_id": "..."
-        }
+    Raises:
+        SupacrawlValidationError: `urls` or `prompt` failed validation.
+        SupacrawlMCPError: any other whole-call failure, mapped from the
+            underlying exception by `map_exception`.
 
     Note:
         This tool returns content for the calling LLM to extract.
@@ -170,11 +167,8 @@ async def supacrawl_extract(
             "correlation_id": correlation_id,
         }
 
+    except SupacrawlValidationError:
+        raise
     except Exception as e:
         log_tool_exception("supacrawl_extract", e)
-        return {
-            "success": False,
-            "error": str(e),
-            "error_type": type(e).__name__,
-            "correlation_id": correlation_id,
-        }
+        raise map_exception(e, endpoint="/extract", correlation_id=correlation_id) from e

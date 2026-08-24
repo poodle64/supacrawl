@@ -74,36 +74,35 @@ class TestValidationErrors:
 
     @pytest.mark.asyncio
     async def test_extract_rejects_empty_urls(self, mock_api_client):
-        """Extract should return a structured error dict for empty URL list (not raise)."""
+        """Extract raises the typed validation error, as every sibling tool does."""
         from supacrawl.mcp.tools.extract import supacrawl_extract
 
-        result = await supacrawl_extract(
-            api_client=mock_api_client,
-            urls=[],
-            prompt="Extract data",
-        )
+        with pytest.raises(SupacrawlValidationError) as exc_info:
+            await supacrawl_extract(
+                api_client=mock_api_client,
+                urls=[],
+                prompt="Extract data",
+            )
 
-        assert result["success"] is False
-        assert result["error_type"] == "SupacrawlValidationError"
-        assert "urls" in result["error"].lower()
+        assert "urls" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_extract_rejects_too_many_urls(self, mock_api_client):
-        """Extract should return a structured error dict for more than 10 URLs (not raise)."""
+        """Extract raises the typed validation error, as every sibling tool does."""
         from supacrawl.mcp.tools.extract import supacrawl_extract
 
         urls = [f"https://example.com/{i}" for i in range(15)]
 
-        result = await supacrawl_extract(
-            api_client=mock_api_client,
-            urls=urls,
-            prompt="Extract data",
-        )
+        with pytest.raises(SupacrawlValidationError) as exc_info:
+            await supacrawl_extract(
+                api_client=mock_api_client,
+                urls=urls,
+                prompt="Extract data",
+            )
 
-        assert result["success"] is False
-        assert result["error_type"] == "SupacrawlValidationError"
-        assert "urls" in result["error"].lower()
-        assert "10" in result["error"]
+        message = str(exc_info.value)
+        assert "urls" in message.lower()
+        assert "10" in message
 
     @pytest.mark.asyncio
     async def test_map_rejects_invalid_url(self, mock_api_client):
