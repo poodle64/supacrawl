@@ -71,6 +71,9 @@ Tool selection:
 - supacrawl_crawl: Scrape multiple pages from a site
 - supacrawl_extract: Get structured data from pages
 - supacrawl_summary: Summarise a page's content
+- supacrawl_batch: Scrape a list of known URLs in one concurrent pass
+- supacrawl_diagnose: Explain why a URL scrapes badly (bot wall, JS, PDF)
+- supacrawl_health: Engine, browser and search liveness in one shape
 """
 
 
