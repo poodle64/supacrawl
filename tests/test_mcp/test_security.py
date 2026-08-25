@@ -188,18 +188,17 @@ class TestAuthTokenValidator:
     def test_whitespace_token_normalised_to_none(self) -> None:
         """An all-whitespace token is treated as absent.
 
-        The field carries an explicit alias (SUPACRAWL_MCP_AUTH_TOKEN), so
-        constructing with the plain field name is silently ignored by
-        pydantic-settings; the alias is the only valid constructor kwarg.
+        The ``_reject_empty_token`` before-validator collapses an all-whitespace
+        value to None so it cannot accidentally open auth.
         """
         from supacrawl.mcp.config import SupacrawlSettings
 
-        settings = SupacrawlSettings(SUPACRAWL_MCP_AUTH_TOKEN="   ")
+        settings = SupacrawlSettings(mcp_auth_token="   ")
         assert settings.mcp_auth_token is None
 
     def test_real_token_preserved(self) -> None:
         """A genuine token value passes through unchanged."""
         from supacrawl.mcp.config import SupacrawlSettings
 
-        settings = SupacrawlSettings(SUPACRAWL_MCP_AUTH_TOKEN="real-token")
+        settings = SupacrawlSettings(mcp_auth_token="real-token")
         assert settings.mcp_auth_token == "real-token"

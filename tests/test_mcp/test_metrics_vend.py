@@ -44,7 +44,7 @@ VENDED_TOKEN = "vended-loki-token-placeholder"
 
 def _server(credential_name: str) -> SupacrawlServer:
     """A server whose only non-default setting is the metrics credential name."""
-    return SupacrawlServer(settings=SupacrawlSettings(SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL=credential_name))
+    return SupacrawlServer(settings=SupacrawlSettings(metrics_portcullis_credential=credential_name))
 
 
 class TestUnsetCredentialChangesNothing:

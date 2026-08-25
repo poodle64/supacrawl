@@ -166,7 +166,6 @@ class SupacrawlSettings(BaseMCPSettings):
     # than handing the query to an engine nobody configured).
     metrics_portcullis_credential: str = Field(
         default="loki-push",
-        alias="SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL",
         description=(
             "Portcullis catalogue credential name carrying the Loki push bearer "
             "token (a `value`-purpose static credential). Empty means no vend — "
@@ -177,7 +176,7 @@ class SupacrawlSettings(BaseMCPSettings):
     # Bearer token for HTTP transport auth. No default — an empty/absent value
     # means the HTTP surface starts unauthenticated. The token is consumed at
     # startup only; it never appears in logs, errors, or tool responses.
-    mcp_auth_token: str | None = Field(default=None, alias="SUPACRAWL_MCP_AUTH_TOKEN")
+    mcp_auth_token: str | None = Field(default=None)
 
     # MCP Server Configuration (without SUPACRAWL_ prefix). ALLOWED_ORIGINS and
     # ALLOWED_HOSTS are inherited from BaseMCPSettings; SERVICE_NAME stays here

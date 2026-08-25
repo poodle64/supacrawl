@@ -61,7 +61,7 @@ def _server(credential_name: str) -> SupacrawlServer:
     return SupacrawlServer(
         settings=SupacrawlSettings(
             SEARXNG_PORTCULLIS_CREDENTIAL=credential_name,
-            SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL="",
+            metrics_portcullis_credential="",
         )
     )
 
