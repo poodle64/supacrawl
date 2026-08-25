@@ -115,13 +115,13 @@ async def supacrawl_scrape(
     parse_pdf: Annotated[
         str,
         Field(
-            description='PDF parsing mode (default: "auto"). Options: - "auto": Auto-detect PDF URLs by .pdf extension, extract text with OCR fallback - "fast": Text extraction only (no OCR) - "ocr": Force OCR (requires supacrawl[pdf-ocr]) - "off": Disable PDF parsing (render PDF in browser as before)'
+            description='PDF parsing mode (default: "auto"). Options: - "auto": Auto-detect PDF URLs by .pdf extension, extract text with OCR fallback - "fast": Text extraction only (no OCR) - "ocr": Always run OCR (requires supacrawl[pdf-ocr]) - "off": Disable PDF parsing (render PDF in browser as before)'
         ),
     ] = "auto",
     engine: Annotated[
         Literal["playwright", "patchright", "camoufox"] | None,
         Field(
-            description='Pin the browser engine for this request. Normally you do NOT need this — supacrawl auto-escalates through engines on a poor verdict. Only set this if you have a specific reason to force one engine: - "playwright": Standard Chromium with basic stealth scripts - "patchright": Patched Chromium for better anti-detection - "camoufox": Patched Firefox for bypassing Akamai/Cloudflare When not set, uses SUPACRAWL_ENGINE or auto-selects based on verdict.'
+            description='Pin the browser engine for this request. Normally you do NOT need this — supacrawl auto-escalates through engines on a poor verdict. Only set this if you have a specific reason to pin one engine: - "playwright": Standard Chromium with basic stealth scripts - "patchright": Patched Chromium for better anti-detection - "camoufox": Patched Firefox for bypassing Akamai/Cloudflare When not set, uses SUPACRAWL_ENGINE or auto-selects based on verdict.'
         ),
     ] = None,
     headers: Annotated[
@@ -273,11 +273,11 @@ async def supacrawl_scrape(
         parse_pdf: PDF parsing mode (default: "auto"). Options:
             - "auto": Auto-detect PDF URLs by .pdf extension, extract text with OCR fallback
             - "fast": Text extraction only (no OCR)
-            - "ocr": Force OCR (requires supacrawl[pdf-ocr])
+            - "ocr": Always run OCR (requires supacrawl[pdf-ocr])
             - "off": Disable PDF parsing (render PDF in browser as before)
         engine: Pin the browser engine for this request. Normally you do NOT need
             this — supacrawl auto-escalates through engines on a poor verdict.
-            Only set this if you have a specific reason to force one engine:
+            Only set this if you have a specific reason to pin one engine:
             - "playwright": Standard Chromium with basic stealth scripts
             - "patchright": Patched Chromium for better anti-detection
             - "camoufox": Patched Firefox for bypassing Akamai/Cloudflare
