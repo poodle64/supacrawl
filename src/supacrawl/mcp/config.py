@@ -39,7 +39,6 @@ class SupacrawlSettings(BaseMCPSettings):
         env_prefix="SUPACRAWL_",
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False,
         extra="ignore",
     )
 
