@@ -2,7 +2,9 @@
 
 import asyncio
 import os
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from supacrawl.mcp.config import SERVICE_VERSION, settings
 from supacrawl.mcp.tools import mask_secrets
@@ -308,7 +310,15 @@ def _get_version_info() -> dict[str, str]:
     }
 
 
-async def supacrawl_health(api_client: SupacrawlServices, verify_search: bool = True) -> dict:
+async def supacrawl_health(
+    api_client: SupacrawlServices,
+    verify_search: Annotated[
+        bool,
+        Field(
+            description='When True (default), run one real, minimal search through the effective provider chain so a search-path regression (provider configured but silently returning nothing — #156) is caught here instead of reading "healthy". Set False for a config-only check with no live network call.'
+        ),
+    ] = True,
+) -> dict:
     """Get Supacrawl server health status, search provider state, and credit levels.
 
     Use this to verify connectivity, check which search provider is active,

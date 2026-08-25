@@ -5,7 +5,9 @@ exception hierarchy so FastMCP surfaces a real message to the LLM instead of
 a masked ``Error calling tool`` when ``mask_error_details=True``.
 """
 
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from supacrawl.mcp.exceptions import log_tool_exception, map_exception
 from supacrawl.services.diagnose import supacrawl_diagnose as _supacrawl_diagnose
@@ -14,7 +16,7 @@ from supacrawl.services.registry import SupacrawlServices
 
 async def supacrawl_diagnose(
     api_client: SupacrawlServices,
-    url: str,
+    url: Annotated[str, Field(description="URL to diagnose")],
 ) -> dict[str, Any]:
     """
     Diagnose potential issues with scraping a URL.

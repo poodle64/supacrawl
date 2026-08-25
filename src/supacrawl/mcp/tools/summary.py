@@ -1,8 +1,9 @@
 """FastMCP-facing wrapper around ``supacrawl.services.summary``."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from api_common.correlation import generate_correlation_id
+from pydantic import Field
 
 from supacrawl.mcp.exceptions import log_tool_exception, map_exception
 from supacrawl.services.registry import SupacrawlServices
@@ -11,9 +12,16 @@ from supacrawl.services.summary import supacrawl_summary as _supacrawl_summary
 
 async def supacrawl_summary(
     api_client: SupacrawlServices,
-    url: str,
-    max_length: int | None = None,
-    focus: str | None = None,
+    url: Annotated[str, Field(description="The URL to summarise")],
+    max_length: Annotated[
+        int | None, Field(description="Optional hint for summary length (e.g., 100 for ~100 words)")
+    ] = None,
+    focus: Annotated[
+        str | None,
+        Field(
+            description='Optional focus area for the summary (e.g., "technical details", "pricing information", "key findings")'
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """
     Generate a summary of a web page.

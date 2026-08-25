@@ -5,9 +5,10 @@ Wraps supacrawl library's CrawlService for MCP consumption.
 Note: CrawlService uses streaming (AsyncGenerator), so we collect all results.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from api_common.correlation import generate_correlation_id
+from pydantic import Field
 
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import validate_limit, validate_url
@@ -17,20 +18,68 @@ from supacrawl.services.registry import SupacrawlServices
 
 async def supacrawl_crawl(
     api_client: SupacrawlServices,
-    url: str,
-    limit: int = 50,
-    max_depth: int = 3,
-    include_patterns: list[str] | None = None,
-    exclude_patterns: list[str] | None = None,
-    formats: list[Literal["markdown", "html", "rawHtml", "links", "screenshot", "changeTracking"]] | None = None,
-    deduplicate_similar_urls: bool = False,
-    allow_external_links: bool = False,
-    change_tracking_modes: list[str] | None = None,
-    expand_iframes: str = "same-origin",
-    engine: Literal["playwright", "patchright", "camoufox"] | None = None,
-    headers: dict[str, str] | None = None,
-    respect_robots: bool = False,
-    request_delay: float = 0.0,
+    url: Annotated[str, Field(description="Starting URL for the crawl")],
+    limit: Annotated[int, Field(description="Maximum number of pages to crawl (default: 50)")] = 50,
+    max_depth: Annotated[int, Field(description="Maximum link depth from starting URL (default: 3)")] = 3,
+    include_patterns: Annotated[
+        list[str] | None,
+        Field(description='URL patterns to include (regex patterns). Example: [".*\\/blog\\/.*", ".*\\/docs\\/.*"]'),
+    ] = None,
+    exclude_patterns: Annotated[
+        list[str] | None,
+        Field(
+            description='URL patterns to exclude (regex patterns). Example: [".*\\/login", ".*\\.pdf$", ".*\\/admin\\/.*"]'
+        ),
+    ] = None,
+    formats: Annotated[
+        list[Literal["markdown", "html", "rawHtml", "links", "screenshot", "changeTracking"]] | None,
+        Field(
+            description='Output formats for scraped content (default: ["markdown"]) - markdown: Clean markdown with resolved URLs - html: Cleaned HTML - rawHtml: Full unprocessed HTML - links: Extracted links (parsed from rendered HTML) - screenshot: Page screenshots - changeTracking: Compare each page against cached previous version'
+        ),
+    ] = None,
+    deduplicate_similar_urls: Annotated[
+        bool,
+        Field(
+            description="Remove URLs that are similar (different query params, fragments, etc. pointing to same content)"
+        ),
+    ] = False,
+    allow_external_links: Annotated[bool, Field(description="Follow and crawl links to external domains")] = False,
+    change_tracking_modes: Annotated[
+        list[str] | None,
+        Field(
+            description='Optional diff modes when changeTracking format is used. Supports: ["git-diff", "json"]. git-diff produces unified diffs, json compares extracted structured fields.'
+        ),
+    ] = None,
+    expand_iframes: Annotated[
+        str,
+        Field(
+            description='Iframe expansion mode (default: "same-origin"). "none" strips all iframes (legacy), "same-origin" expands same-origin iframes inline, "all" expands all non-blocked iframes.'
+        ),
+    ] = "same-origin",
+    engine: Annotated[
+        Literal["playwright", "patchright", "camoufox"] | None,
+        Field(
+            description='Browser engine to use for this crawl. Overrides server default. Options: "playwright", "patchright", "camoufox".'
+        ),
+    ] = None,
+    headers: Annotated[
+        dict[str, str] | None,
+        Field(
+            description='Custom HTTP headers sent with every same-origin request (e.g. {"Authorization": "Bearer token"}). Dropped for external-origin URLs when allow_external_links is True. Only header KEYS are logged; values are never persisted or written to logs.'
+        ),
+    ] = None,
+    respect_robots: Annotated[
+        bool,
+        Field(
+            description="When True, consult each origin's robots.txt and skip disallowed URLs before scraping. Default False: crawl the given URLs without consulting robots.txt."
+        ),
+    ] = False,
+    request_delay: Annotated[
+        float,
+        Field(
+            description="Minimum seconds between requests to the same host (default 0.0, no throttle). Set a positive value to space out requests to one origin; a robots.txt Crawl-delay raises it when respect_robots is True."
+        ),
+    ] = 0.0,
 ) -> dict:
     """
     Crawl a website starting from URL, discovering and scraping pages.

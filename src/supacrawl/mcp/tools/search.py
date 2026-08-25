@@ -5,11 +5,12 @@ Provides web search functionality with optional result scraping.
 """
 
 import asyncio
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import httpx
 from api_common.correlation import generate_correlation_id
 from fastmcp import Context
+from pydantic import Field
 
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
@@ -121,19 +122,51 @@ async def _enrich_results_with_metadata(
 async def supacrawl_search(
     api_client: SupacrawlServices,
     ctx: Context,
-    query: str,
-    limit: int = 5,
-    sources: list[Literal["web", "images", "news"]] | None = None,
-    scrape_results: bool = False,
-    formats: list[Literal["markdown", "html"]] | None = None,
-    only_main_content: bool = True,
-    include_metadata: bool = False,
-    time_range: Literal["day", "week", "month", "year"] | None = None,
-    start_date: str | None = None,
-    end_date: str | None = None,
-    topic: Literal["general", "news", "finance"] | None = None,
-    include_domains: list[str] | None = None,
-    exclude_domains: list[str] | None = None,
+    query: Annotated[
+        str,
+        Field(
+            description='Search query string. Supports search operators: - "quotes" for exact match - -word to exclude - site:example.com to limit to domain - intitle:word for title matches - inurl:word for URL matches'
+        ),
+    ],
+    limit: Annotated[int, Field(description="Maximum number of results per source type (1-10, default 5)")] = 5,
+    sources: Annotated[
+        list[Literal["web", "images", "news"]] | None,
+        Field(
+            description='Source types to search. Defaults to ["web"]. - "web": Standard web pages - "images": Image search results - "news": News articles'
+        ),
+    ] = None,
+    scrape_results: Annotated[bool, Field(description="Whether to scrape content from web result pages")] = False,
+    formats: Annotated[
+        list[Literal["markdown", "html"]] | None, Field(description="Output formats when scraping (markdown, html)")
+    ] = None,
+    only_main_content: Annotated[bool, Field(description="Extract only main content when scraping")] = True,
+    include_metadata: Annotated[
+        bool,
+        Field(
+            description="Fetch lightweight metadata (content_type, content_length, last_modified) for web results via HEAD requests. Useful for deciding which results to scrape without loading full pages."
+        ),
+    ] = False,
+    time_range: Annotated[
+        Literal["day", "week", "month", "year"] | None,
+        Field(description='Restrict results to the past "day"/"week"/"month"/"year".'),
+    ] = None,
+    start_date: Annotated[
+        str | None, Field(description="Earliest result date (YYYY-MM-DD); pairs with end_date.")
+    ] = None,
+    end_date: Annotated[str | None, Field(description="Latest result date (YYYY-MM-DD).")] = None,
+    topic: Annotated[
+        Literal["general", "news", "finance"] | None,
+        Field(
+            description='Topic vertical "general"/"news"/"finance" (honoured natively by Tavily and Exa; other providers ignore it — use sources=["news"] for news).'
+        ),
+    ] = None,
+    include_domains: Annotated[list[str] | None, Field(description="Restrict results to these domains.")] = None,
+    exclude_domains: Annotated[
+        list[str] | None,
+        Field(
+            description="Exclude results from these domains. Filters map onto each provider's native API, or are synthesised as ``site:`` query operators for providers without native support."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """
     Search the web and optionally scrape result pages.

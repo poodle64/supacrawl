@@ -7,9 +7,10 @@ API ``/v1/batch/scrape`` endpoint; all three delegate to the shared
 ``run_batch_scrape`` service function.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from api_common.correlation import generate_correlation_id
+from pydantic import Field
 
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import validate_urls
@@ -19,29 +20,46 @@ from supacrawl.services.registry import SupacrawlServices
 
 async def supacrawl_batch(
     api_client: SupacrawlServices,
-    urls: list[str],
-    formats: list[
-        Literal[
-            "markdown",
-            "html",
-            "rawHtml",
-            "links",
-            "screenshot",
-            "pdf",
-            "json",
-            "images",
-            "branding",
-            "summary",
+    urls: Annotated[list[str], Field(description="Ordered list of URLs to scrape (1–100).")],
+    formats: Annotated[
+        list[
+            Literal[
+                "markdown",
+                "html",
+                "rawHtml",
+                "links",
+                "screenshot",
+                "pdf",
+                "json",
+                "images",
+                "branding",
+                "summary",
+            ]
         ]
-    ]
-    | None = None,
-    only_main_content: bool = True,
-    timeout: int = 30000,
-    max_age: int = 0,
-    concurrency: int = 5,
-    retry: int = 1,
-    continue_on_error: bool = True,
-    headers: dict[str, str] | None = None,
+        | None,
+        Field(
+            description="Output formats for every URL. Options: - markdown: Clean markdown with resolved URLs (default) - html: Cleaned HTML with boilerplate removed - rawHtml: Full unprocessed HTML - links: All extracted links - images: All image URLs - screenshot: Base64-encoded PNG - pdf: Base64-encoded PDF - json: LLM-extracted structured data - branding: Brand identity (colours, fonts, logo) - summary: LLM-generated 2–3 sentence summary"
+        ),
+    ] = None,
+    only_main_content: Annotated[
+        bool, Field(description="Extract only main content, excluding nav/footer/sidebars.")
+    ] = True,
+    timeout: Annotated[int, Field(description="Per-page load timeout in ms (default: 30000).")] = 30000,
+    max_age: Annotated[int, Field(description="Cache freshness in seconds; 0 = always fetch fresh (default).")] = 0,
+    concurrency: Annotated[int, Field(description="Maximum number of pages scraped simultaneously (default: 5).")] = 5,
+    retry: Annotated[int, Field(description="Maximum attempts per URL; 1 = one try with no retry (default).")] = 1,
+    continue_on_error: Annotated[
+        bool,
+        Field(
+            description="When True (default), failures are recorded but the remaining URLs continue. When False, the first failure aborts the entire batch."
+        ),
+    ] = True,
+    headers: Annotated[
+        dict[str, str] | None,
+        Field(
+            description='Custom HTTP headers sent with every request (e.g. ``{"Authorization": "Bearer token"}``). Header values are never persisted or written to logs.'
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """
     Scrape a list of URLs concurrently using a single shared browser.

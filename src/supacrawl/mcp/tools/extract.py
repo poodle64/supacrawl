@@ -6,9 +6,10 @@ structured data. No internal LLM is used - the MCP client (which is an LLM)
 performs the extraction.
 """
 
-from typing import Any
+from typing import Annotated, Any
 
 from api_common.correlation import generate_correlation_id
+from pydantic import Field
 
 from supacrawl.mcp.config import logger
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
@@ -18,10 +19,22 @@ from supacrawl.services.registry import SupacrawlServices
 
 async def supacrawl_extract(
     api_client: SupacrawlServices,
-    urls: list[str] | str,
-    prompt: str | None = None,
-    schema: dict[str, Any] | str | None = None,
-    allow_external_links: bool = False,
+    urls: Annotated[list[str] | str, Field(description="URLs to extract data from (1-10 URLs)")],
+    prompt: Annotated[
+        str | None,
+        Field(
+            description='Natural language description of what to extract. Example: "Extract the product name, price, and availability"'
+        ),
+    ] = None,
+    schema: Annotated[
+        dict[str, Any] | str | None,
+        Field(
+            description='JSON schema defining the structure of extracted data. Example: {"type": "object", "properties": {"name": {"type": "string"}}}'
+        ),
+    ] = None,
+    allow_external_links: Annotated[
+        bool, Field(description="Whether to follow and extract from external links")
+    ] = False,
 ) -> dict[str, Any]:
     """
     Extract structured information from web pages using LLM.

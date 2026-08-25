@@ -4,9 +4,10 @@ Scrape tool for Supacrawl MCP server.
 Wraps supacrawl library's ScrapeService for MCP consumption.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from api_common.correlation import generate_correlation_id
+from pydantic import Field
 
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import validate_timeout, validate_url
@@ -16,45 +17,143 @@ from supacrawl.services.registry import SupacrawlServices
 
 async def supacrawl_scrape(
     api_client: SupacrawlServices,
-    url: str,
-    formats: list[
-        Literal[
-            "markdown",
-            "html",
-            "rawHtml",
-            "links",
-            "screenshot",
-            "pdf",
-            "json",
-            "images",
-            "branding",
-            "structuredData",
-            "summary",
-            "changeTracking",
+    url: Annotated[str, Field(description="The URL to scrape")],
+    formats: Annotated[
+        list[
+            Literal[
+                "markdown",
+                "html",
+                "rawHtml",
+                "links",
+                "screenshot",
+                "pdf",
+                "json",
+                "images",
+                "branding",
+                "structuredData",
+                "summary",
+                "changeTracking",
+            ]
         ]
-    ]
-    | None = None,
-    only_main_content: bool = True,
-    wait_for: int = 0,
-    timeout: int = 30000,
-    screenshot_full_page: bool = True,
-    actions: list[dict[str, Any]] | None = None,
-    json_schema: dict[str, Any] | None = None,
-    json_prompt: str | None = None,
-    include_tags: list[str] | None = None,
-    exclude_tags: list[str] | None = None,
-    max_age: int = 0,
-    change_tracking_modes: list[str] | None = None,
-    expand_iframes: str = "same-origin",
-    mobile: bool = False,
-    device: str | None = None,
-    parse_pdf: str = "auto",
-    engine: Literal["playwright", "patchright", "camoufox"] | None = None,
-    headers: dict[str, str] | None = None,
-    content_mode: float = 0.5,
-    query: str | None = None,
-    http_first: bool = True,
-    expect: str | None = None,
+        | None,
+        Field(
+            description="Output formats to return. Options: - markdown: Clean markdown with resolved URLs (default) - html: Cleaned HTML with boilerplate removed - rawHtml: Full unprocessed HTML - links: All extracted links (parsed from rendered HTML) - images: All image URLs - screenshot: Base64-encoded PNG - pdf: Base64-encoded PDF document - json: LLM-extracted structured data (requires json_schema or json_prompt) - branding: Brand identity (colours, fonts, logo) - structuredData: deterministic, no-LLM extraction of the page's own embedded data (schema.org JSON-LD, Next.js __NEXT_DATA__, microdata, OpenGraph) — cheaper and more reliable than json for facts the site already publishes (prices, ratings, authors, dates) - summary: LLM-generated 2-3 sentence summary"
+        ),
+    ] = None,
+    only_main_content: Annotated[
+        bool, Field(description="Extract only main content, excluding headers/footers/sidebars")
+    ] = True,
+    wait_for: Annotated[
+        int,
+        Field(
+            description="Additional wait time in ms after page load (for dynamic content). When set to a value > 0, also enables SPA stability polling which waits for the DOM to stop changing before extracting content."
+        ),
+    ] = 0,
+    timeout: Annotated[int, Field(description="Page load timeout in ms (default: 30000)")] = 30000,
+    screenshot_full_page: Annotated[bool, Field(description="Capture full scrollable page vs viewport only")] = True,
+    actions: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description='Page actions to execute before capturing content. Each action is a dict: - {"type": "wait", "milliseconds": 1000} - Wait for time - {"type": "wait", "selector": "#content"} - Wait for element - {"type": "click", "selector": "button.submit"} - Click element - {"type": "type", "selector": "input", "text": "hello"} - Type text - {"type": "scroll", "direction": "down"} - Scroll page - {"type": "screenshot"} - Capture mid-workflow screenshot - {"type": "press", "key": "Enter"} - Press keyboard key - {"type": "executeJavascript", "script": "..."} - Run custom JS'
+        ),
+    ] = None,
+    json_schema: Annotated[
+        dict[str, Any] | None,
+        Field(
+            description='JSON schema for structured extraction (for json format). Example: {"type": "object", "properties": {"title": {"type": "string"}}}'
+        ),
+    ] = None,
+    json_prompt: Annotated[
+        str | None,
+        Field(
+            description='Custom prompt for LLM extraction (for json format). Example: "Extract the product name, price, and availability"'
+        ),
+    ] = None,
+    include_tags: Annotated[
+        list[str] | None,
+        Field(
+            description='CSS selectors for elements to include. Overrides only_main_content. Example: ["article", "main", ".content"]'
+        ),
+    ] = None,
+    exclude_tags: Annotated[
+        list[str] | None,
+        Field(description='CSS selectors for elements to exclude. Example: ["nav", "footer", ".sidebar", ".ads"]'),
+    ] = None,
+    max_age: Annotated[
+        int,
+        Field(
+            description="Cache freshness in seconds. If cached version exists and is fresher, return cached result. Set to 0 to always fetch fresh (default)."
+        ),
+    ] = 0,
+    change_tracking_modes: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                'Optional diff modes when changeTracking format is used. Supports: ["git-diff", "json"]. '
+                "git-diff produces unified diffs, json compares extracted structured fields."
+            )
+        ),
+    ] = None,
+    expand_iframes: Annotated[
+        str,
+        Field(
+            description='Iframe expansion mode (default: "same-origin"). "none" strips all iframes (legacy), "same-origin" expands same-origin iframes inline, "all" expands all non-blocked iframes.'
+        ),
+    ] = "same-origin",
+    mobile: Annotated[
+        bool,
+        Field(
+            description="Scrape as a default mobile device (iPhone 14). Sets mobile viewport, user agent, device scale factor, and touch support."
+        ),
+    ] = False,
+    device: Annotated[
+        str | None,
+        Field(
+            description='Emulate a specific device by name (e.g. "iPhone 15", "Pixel 7"). Overrides the mobile flag. Uses Playwright\'s built-in device descriptors for accurate viewport, user agent, and DPI emulation.'
+        ),
+    ] = None,
+    parse_pdf: Annotated[
+        str,
+        Field(
+            description='PDF parsing mode (default: "auto"). Options: - "auto": Auto-detect PDF URLs by .pdf extension, extract text with OCR fallback - "fast": Text extraction only (no OCR) - "ocr": Force OCR (requires supacrawl[pdf-ocr]) - "off": Disable PDF parsing (render PDF in browser as before)'
+        ),
+    ] = "auto",
+    engine: Annotated[
+        Literal["playwright", "patchright", "camoufox"] | None,
+        Field(
+            description='Pin the browser engine for this request. Normally you do NOT need this — supacrawl auto-escalates through engines on a poor verdict. Only set this if you have a specific reason to force one engine: - "playwright": Standard Chromium with basic stealth scripts - "patchright": Patched Chromium for better anti-detection - "camoufox": Patched Firefox for bypassing Akamai/Cloudflare When not set, uses SUPACRAWL_ENGINE or auto-selects based on verdict.'
+        ),
+    ] = None,
+    headers: Annotated[
+        dict[str, str] | None,
+        Field(
+            description='Custom HTTP headers sent with every request on this page (e.g. {"Authorization": "Bearer token", "Cookie": "session=abc"}). Only header KEYS are logged; values are never persisted or written to logs.'
+        ),
+    ] = None,
+    content_mode: Annotated[
+        float,
+        Field(
+            description="Precision/recall dial for content extraction in [0.0, 1.0]. Low values favour recall (include more content, prune less); high values favour precision (demand denser output, prune more aggressively). Default 0.5 preserves current behaviour. Without supacrawl[readability] only the CSS-selector heuristic is active; readability and BM25 strategies are silently skipped."
+        ),
+    ] = 0.5,
+    query: Annotated[
+        str | None,
+        Field(
+            description="Optional free-text query. When set, extracted sections are filtered by BM25 relevance to retain only query-relevant content. Flat pages (no headings) are never filtered so no content is lost. Without supacrawl[readability] this parameter is accepted but ignored."
+        ),
+    ] = None,
+    http_first: Annotated[
+        bool,
+        Field(
+            description="Try a cheap HTTP GET before launching a browser (default True). Static pages return faster; pages needing JavaScript or showing a bot challenge transparently escalate to the full browser render. Set False to always render in the browser."
+        ),
+    ] = True,
+    expect: Annotated[
+        str | None,
+        Field(
+            description="Require asserted content before returning. A bare integer is a minimum word count; any other string is matched first as a CSS selector then as a text substring. When unmet, the scrape escalates (HTTP-first to browser, then a stealth + longer-wait retry) and ultimately returns success=False instead of a pre-hydration skeleton. Use this when an agent must be sure the data it asked for is actually present."
+        ),
+    ] = None,
 ) -> dict:
     """
     Scrape a single URL and return content in specified formats.
@@ -160,6 +259,9 @@ async def supacrawl_scrape(
             Example: ["nav", "footer", ".sidebar", ".ads"]
         max_age: Cache freshness in seconds. If cached version exists and is fresher,
             return cached result. Set to 0 to always fetch fresh (default).
+        change_tracking_modes: Optional diff modes when changeTracking format is used.
+            Supports: ["git-diff", "json"]. git-diff produces unified diffs, json
+            compares extracted structured fields.
         expand_iframes: Iframe expansion mode (default: "same-origin").
             "none" strips all iframes (legacy), "same-origin" expands same-origin
             iframes inline, "all" expands all non-blocked iframes.

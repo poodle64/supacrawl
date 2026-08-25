@@ -4,9 +4,10 @@ Map tool for Supacrawl MCP server.
 Wraps supacrawl library's MapService for MCP consumption.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from api_common.correlation import generate_correlation_id
+from pydantic import Field
 
 from supacrawl.mcp.exceptions import SupacrawlValidationError, log_tool_exception, map_exception
 from supacrawl.mcp.validators import validate_limit, validate_url
@@ -15,16 +16,33 @@ from supacrawl.services.registry import SupacrawlServices
 
 async def supacrawl_map(
     api_client: SupacrawlServices,
-    url: str,
-    limit: int = 200,
-    max_depth: int = 3,
-    sitemap: Literal["include", "skip", "only"] = "include",
-    include_subdomains: bool = False,
-    search: str | None = None,
-    ignore_query_params: bool = False,
-    allow_external_links: bool = False,
-    ignore_cache: bool = False,
-    headers: dict[str, str] | None = None,
+    url: Annotated[str, Field(description="Starting URL for mapping")],
+    limit: Annotated[int, Field(description="Maximum number of URLs to discover (default: 200)")] = 200,
+    max_depth: Annotated[int, Field(description="Maximum BFS depth for link discovery (default: 3)")] = 3,
+    sitemap: Annotated[
+        Literal["include", "skip", "only"],
+        Field(
+            description='Sitemap handling mode: - "include": Use sitemaps + link following (default) - "skip": Link following only, ignore sitemaps - "only": Sitemaps only, no link following'
+        ),
+    ] = "include",
+    include_subdomains: Annotated[
+        bool, Field(description="Include URLs from subdomains (e.g., blog.example.com)")
+    ] = False,
+    search: Annotated[str | None, Field(description="Filter URLs to only those containing this string")] = None,
+    ignore_query_params: Annotated[
+        bool,
+        Field(
+            description="Remove query parameters from URLs for deduplication (e.g., treat /page?utm_source=x and /page as the same URL)"
+        ),
+    ] = False,
+    allow_external_links: Annotated[bool, Field(description="Follow and include links to external domains")] = False,
+    ignore_cache: Annotated[bool, Field(description="Bypass cached results and perform fresh URL discovery")] = False,
+    headers: Annotated[
+        dict[str, str] | None,
+        Field(
+            description='Custom HTTP headers sent with every request (e.g. {"Authorization": "Bearer token"}). Only header KEYS are logged; values are never persisted or written to logs.'
+        ),
+    ] = None,
 ) -> dict:
     """
     Map a website to discover all URLs without scraping content.
