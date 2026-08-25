@@ -145,7 +145,7 @@ async def supacrawl_search(
     Supports multiple source types (web, images, news) and can optionally
     scrape the content from web result pages.
 
-    **When to use this tool:**
+    Use this tool when you need to find something and do not know its URL:
     - You need to find information but don't know which website has it
     - You want to discover URLs related to a topic
     - You need recent news articles on a subject

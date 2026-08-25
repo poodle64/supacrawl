@@ -51,7 +51,7 @@ async def supacrawl_batch(
     instance, which is far more efficient than calling ``supacrawl_scrape``
     repeatedly in a loop.
 
-    **When to use this tool:**
+    Use this tool when you have several known URLs to fetch at once:
     - You have a list of known URLs and need content from all of them
     - You want parallel scraping with a controlled concurrency cap
     - You need per-URL success/failure tracking with optional retries

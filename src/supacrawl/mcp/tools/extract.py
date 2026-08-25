@@ -29,7 +29,7 @@ async def supacrawl_extract(
     This tool scrapes the specified URLs and uses an LLM to extract
     structured data according to your prompt and/or schema.
 
-    **When to use this tool:**
+    Use this tool when you need structured data out of one or more pages:
     - You need structured data (JSON) from web pages
     - You want to extract specific fields from multiple URLs at once
     - You have a schema defining what data you need

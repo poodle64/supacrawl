@@ -21,7 +21,7 @@ async def supacrawl_summary(
     This tool scrapes the specified URL and returns content ready for
     the calling LLM to summarise. No internal LLM is used.
 
-    **When to use this tool:**
+    Use this tool when you want the gist of a page rather than its full text:
     - You need a quick overview of a page without reading all content
     - You're triaging multiple pages to find relevant ones
     - You want to understand what a page is about before deeper analysis
