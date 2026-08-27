@@ -43,10 +43,19 @@ name: Publish wheels
 # whose version already EXISTS (on existence, not content), so an unstamped repo
 # would freeze at its first upload and no later source change would reach the index.
 # supacrawl[mcp] is consumed cross-repo, so each publish stamps an always-increasing
-# build version (CalVer date + run number) onto the wheel while the source `version`
-# stays the public-release floor (still used by publish.yaml for tagged PyPI
-# releases) — a household consumer always resolves current code with no hand-bumping.
+# build version onto the wheel while the source `version` stays the public-release
+# floor (still used by publish.yaml for tagged PyPI releases) — a household consumer
+# always resolves current code with no hand-bumping.
 # Rule: platform/common-libraries.md §Distribution.
+#
+# The stamp is the household's three-segment CalVer, `YYYY.M.<counter>`
+# (core/git-workflow.md §Calendar Versioning). Until 2026-08-27 it was
+# `YYYY.M.<day>.<run>` here and in the reusable — four segments whose third was the
+# day of the month, which READ as household CalVer and was not, and cost a session
+# that called `ragify 2026.8.4` a regression against a deployed `2026.8.26.27`.
+# RUN_OFFSET and the `Refuse a non-CalVer wheel version` step below mirror the
+# reusable's; keep all three aligned with
+# poodle64/master-project/.github/workflows/publish-wheels.yaml.
 
 on:
   push:
@@ -83,10 +92,31 @@ jobs:
 
       - name: Stamp always-increasing wheel version
         # The source `version` stays a frozen floor (no hand-bumping); each publish
-        # stamps CalVer date + run number so a consumer's index resolution always
-        # gets current code. Runs only on the CI build checkout; never committed back.
+        # stamps YYYY.M.<counter> so a consumer's index resolution always gets
+        # current code. Runs only on the CI build checkout; never committed back.
+        #
+        # Brisbane, not UTC: §Calendar Versioning reads the year and month in AEST,
+        # and a UTC clock disagrees with it for the first ten hours of every AEST day.
+        #
+        # RUN_OFFSET is one-time and then never touched again. Measured against the
+        # index on 2026-08-27: supacrawl's published maximum is 2026.8.25.13 from the
+        # old four-part scheme, while this workflow's run counter was only at 13. A
+        # bare run number would stamp 2026.8.14 — BELOW what the index already serves
+        # — so every consumer pinned `supacrawl>=<floor>` would go on resolving the
+        # older, higher 2026.8.25.13 and silently freeze on stale code. +20 clears 25
+        # with room to spare, and stops mattering at the September rollover, when
+        # 2026.9.x sorts above every 2026.8.x whatever the counter.
+        env:
+          RUN_OFFSET: 20
         run: |
-          STAMP="$(date -u +%Y.%-m.%-d).${GITHUB_RUN_NUMBER}"
+          set -euo pipefail
+          if ! printf '%s' "${RUN_OFFSET}" | grep -qE '^[0-9]+$'; then
+            echo "::error::RUN_OFFSET must be a non-negative whole number; got '${RUN_OFFSET}'."
+            exit 1
+          fi
+          COUNTER="$(( GITHUB_RUN_NUMBER + RUN_OFFSET ))"
+          STAMP="$(TZ=Australia/Brisbane date +%Y.%-m).${COUNTER}"
+          echo "STAMP=${STAMP}" >> "${GITHUB_ENV}"
           echo "Stamping wheel version -> ${STAMP}"
           find . -name pyproject.toml -not -path './.git/*' -not -path './.venv/*' -print0 \
             | while IFS= read -r -d '' f; do
@@ -103,6 +133,65 @@ jobs:
           rm -rf dist
           uv build --wheel --out-dir dist
           ls -1 dist
+
+      - name: Refuse a non-CalVer wheel version
+        # THE GATE, mirroring the reusable's step of the same name. A wheel version
+        # that is not household CalVer never reaches the index — it fails here, red
+        # and named, instead of publishing something that merely LOOKS like the
+        # format. This exists because the previous stamp, `YYYY.M.<day>.<run>`,
+        # passed every other check in this file for months.
+        #
+        # It asserts against the BUILT WHEEL, not the stamp variable, so it also
+        # catches the stamp silently not landing: if the sed matches no
+        # pyproject.toml the wheel carries the frozen source floor and this says so.
+        #
+        # What it does NOT catch, stated plainly rather than implied:
+        #   - a stamp that is well-formed but sorts BELOW what the index already
+        #     holds. Ordering is a property of the counter, not the shape.
+        #   - divergence from the reusable it is a copy of; nothing mechanical
+        #     compares the two files (see the header note).
+        #   - the AEST-vs-UTC clock: a regex cannot see which timezone produced the
+        #     month segment.
+        env:
+          EXPECTED: ${{ env.STAMP }}
+        run: |
+          set -euo pipefail
+          # YYYY.M.counter — four-digit year, UNPADDED month 1-12, numeric counter.
+          # Deliberately rejects a fourth segment (the old day-of-month stamp), a
+          # zero-padded month, and anything non-numeric.
+          CALVER='^[0-9]{4}\.([1-9]|1[0-2])\.[0-9]+$'
+
+          if [ -z "${EXPECTED:-}" ]; then
+            echo "::error::no stamp was recorded — the stamping step did not run or did not export STAMP. Refusing to publish."
+            exit 1
+          fi
+          if ! printf '%s' "${EXPECTED}" | grep -qE "${CALVER}"; then
+            echo "::error::stamp '${EXPECTED}' is not household CalVer YYYY.M.x (core/git-workflow.md §Calendar Versioning). A four-segment stamp such as 2026.8.25.13 reads as this format and is not it. Refusing to publish."
+            exit 1
+          fi
+
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if [ "${#wheels[@]}" -eq 0 ]; then
+            echo "::error::no wheels were built; nothing to verify or publish."
+            exit 1
+          fi
+
+          bad=0
+          for w in "${wheels[@]}"; do
+            # {name}-{version}-{python}-{abi}-{platform}.whl; the distribution name
+            # has its hyphens normalised to underscores, so field 2 is the version.
+            v="$(basename "${w}" | cut -d- -f2)"
+            if [ "${v}" != "${EXPECTED}" ]; then
+              echo "::error::${w##*/} carries version '${v}', not the stamp '${EXPECTED}'. The stamp did not reach this package's pyproject.toml."
+              bad=1
+            fi
+          done
+          if [ "${bad}" -ne 0 ]; then
+            echo "::error::refusing to publish: at least one wheel does not carry the CalVer stamp."
+            exit 1
+          fi
+          echo "verified: ${#wheels[@]} wheels all carry the household CalVer stamp ${EXPECTED}"
 
       - name: Publish to devpi (idempotent; skips versions already present)
         run: |
