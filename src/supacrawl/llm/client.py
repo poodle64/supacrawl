@@ -8,6 +8,7 @@ import httpx
 
 from supacrawl.exceptions import ProviderError, generate_correlation_id
 from supacrawl.llm.config import LLMConfig
+from supacrawl.llm.response import strip_reasoning_preamble, text_from_blocks
 from supacrawl.utils import log_with_correlation
 
 LOGGER = logging.getLogger(__name__)
@@ -78,22 +79,45 @@ class LLMClient:
             json_mode: If True, request JSON formatted output.
 
         Returns:
-            Assistant's response content.
+            Assistant's response content, with any reasoning preamble or
+            thinking block removed.
 
         Raises:
-            ProviderError: If the request fails.
+            ProviderError: If the request fails, or the reply carries no
+                text content at all.
         """
         if self._config.provider == "ollama":
-            return await self._chat_ollama(messages, json_mode)
+            content = await self._chat_ollama(messages, json_mode)
         elif self._config.provider == "openai":
-            return await self._chat_openai(messages, json_mode)
+            content = await self._chat_openai(messages, json_mode)
         elif self._config.provider == "anthropic":
-            return await self._chat_anthropic(messages, json_mode)
+            content = await self._chat_anthropic(messages, json_mode)
         else:
             raise ProviderError(
                 f"Unsupported provider: {self._config.provider}",
                 provider=self._config.provider,
             )
+
+        # A reply we can find no text in is a failure, not an answer. Handing
+        # back "" is what let a reasoning model's [thinking, text] turn read as
+        # a model with nothing to say, silently, on every call.
+        if not content:
+            correlation_id = generate_correlation_id()
+            log_with_correlation(
+                LOGGER,
+                logging.ERROR,
+                "LLM reply carried no text content",
+                correlation_id=correlation_id,
+                provider=self._config.provider,
+                model=self._config.model,
+            )
+            raise ProviderError(
+                "LLM returned no text content",
+                provider=self._config.provider,
+                correlation_id=correlation_id,
+                context={"model": self._config.model},
+            )
+        return content
 
     async def chat_json(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         """
@@ -201,7 +225,7 @@ class LLMClient:
                 kwargs["format"] = "json"
 
             response = await client.chat(**kwargs)
-            content = (response.message.content or "").strip()
+            content = strip_reasoning_preamble(response.message.content or "").strip()
 
             log_with_correlation(
                 LOGGER,
@@ -258,7 +282,12 @@ class LLMClient:
             response.raise_for_status()
 
             data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
+            # The answer is the message content with any reasoning preamble
+            # removed; `choices` is a list only because `n` may exceed 1, and
+            # supacrawl never asks for more than the single completion.
+            message = data["choices"][0]["message"]
+            content = text_from_blocks(message.get("content"))
+            return strip_reasoning_preamble(content).strip()
 
         except httpx.HTTPStatusError as exc:
             raise ProviderError(
@@ -318,7 +347,10 @@ class LLMClient:
             response.raise_for_status()
 
             data = response.json()
-            return data["content"][0]["text"].strip()
+            # By shape, never by index: a reasoning model puts a thinking
+            # block in front of the text, and that block carries no `text`.
+            content = text_from_blocks(data.get("content"))
+            return strip_reasoning_preamble(content).strip()
 
         except httpx.HTTPStatusError as exc:
             raise ProviderError(

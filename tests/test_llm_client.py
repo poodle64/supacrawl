@@ -330,3 +330,140 @@ class TestLLMClientAnthropic:
         # User message should still be in messages array
         assert len(request_body.get("messages", [])) == 1
         assert request_body["messages"][0]["role"] == "user"
+
+
+class TestLLMClientReasoningReplies:
+    """A reasoning model's reply must not read as an empty answer.
+
+    `local/deep` became a reasoning model on 29/08/2026: the Anthropic
+    surface started returning `[thinking, text]` and the OpenAI surface a
+    string with a leading `<think>` preamble. Reading `content[0].text`
+    yielded "" with no exception raised — six days of silent failure in a
+    sibling app before anyone noticed.
+    """
+
+    @pytest.fixture
+    def openai_config(self) -> LLMConfig:
+        """Create OpenAI config."""
+        return LLMConfig(
+            provider="openai",
+            model="local/deep",
+            base_url="http://gateway.local",
+            api_key="sk-test",
+        )
+
+    @pytest.fixture
+    def anthropic_config(self) -> LLMConfig:
+        """Create Anthropic config."""
+        return LLMConfig(
+            provider="anthropic",
+            model="local/deep",
+            base_url="http://gateway.local",
+            api_key="sk-ant-test",
+        )
+
+    @staticmethod
+    def _http(payload: dict) -> AsyncMock:
+        """Mock an HTTP client whose POST returns `payload` as JSON."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = payload
+        mock_response.raise_for_status = MagicMock()
+
+        mock_http = AsyncMock()
+        mock_http.post.return_value = mock_response
+        return mock_http
+
+    @pytest.mark.asyncio
+    async def test_anthropic_thinking_block_before_text(self, anthropic_config: LLMConfig) -> None:
+        """The answer sits in content[1]; content[0] carries no text at all."""
+        client = LLMClient(anthropic_config)
+        mock_http = self._http(
+            {
+                "content": [
+                    {"type": "thinking", "thinking": "working it out", "signature": "s"},
+                    {"type": "text", "text": '{"title": "Real answer"}'},
+                ]
+            }
+        )
+
+        with patch.object(client, "_get_http_client", return_value=mock_http):
+            result = await client.chat([{"role": "user", "content": "Hello"}])
+
+        assert result == '{"title": "Real answer"}'
+
+    @pytest.mark.asyncio
+    async def test_anthropic_thinking_only_reply_raises(self, anthropic_config: LLMConfig) -> None:
+        """No text anywhere is a failure to surface, never an empty answer."""
+        client = LLMClient(anthropic_config)
+        mock_http = self._http({"content": [{"type": "thinking", "thinking": "..."}]})
+
+        with patch.object(client, "_get_http_client", return_value=mock_http):
+            with pytest.raises(ProviderError) as exc_info:
+                await client.chat([{"role": "user", "content": "Hello"}])
+
+        assert "no text content" in exc_info.value.message.lower()
+
+    @pytest.mark.asyncio
+    async def test_openai_think_preamble_is_stripped(self, openai_config: LLMConfig) -> None:
+        """json.loads over the raw reply would raise on the preamble."""
+        client = LLMClient(openai_config)
+        mock_http = self._http(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '<think>weighing it up</think>\n{"result": true}',
+                            "reasoning_content": "weighing it up",
+                        }
+                    }
+                ]
+            }
+        )
+
+        with patch.object(client, "_get_http_client", return_value=mock_http):
+            result = await client.chat_json([{"role": "user", "content": "Return JSON"}])
+
+        assert result == {"result": True}
+
+    @pytest.mark.asyncio
+    async def test_openai_block_list_content(self, openai_config: LLMConfig) -> None:
+        """Some gateways return the OpenAI message content as a block list."""
+        client = LLMClient(openai_config)
+        mock_http = self._http(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"type": "thinking", "thinking": "..."},
+                                {"type": "text", "text": "Real answer"},
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+
+        with patch.object(client, "_get_http_client", return_value=mock_http):
+            result = await client.chat([{"role": "user", "content": "Hello"}])
+
+        assert result == "Real answer"
+
+    @pytest.mark.asyncio
+    async def test_ollama_think_preamble_is_stripped(self) -> None:
+        """Ollama returns the preamble inline in message.content."""
+        config = LLMConfig(provider="ollama", model="local/deep", base_url="http://localhost:11434")
+        client = LLMClient(config)
+
+        mock_message = MagicMock()
+        mock_message.content = '<think>reasoning</think>\n{"result": true}'
+        mock_response = MagicMock()
+        mock_response.message = mock_message
+
+        mock_ollama = AsyncMock()
+        mock_ollama.chat.return_value = mock_response
+
+        with patch.object(client, "_get_ollama_client", return_value=mock_ollama):
+            result = await client.chat_json([{"role": "user", "content": "Return JSON"}])
+
+        assert result == {"result": True}
