@@ -426,6 +426,22 @@ class TestLLMClientReasoningReplies:
         assert result == {"result": True}
 
     @pytest.mark.asyncio
+    async def test_openai_null_content_raises_rather_than_returning_empty(self, openai_config: LLMConfig) -> None:
+        """A tool-calls-only completion carries `content: null`.
+
+        Reading it must not hand back "" — the silent-empty failure this whole
+        module exists to prevent — and the error should name what went wrong.
+        """
+        client = LLMClient(openai_config)
+        mock_http = self._http({"choices": [{"message": {"content": None, "tool_calls": []}}]})
+
+        with patch.object(client, "_get_http_client", return_value=mock_http):
+            with pytest.raises(ProviderError) as exc_info:
+                await client.chat([{"role": "user", "content": "Hello"}])
+
+        assert "no text content" in exc_info.value.message.lower()
+
+    @pytest.mark.asyncio
     async def test_openai_block_list_content(self, openai_config: LLMConfig) -> None:
         """Some gateways return the OpenAI message content as a block list."""
         client = LLMClient(openai_config)
