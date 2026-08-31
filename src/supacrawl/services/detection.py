@@ -310,3 +310,108 @@ def generate_recommendations(
     recommendations["reason"] = "; ".join(reasons) if reasons else "No issues detected"
 
     return recommendations
+
+
+# Navigation-chrome class signals. Kept identical to the `isNavChrome` regex in
+# BrowserManager._expand_disclosures — the browser decides what it will expand,
+# and this function decides whether that is worth a browser, so the two must
+# agree about what counts as a site menu.
+_NAV_CHROME_CLASS_RE = re.compile(
+    r"\b(hamburger|mobile-nav|site-nav|main-nav|primary-nav|mega-menu|dropdown-nav"
+    r"|nav-menu|menu-toggle|topnav|global-nav|utility-nav|nav__toggle|breadcrumb|toc-toggle)\b"
+)
+_NAV_CHROME_ROLES = frozenset({"navigation", "menubar", "menu"})
+
+
+def _attr_str(element: Any, name: str) -> str:
+    """Return an element's attribute as a string.
+
+    BeautifulSoup hands back a list for attributes it treats as multi-valued,
+    so a bare `.strip()` on the result is a latent AttributeError. Joining is
+    the honest normalisation: both spellings mean the same thing to a selector.
+    """
+    value = element.get(name)
+    if isinstance(value, list):
+        return " ".join(value)
+    return value or ""
+
+
+def _is_nav_chrome(element: Any) -> bool:
+    """True when an element sits inside site navigation rather than content.
+
+    Mirrors the browser-side `isNavChrome` walk: a `<nav>` ancestor, a
+    navigation/menu ARIA role, or a nav-flavoured class anywhere up the tree.
+    Excluding these is what stops a hamburger button — which is a collapsed
+    disclosure by the letter of the markup — from dragging every page with a
+    mobile menu into the browser.
+    """
+    for node in [element, *element.parents]:
+        if getattr(node, "name", None) == "nav":
+            return True
+        role = _attr_str(node, "role") if hasattr(node, "get") else ""
+        if role.lower() in _NAV_CHROME_ROLES:
+            return True
+        classes = node.get("class") or [] if hasattr(node, "get") else []
+        if _NAV_CHROME_CLASS_RE.search(" ".join(classes).lower()):
+            return True
+    return False
+
+
+def detect_collapsed_disclosures(html: str) -> bool:
+    """True when the HTML hides content behind collapsed disclosure regions.
+
+    The browser path always runs `BrowserManager._expand_disclosures`, which
+    opens closed `<details>` and clicks collapsed `aria-expanded="false"`
+    controls so click-gated content lands in the captured HTML. A page that is
+    server-rendered enough to satisfy the HTTP-first fast path never reaches
+    that step, so its gated content is dropped silently — no error, no quality
+    signal, because the text the page *did* return scores perfectly well.
+
+    Both signals the expander acts on are ordinary markup, so a server-rendered
+    page carries them in the cheap GET: that is what makes this decidable
+    without a browser. Toggles injected by JavaScript are genuinely invisible
+    here, but a page whose content arrives that way trips the JS-shell
+    heuristic and escalates on its own account.
+
+    Selection is deliberately the expander's, not a looser one: a hit must be
+    something the browser would actually open, or the escalation buys nothing
+    and costs the fast path.
+
+    Args:
+        html: Raw HTML from the HTTP-first fetch.
+
+    Returns:
+        True when at least one collapsed disclosure outside navigation chrome
+        is present.
+    """
+    # Substring pre-check first: pages with no disclosure markup at all — the
+    # overwhelming majority — pay one scan and never build a parse tree.
+    lowered = html.lower()
+    if "<details" not in lowered and 'aria-expanded="false"' not in lowered:
+        return False
+
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 1. Closed <details> — the expander opens these by setting `open`.
+    #    The selector is the expander's own, character for character.
+    for details in soup.select("details:not([open])"):
+        if not _is_nav_chrome(details):
+            return True
+
+    # 2. Collapsed ARIA disclosure controls. `aria-controls` is the spec signal
+    #    for a genuine disclosure widget; without it a bare action button (sort,
+    #    filter, load-more) that uses aria-expanded as a state flag would count.
+    for control in soup.select('[aria-expanded="false"]'):
+        if not _attr_str(control, "aria-controls").strip():
+            continue
+        # <summary> and anything inside a <details> is already covered above.
+        if control.name == "summary" or control.find_parent("details") is not None:
+            continue
+        if _attr_str(control, "type").lower() in ("submit", "reset"):
+            continue
+        if not _is_nav_chrome(control):
+            return True
+
+    return False

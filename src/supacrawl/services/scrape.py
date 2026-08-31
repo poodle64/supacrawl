@@ -56,7 +56,11 @@ from supacrawl.services.browser import (
     engine_availability,
 )
 from supacrawl.services.converter import MarkdownConverter
-from supacrawl.services.detection import detect_bot_protection, estimate_js_requirement
+from supacrawl.services.detection import (
+    detect_bot_protection,
+    detect_collapsed_disclosures,
+    estimate_js_requirement,
+)
 from supacrawl.services.http_fetch import fetch_static
 from supacrawl.services.platform import detect_platform
 from supacrawl.services.remediation import remediation_hint, thin_content_hint
@@ -1873,6 +1877,14 @@ class ScrapeService:
         # JavaScript shell — the real content is injected client-side.
         if estimate_js_requirement(html, len(html)):
             LOGGER.debug("HTTP-first escalating %s: JavaScript rendering required", url)
+            return None
+
+        # Content hidden behind collapsed disclosures. Only the browser runs
+        # _expand_disclosures, so serving this page from the fast path drops the
+        # gated content silently — the returned text scores fine on the part the
+        # page did give up, so no quality signal ever fires.
+        if detect_collapsed_disclosures(html):
+            LOGGER.debug("HTTP-first escalating %s: collapsed disclosures need expanding", url)
             return None
 
         # Compute markdown only when a format needs it (mirrors the browser path).

@@ -303,6 +303,45 @@ class TestTryHttpFirst:
         html = "<html><body><iframe src='https://x.example'></iframe><p>" + ("word " * 80) + "</p></body></html>"
         assert await self._run(monkeypatch, _fetched(html), expand_iframes="same-origin") is None
 
+    async def test_disclosure_gated_page_escalates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """#142: gated content is invisible to quality scoring, so nothing else catches it.
+
+        The page has no iframe, no bot marker and plenty of prose — it would
+        score "ok" and be served straight from HTTP, silently dropping whatever
+        sits inside the closed <details>.
+        """
+        html = (
+            "<html><head><title>Rates</title></head><body><main><h1>Rates</h1>"
+            "<p>" + ("word " * 80) + "</p>"
+            "<details><summary>Fee schedule</summary><p>Band A: $412</p></details>"
+            "</main></body></html>"
+        )
+        assert await self._run(monkeypatch, _fetched(html)) is None
+
+    async def test_aria_accordion_page_escalates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        html = (
+            "<html><head><title>Rates</title></head><body><main><h1>Rates</h1>"
+            "<p>" + ("word " * 80) + "</p>"
+            '<button aria-expanded="false" aria-controls="p1">Fee schedule</button>'
+            '<div id="p1" hidden><p>Band A: $412</p></div>'
+            "</main></body></html>"
+        )
+        assert await self._run(monkeypatch, _fetched(html)) is None
+
+    async def test_page_with_only_a_nav_menu_is_still_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The fast path must survive the hamburger button every mobile site has."""
+        html = (
+            "<html><head><title>Article</title></head><body>"
+            '<nav><button aria-expanded="false" aria-controls="menu">Menu</button>'
+            '<ul id="menu"><li><a href="/a">A</a></li></ul></nav>'
+            "<main><h1>Headline</h1><p>" + ("word " * 80) + "</p></main></body></html>"
+        )
+        result = await self._run(monkeypatch, _fetched(html))
+        assert result is not None
+        assert result.success
+        assert result.data is not None
+        assert result.data.markdown and "Headline" in result.data.markdown
+
     async def test_iframe_page_served_when_expansion_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         html = (
             "<html><head><title>Embed</title></head><body><iframe src='https://x.example'></iframe>"
