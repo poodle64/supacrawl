@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends
 
@@ -14,6 +15,7 @@ from supacrawl.api.models.search import (
     SearchDataResponse,
     SearchRequest,
     SearchResponse,
+    UnresponsiveEngineItem,
     WebResultItem,
 )
 from supacrawl.models import SearchFilters, SearchResult, SearchSourceType
@@ -24,10 +26,28 @@ logger = logging.getLogger("supacrawl.api.search")
 router = APIRouter()
 
 
+def _signals(result: SearchResult) -> dict[str, Any]:
+    """The provenance and health signals every response carries.
+
+    Built once and applied to both branches: a failed or empty search is
+    exactly when a caller most needs to know which provider answered and which
+    engines were down, so dropping these on the failure path would leave the
+    gap open where it hurts most (#166).
+    """
+    return {
+        "provider": result.provider,
+        "provider_fallback": result.provider_fallback,
+        "unresponsive_engines": [
+            UnresponsiveEngineItem(engine=e.engine, reason=e.reason) for e in result.unresponsive_engines
+        ],
+        "all_recent_empty": result.all_recent_empty,
+    }
+
+
 def _search_result_to_response(result: SearchResult) -> SearchResponse:
     """Map an internal ``SearchResult`` to the v2 bucketed response shape."""
     if not result.success:
-        return SearchResponse(success=False, error=result.error)
+        return SearchResponse(success=False, error=result.error, **_signals(result))
 
     web: list[WebResultItem] = []
     images: list[ImageResultItem] = []
@@ -61,7 +81,7 @@ def _search_result_to_response(result: SearchResult) -> SearchResponse:
             )
 
     data = SearchDataResponse(web=web, images=images, news=news)
-    return SearchResponse(success=True, data=data)
+    return SearchResponse(success=True, data=data, **_signals(result))
 
 
 @router.post("/search")

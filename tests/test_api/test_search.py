@@ -94,3 +94,98 @@ class TestSearchEndpoint:
         client.post("/search", json={"query": "test", "limit": 3})
         call_kwargs = mock_search_service.search.call_args.kwargs
         assert call_kwargs["limit"] == 3
+
+
+class TestSearchHonestySignals:
+    """The REST surface must not hide what the MCP surface shows (#166).
+
+    A REST caller hitting a CAPTCHA-walled or otherwise failing backend used to
+    get `success: true` with empty buckets and no way to tell "no matches" from
+    "the backend has stopped answering" — the silent-failure class #158/#161
+    closed for MCP callers only.
+    """
+
+    def test_default_response_carries_the_signal_fields(self, client: TestClient) -> None:
+        body = client.post("/search", json={"query": "example"}).json()
+
+        assert "provider" in body
+        assert body["providerFallback"] is False
+        assert body["unresponsiveEngines"] == []
+        assert body["allRecentEmpty"] is False
+
+    def test_provider_and_fallback_are_reported(self, client: TestClient, mock_search_service: AsyncMock) -> None:
+        from supacrawl.models import SearchResult
+
+        mock_search_service.search.return_value = SearchResult(
+            success=True, data=[], provider="duckduckgo", provider_fallback=True
+        )
+
+        body = client.post("/search", json={"query": "example"}).json()
+
+        assert body["provider"] == "duckduckgo"
+        assert body["providerFallback"] is True
+
+    def test_empty_result_from_a_dead_backend_is_distinguishable(
+        self, client: TestClient, mock_search_service: AsyncMock
+    ) -> None:
+        """The whole point: `data` is empty either way, so the signals must differ."""
+        from supacrawl.models import SearchEngineError, SearchResult
+
+        mock_search_service.search.return_value = SearchResult(
+            success=True,
+            data=[],
+            provider="searxng",
+            unresponsive_engines=[SearchEngineError(engine="google", reason="CAPTCHA")],
+            all_recent_empty=True,
+        )
+
+        body = client.post("/search", json={"query": "example"}).json()
+
+        assert body["success"] is True
+        assert body["data"]["web"] == []
+        assert body["allRecentEmpty"] is True
+        assert body["unresponsiveEngines"] == [{"engine": "google", "reason": "CAPTCHA"}]
+
+    def test_failed_search_still_carries_the_signals(self, client: TestClient, mock_search_service: AsyncMock) -> None:
+        """The failure path is where provenance matters most, not least."""
+        from supacrawl.models import SearchEngineError, SearchResult
+
+        mock_search_service.search.return_value = SearchResult(
+            success=False,
+            data=[],
+            error="all providers failed",
+            provider="searxng",
+            provider_fallback=True,
+            unresponsive_engines=[SearchEngineError(engine="bing", reason="timeout")],
+            all_recent_empty=True,
+        )
+
+        body = client.post("/search", json={"query": "example"}).json()
+
+        assert body["success"] is False
+        assert body["error"] == "all providers failed"
+        assert body["provider"] == "searxng"
+        assert body["providerFallback"] is True
+        assert body["allRecentEmpty"] is True
+        assert body["unresponsiveEngines"] == [{"engine": "bing", "reason": "timeout"}]
+
+    def test_rest_carries_every_signal_the_mcp_surface_does(self) -> None:
+        """Parity, checked structurally so a new signal cannot land on one surface only.
+
+        The MCP tool returns `result.model_dump()`, so it gains any field added
+        to `SearchResult` for free. This asserts the REST envelope keeps up.
+        """
+        from supacrawl.api.models.search import SearchResponse
+        from supacrawl.models import SearchResult
+
+        signals = set(SearchResult.model_fields) - {"success", "data", "error"}
+
+        assert signals <= set(SearchResponse.model_fields)
+
+    def test_v2_compatible_fields_are_unchanged(self, client: TestClient) -> None:
+        """Additive only: a Firecrawl v2 client sees exactly what it saw before."""
+        body = client.post("/search", json={"query": "example"}).json()
+
+        assert body["success"] is True
+        assert set(body["data"]) == {"web", "images", "news"}
+        assert body["data"]["web"][0]["url"] == "https://example.com"
