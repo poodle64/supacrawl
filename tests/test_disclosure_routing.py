@@ -6,13 +6,21 @@ render, so it scores "ok" on the HTTP-first path and no quality signal ever
 fires. Only the browser runs `_expand_disclosures`, so the gated content is
 dropped with no error.
 
-The other half of the bargain matters just as much: escalating a page that
-has nothing to expand would trade supacrawl's fast default for nothing, so
-the negative cases below are load-bearing, not padding.
+The question the predicate must answer is NOT "is anything collapsed?" but
+"would the fast path's own output miss it?" — those diverge, and getting it
+wrong in the permissive direction costs a browser render on a large fraction
+of the web. Measured against the real `MarkdownConverter`: a closed <details>
+and a Bootstrap `.collapse` panel both have their text emitted into the fast
+path's markdown already, so neither is gated. What genuinely goes missing is a
+panel hidden by `[hidden]` / `.hidden` / inline `display:none`, or one the site
+injects on first click so it is not in the DOM at all.
+
+The negative cases below are therefore load-bearing, not padding.
 """
 
 import pytest
 
+from supacrawl.services.converter import MarkdownConverter
 from supacrawl.services.detection import detect_collapsed_disclosures
 
 # A page server-rendered enough to satisfy the fast path, with real prose so it
@@ -21,67 +29,91 @@ _PROSE = "Council rates are calculated per the schedule below. " * 20
 
 
 def _page(body: str) -> str:
-    return f"<html><body><h1>Rates</h1><p>{_PROSE}</p>{body}</body></html>"
+    return f"<html><body><main><h1>Rates</h1><p>{_PROSE}</p>{body}</main></body></html>"
 
 
-class TestGatedPagesAreDetected:
+def _control(target: str = "panel1", label: str = "Fee schedule") -> str:
+    return f'<button aria-expanded="false" aria-controls="{target}">{label}</button>'
+
+
+class TestContentTheFastPathWouldMiss:
     """Cases that must escalate: the browser would reveal more."""
 
-    def test_closed_details_is_gated(self) -> None:
-        html = _page("<details><summary>Fee schedule</summary><p>Band A: $412</p></details>")
+    def test_panel_injected_on_click_is_gated(self) -> None:
+        """`aria-controls` names an id nothing matches — the panel is not here yet."""
+        html = _page(_control())
 
         assert detect_collapsed_disclosures(html) is True
 
-    def test_collapsed_aria_accordion_is_gated(self) -> None:
-        html = _page(
-            '<button aria-expanded="false" aria-controls="panel1">Fee schedule</button>'
-            '<div id="panel1" hidden><p>Band A: $412</p></div>'
-        )
+    def test_hidden_attribute_panel_is_gated(self) -> None:
+        html = _page(_control() + '<div id="panel1" hidden><p>Band A: $412 per quarter.</p></div>')
 
         assert detect_collapsed_disclosures(html) is True
 
-    def test_one_closed_among_open_details_is_enough(self) -> None:
-        html = _page(
-            "<details open><summary>Open</summary><p>visible</p></details>"
-            "<details><summary>Closed</summary><p>hidden</p></details>"
-        )
+    def test_display_none_panel_is_gated(self) -> None:
+        html = _page(_control() + '<div id="panel1" style="display: none"><p>Band A: $412.</p></div>')
+
+        assert detect_collapsed_disclosures(html) is True
+
+    def test_hidden_class_panel_is_gated(self) -> None:
+        html = _page(_control() + '<div id="panel1" class="hidden"><p>Band A: $412.</p></div>')
+
+        assert detect_collapsed_disclosures(html) is True
+
+    def test_hidden_ancestor_counts(self) -> None:
+        """The panel itself may be plain; what matters is whether it is reachable."""
+        html = _page(_control() + '<div hidden><div id="panel1"><p>Band A: $412.</p></div></div>')
 
         assert detect_collapsed_disclosures(html) is True
 
     def test_single_quoted_attributes_are_detected(self) -> None:
         """Valid HTML. A value-specific substring pre-check silently missed these."""
-        html = _page(
-            "<button aria-expanded='false' aria-controls='p1'>Fee schedule</button>"
-            "<div id='p1'><p>Band A: $412</p></div>"
-        )
+        html = _page("<button aria-expanded='false' aria-controls='panel1'>Fees</button>")
 
         assert detect_collapsed_disclosures(html) is True
 
     def test_whitespace_around_equals_is_detected(self) -> None:
-        html = _page('<button aria-expanded = "false" aria-controls="p1">Fee schedule</button>')
+        html = _page('<button aria-expanded = "false" aria-controls="panel1">Fees</button>')
 
         assert detect_collapsed_disclosures(html) is True
 
-    def test_uppercase_tag_name_is_detected(self) -> None:
-        html = _page("<DETAILS><SUMMARY>Fee schedule</SUMMARY><P>Band A: $412</P></DETAILS>")
-
-        assert detect_collapsed_disclosures(html) is True
-
-    def test_multi_valued_class_attribute_does_not_crash(self) -> None:
-        """BeautifulSoup hands `class` back as a list, not a string."""
-        html = _page('<details class="accordion panel wide"><summary>s</summary><p>x</p></details>')
+    def test_hidden_prose_citing_sources_is_still_gated(self) -> None:
+        """The link-list exclusion must not swallow real content that cites sources."""
+        html = _page(
+            _control() + '<div id="panel1" hidden><p>Band A is charged at $412 per quarter, reviewed '
+            "each June under the rating strategy, with concessions applied automatically "
+            'to eligible ratepayers. See <a href="/a">the schedule</a>, '
+            '<a href="/b">concessions</a> and <a href="/c">appeals</a>.</p></div>'
+        )
 
         assert detect_collapsed_disclosures(html) is True
 
 
 class TestFastPathIsPreserved:
-    """Cases that must NOT escalate: the browser would reveal nothing."""
+    """Cases that must NOT escalate: the fast path already has the content."""
 
     def test_ordinary_page_is_not_gated(self) -> None:
         assert detect_collapsed_disclosures(_page("<p>Nothing collapsed here.</p>")) is False
 
-    def test_already_open_details_is_not_gated(self) -> None:
-        html = _page("<details open><summary>Fee schedule</summary><p>Band A: $412</p></details>")
+    def test_closed_details_is_not_gated(self) -> None:
+        """The converter emits a closed <details>'s text, so nothing is missing."""
+        html = _page("<details><summary>Fee schedule</summary><p>Band A: $412.</p></details>")
+
+        assert detect_collapsed_disclosures(html) is False
+
+    def test_bootstrap_collapse_panel_is_not_gated(self) -> None:
+        """Bootstrap hides via its own stylesheet, which the converter cannot see.
+
+        The text is in the fast path's markdown already. Escalating for this
+        would drag every Bootstrap accordion, FAQ and filter panel on the web
+        onto the slow path for no content gained.
+        """
+        html = _page(_control() + '<div id="panel1" class="accordion-collapse collapse"><p>Band A: $412.</p></div>')
+
+        assert detect_collapsed_disclosures(html) is False
+
+    def test_visible_panel_is_not_gated(self) -> None:
+        html = _page(_control() + '<div id="panel1"><p>Band A: $412.</p></div>')
 
         assert detect_collapsed_disclosures(html) is False
 
@@ -89,23 +121,25 @@ class TestFastPathIsPreserved:
         """The commonest false positive: every mobile site has one of these."""
         html = _page(
             '<nav><button aria-expanded="false" aria-controls="menu">Menu</button>'
-            '<ul id="menu"><li>Home</li></ul></nav>'
+            '<ul id="menu" hidden><li>Home</li></ul></nav>'
         )
 
         assert detect_collapsed_disclosures(html) is False
 
     def test_nav_by_role_is_not_gated(self) -> None:
-        html = _page('<div role="navigation"><button aria-expanded="false" aria-controls="m">Menu</button></div>')
+        html = _page(f'<div role="navigation">{_control("m", "Menu")}</div><div id="m" hidden>x</div>')
 
         assert detect_collapsed_disclosures(html) is False
 
     def test_nav_by_class_is_not_gated(self) -> None:
-        html = _page('<div class="site-nav"><button aria-expanded="false" aria-controls="m">Menu</button></div>')
+        html = _page(f'<div class="site-nav">{_control("m", "Menu")}</div><div id="m" hidden>x</div>')
 
         assert detect_collapsed_disclosures(html) is False
 
-    def test_details_inside_nav_is_not_gated(self) -> None:
-        html = _page("<nav><details><summary>More</summary><a href='/x'>X</a></details></nav>")
+    def test_hidden_link_list_is_not_gated(self) -> None:
+        """A hidden menu is still a menu, whatever its markup says."""
+        links = "".join(f'<a href="/s{i}">Section {i}</a>' for i in range(12))
+        html = _page(_control("panel1", "More") + f'<div id="panel1" hidden>{links}</div>')
 
         assert detect_collapsed_disclosures(html) is False
 
@@ -120,49 +154,10 @@ class TestFastPathIsPreserved:
 
         assert detect_collapsed_disclosures(html) is False
 
-    def test_summary_inside_open_details_is_not_double_counted(self) -> None:
-        html = _page(
-            "<details open>"
-            '<summary aria-expanded="false" aria-controls="c">Fee schedule</summary>'
-            '<p id="c">Band A: $412</p></details>'
-        )
-
-        assert detect_collapsed_disclosures(html) is False
-
-    def test_link_list_details_is_not_gated(self) -> None:
-        """A table of contents is navigation that carries no nav markup.
-
-        Real case: peps.python.org gates its TOC behind a closed <details> in
-        <main> with no class, role or <nav> ancestor. Opening it adds a link
-        list the page already yields — not worth a browser render.
-        """
-        links = "".join(f'<li><a href="#s{i}">Section {i}</a></li>' for i in range(12))
-        html = _page(f"<details><summary>Table of Contents</summary><ul>{links}</ul></details>")
-
-        assert detect_collapsed_disclosures(html) is False
-
-    def test_prose_details_with_a_few_links_is_still_gated(self) -> None:
-        """The link-list exclusion must not swallow real content that cites sources."""
-        html = _page(
-            "<details><summary>Fee schedule</summary>"
-            "<p>Band A is charged at $412 per quarter, reviewed each June under the "
-            "rating strategy, with concessions applied automatically to eligible "
-            'ratepayers. See <a href="/a">the schedule</a>, <a href="/b">concessions</a> '
-            'and <a href="/c">appeals</a> for detail.</p></details>'
-        )
-
-        assert detect_collapsed_disclosures(html) is True
-
-    def test_short_link_list_is_still_gated(self) -> None:
-        """Two links are not a menu; the minimum guards against over-eager exclusion."""
-        html = _page('<details><summary>More</summary><a href="/a">A</a><a href="/b">B</a></details>')
-
-        assert detect_collapsed_disclosures(html) is True
-
     def test_combobox_input_is_not_gated(self) -> None:
         """Real case: GitHub's file-search box is an ARIA combobox, not a disclosure.
 
-        The expander would click it and reveal nothing — suggestions appear on
+        The expander clicks it and reveals nothing — suggestions appear on
         typing — so escalating for one is pure cost.
         """
         html = _page('<input aria-expanded="false" aria-controls="file-results-list">')
@@ -177,26 +172,55 @@ class TestFastPathIsPreserved:
 
         assert detect_collapsed_disclosures(html) is False
 
+    def test_expanded_control_is_not_gated(self) -> None:
+        html = _page('<button aria-expanded="true" aria-controls="panel1">Fees</button>')
+
+        assert detect_collapsed_disclosures(html) is False
+
     @pytest.mark.parametrize("html", ["", "<html><body></body></html>", "not html at all"])
     def test_degenerate_input_is_not_gated(self, html: str) -> None:
         assert detect_collapsed_disclosures(html) is False
 
 
-class TestAgreementWithTheExpander:
-    """The detector must not claim a page the browser would leave alone.
+class TestAgreementWithTheConverter:
+    """The predicate's premise, asserted against the real converter.
 
-    `BrowserManager._expand_disclosures` is the authority on what gets opened;
-    this predicate only decides whether running it is worth a browser. If they
-    disagree, the escalation is pure cost.
+    These are the measurements the whole design rests on. If the converter's
+    boilerplate handling changes, the predicate's idea of "gated" goes stale
+    silently — so it is checked here rather than assumed.
     """
 
-    def test_selectors_match_the_browser_side(self) -> None:
-        import inspect
+    @staticmethod
+    def _markdown(html: str) -> str:
+        return MarkdownConverter().convert(html, base_url="https://x.example", only_main_content=True)
 
-        from supacrawl.services.browser import BrowserManager
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # A closed <details> needs no separate control — <summary> is its own.
+            "<details><summary>S</summary><p>NEEDLE</p></details>",
+            _control() + '<div id="panel1" class="accordion-collapse collapse"><p>NEEDLE</p></div>',
+            _control() + '<div id="panel1"><p>NEEDLE</p></div>',
+        ],
+    )
+    def test_converter_already_emits_these(self, body: str) -> None:
+        """So escalating for them would buy nothing."""
+        html = _page(body)
 
-        source = inspect.getsource(BrowserManager._expand_disclosures)
+        assert "NEEDLE" in self._markdown(html)
+        assert detect_collapsed_disclosures(html) is False
 
-        assert "details:not([open])" in source
-        assert '[aria-expanded="false"]' in source
-        assert "aria-controls" in source
+    @pytest.mark.parametrize(
+        "body",
+        [
+            '<div id="panel1" hidden><p>NEEDLE</p></div>',
+            '<div id="panel1" style="display:none"><p>NEEDLE</p></div>',
+            '<div id="panel1" class="hidden"><p>NEEDLE</p></div>',
+            "",  # injected on click — not in the DOM at all
+        ],
+    )
+    def test_converter_drops_these_so_the_browser_is_worth_it(self, body: str) -> None:
+        html = _page(_control() + body)
+
+        assert "NEEDLE" not in self._markdown(html)
+        assert detect_collapsed_disclosures(html) is True

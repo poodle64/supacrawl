@@ -390,63 +390,79 @@ def _is_link_list(element: Any) -> bool:
     return len(link_text) / revealed >= _LINK_LIST_TEXT_RATIO
 
 
+def _is_hidden_from_the_fast_path(element: Any) -> bool:
+    """True when the markdown converter would strip this element's text.
+
+    Mirrors the hiding mechanisms in `MarkdownConverter.BOILERPLATE_SELECTORS`
+    — `[hidden]`, `.hidden`, and an inline `display:none`. Those are the only
+    ways a panel present in the HTML is nonetheless absent from the fast path's
+    OUTPUT, and matching that list is what keeps this predicate honest: a panel
+    the converter already emits is not gated, however collapsed its ARIA state
+    claims to be.
+    """
+    for node in [element, *element.parents]:
+        if not hasattr(node, "get"):
+            continue
+        if node.has_attr("hidden"):
+            return True
+        if "hidden" in (node.get("class") or []):
+            return True
+        if "display:none" in _attr_str(node, "style").replace(" ", ""):
+            return True
+    return False
+
+
 def detect_collapsed_disclosures(html: str) -> bool:
-    """True when the HTML hides content behind collapsed disclosure regions.
+    """True when a disclosure hides content the HTTP-first path would MISS.
 
     The browser path always runs `BrowserManager._expand_disclosures`, which
-    opens closed `<details>` and clicks collapsed `aria-expanded="false"`
-    controls so click-gated content lands in the captured HTML. A page that is
-    server-rendered enough to satisfy the HTTP-first fast path never reaches
-    that step, so its gated content is dropped silently — no error, no quality
-    signal, because the text the page *did* return scores perfectly well.
+    clicks collapsed `aria-expanded="false"` controls so click-gated content
+    lands in the captured HTML. A page satisfied by the fast path never reaches
+    that step (#142).
 
-    Both signals the expander acts on are ordinary markup, so a server-rendered
-    page carries them in the cheap GET: that is what makes this decidable
-    without a browser. Toggles injected by JavaScript are genuinely invisible
-    here, but a page whose content arrives that way trips the JS-shell
-    heuristic and escalates on its own account.
+    The question is deliberately not "is anything collapsed?" — measured
+    against the real converter, a closed `<details>` and a Bootstrap
+    `.collapse` panel both have their text emitted into the fast path's
+    markdown already, because the converter is an HTML-to-text pass and neither
+    mechanism hides anything from it. Escalating for those would buy no content
+    and cost a browser render on a large fraction of the web, `<details>` and
+    Bootstrap accordions being as common as they are.
 
-    Selection is deliberately the expander's, not a looser one: a hit must be
-    something the browser would actually open, or the escalation buys nothing
-    and costs the fast path.
+    Content is genuinely missing from the fast path in exactly two cases, and
+    only these escalate:
+
+    - The panel is not in the DOM at all — the site injects it on first click,
+      so `aria-controls` names an id nothing matches.
+    - The panel is present but hidden by a mechanism the converter strips
+      (`[hidden]`, `.hidden`, inline `display:none`).
 
     Args:
         html: Raw HTML from the HTTP-first fetch.
 
     Returns:
-        True when at least one collapsed disclosure outside navigation chrome
-        is present.
+        True when at least one disclosure outside navigation chrome hides
+        content the fast path would not otherwise capture.
     """
-    # Substring pre-check first: pages with no disclosure markup at all — the
+    # Substring pre-check first: pages with no ARIA disclosure markup — the
     # overwhelming majority — pay one scan and never build a parse tree.
     #
     # Matched on the bare attribute name, never on `aria-expanded="false"`:
     # single quotes and whitespace around the `=` are both valid HTML, so a
     # spelling-specific probe would short-circuit to False on a page the parse
-    # below would have caught — under-detection that looks exactly like a clean
-    # fast-path hit. The value is checked properly by the selector.
-    lowered = html.lower()
-    if "<details" not in lowered and "aria-expanded" not in lowered:
+    # below would have caught. The value is checked by the selector.
+    if "aria-expanded" not in html.lower():
         return False
 
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # 1. Closed <details> — the expander opens these by setting `open`.
-    #    The selector is the expander's own, character for character.
-    for details in soup.select("details:not([open])"):
-        if not _is_nav_chrome(details) and not _is_link_list(details):
-            return True
-
-    # 2. Collapsed ARIA disclosure controls. `aria-controls` is the spec signal
-    #    for a genuine disclosure widget; without it a bare action button (sort,
-    #    filter, load-more) that uses aria-expanded as a state flag would count.
     for control in soup.select('[aria-expanded="false"]'):
-        if not _attr_str(control, "aria-controls").strip():
-            continue
-        # <summary> and anything inside a <details> is already covered above.
-        if control.name == "summary" or control.find_parent("details") is not None:
+        # `aria-controls` is the spec signal for a genuine disclosure widget.
+        # Without it a bare action button (sort, filter, load-more) that uses
+        # aria-expanded as a state flag would count.
+        target_id = _attr_str(control, "aria-controls").strip()
+        if not target_id:
             continue
         # A form control carrying aria-expanded is the ARIA *combobox* pattern —
         # a search box whose suggestions appear as you type. The expander clicks
@@ -455,7 +471,20 @@ def detect_collapsed_disclosures(html: str) -> bool:
             continue
         if _attr_str(control, "type").lower() in ("submit", "reset"):
             continue
-        if not _is_nav_chrome(control):
+        if _is_nav_chrome(control):
+            continue
+
+        target = soup.find(id=target_id)
+        if target is None:
+            # Injected on first click: the content is not in this HTML at all,
+            # which is the case the fast path can never satisfy.
             return True
+        if not _is_hidden_from_the_fast_path(target):
+            # Already in the converter's output — a browser adds nothing.
+            continue
+        if _is_link_list(target) or _is_nav_chrome(target):
+            # A hidden menu is still a menu.
+            continue
+        return True
 
     return False

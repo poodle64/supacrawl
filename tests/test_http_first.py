@@ -307,33 +307,67 @@ class TestTryHttpFirst:
         """#142: gated content is invisible to quality scoring, so nothing else catches it.
 
         The page has no iframe, no bot marker and plenty of prose — it would
-        score "ok" and be served straight from HTTP, silently dropping whatever
-        sits inside the closed <details>.
+        score "ok" and be served straight from HTTP, silently dropping the
+        hidden panel the browser would have opened.
         """
         html = (
             "<html><head><title>Rates</title></head><body><main><h1>Rates</h1>"
             "<p>" + ("word " * 80) + "</p>"
-            "<details><summary>Fee schedule</summary><p>Band A: $412</p></details>"
+            '<button aria-expanded="false" aria-controls="p1">Fee schedule</button>'
+            '<div id="p1" hidden><p>Band A: $412 per quarter.</p></div>'
             "</main></body></html>"
         )
         assert await self._run(monkeypatch, _fetched(html)) is None
 
-    async def test_aria_accordion_page_escalates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_click_injected_panel_escalates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`aria-controls` names an id nothing matches: the panel arrives on click."""
         html = (
-            "<html><head><title>Rates</title></head><body><main><h1>Rates</h1>"
+            "<html><head><title>FAQ</title></head><body><main><h1>FAQ</h1>"
             "<p>" + ("word " * 80) + "</p>"
-            '<button aria-expanded="false" aria-controls="p1">Fee schedule</button>'
-            '<div id="p1" hidden><p>Band A: $412</p></div>'
+            '<button aria-expanded="false" aria-controls="answer-1">Why is my bill estimated?</button>'
             "</main></body></html>"
         )
         assert await self._run(monkeypatch, _fetched(html)) is None
+
+    async def test_bootstrap_accordion_page_is_still_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The fast path must survive the commonest accordion markup on the web.
+
+        Bootstrap hides via its own stylesheet, so the converter emits the panel
+        text regardless — escalating would cost a browser render for nothing.
+        """
+        html = (
+            "<html><head><title>FAQ</title></head><body><main><h1>FAQ</h1>"
+            "<p>" + ("word " * 80) + "</p>"
+            '<button aria-expanded="false" aria-controls="p1">Question</button>'
+            '<div id="p1" class="accordion-collapse collapse"><p>Answer text.</p></div>'
+            "</main></body></html>"
+        )
+        result = await self._run(monkeypatch, _fetched(html))
+        assert result is not None
+        assert result.success
+        assert result.data is not None
+        assert result.data.markdown and "Answer text." in result.data.markdown
+
+    async def test_closed_details_page_is_still_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A closed <details> is emitted by the converter, so it is not gated."""
+        html = (
+            "<html><head><title>Rates</title></head><body><main><h1>Rates</h1>"
+            "<p>" + ("word " * 80) + "</p>"
+            "<details><summary>Fee schedule</summary><p>Band A: $412.</p></details>"
+            "</main></body></html>"
+        )
+        result = await self._run(monkeypatch, _fetched(html))
+        assert result is not None
+        assert result.success
+        assert result.data is not None
+        assert result.data.markdown and "Band A: $412." in result.data.markdown
 
     async def test_page_with_only_a_nav_menu_is_still_served(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The fast path must survive the hamburger button every mobile site has."""
         html = (
             "<html><head><title>Article</title></head><body>"
             '<nav><button aria-expanded="false" aria-controls="menu">Menu</button>'
-            '<ul id="menu"><li><a href="/a">A</a></li></ul></nav>'
+            '<ul id="menu" hidden><li><a href="/a">A</a></li></ul></nav>'
             "<main><h1>Headline</h1><p>" + ("word " * 80) + "</p></main></body></html>"
         )
         result = await self._run(monkeypatch, _fetched(html))
