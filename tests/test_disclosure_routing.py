@@ -48,6 +48,25 @@ class TestGatedPagesAreDetected:
 
         assert detect_collapsed_disclosures(html) is True
 
+    def test_single_quoted_attributes_are_detected(self) -> None:
+        """Valid HTML. A value-specific substring pre-check silently missed these."""
+        html = _page(
+            "<button aria-expanded='false' aria-controls='p1'>Fee schedule</button>"
+            "<div id='p1'><p>Band A: $412</p></div>"
+        )
+
+        assert detect_collapsed_disclosures(html) is True
+
+    def test_whitespace_around_equals_is_detected(self) -> None:
+        html = _page('<button aria-expanded = "false" aria-controls="p1">Fee schedule</button>')
+
+        assert detect_collapsed_disclosures(html) is True
+
+    def test_uppercase_tag_name_is_detected(self) -> None:
+        html = _page("<DETAILS><SUMMARY>Fee schedule</SUMMARY><P>Band A: $412</P></DETAILS>")
+
+        assert detect_collapsed_disclosures(html) is True
+
     def test_multi_valued_class_attribute_does_not_crash(self) -> None:
         """BeautifulSoup hands `class` back as a list, not a string."""
         html = _page('<details class="accordion panel wide"><summary>s</summary><p>x</p></details>')

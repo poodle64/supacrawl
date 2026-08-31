@@ -419,8 +419,14 @@ def detect_collapsed_disclosures(html: str) -> bool:
     """
     # Substring pre-check first: pages with no disclosure markup at all — the
     # overwhelming majority — pay one scan and never build a parse tree.
+    #
+    # Matched on the bare attribute name, never on `aria-expanded="false"`:
+    # single quotes and whitespace around the `=` are both valid HTML, so a
+    # spelling-specific probe would short-circuit to False on a page the parse
+    # below would have caught — under-detection that looks exactly like a clean
+    # fast-path hit. The value is checked properly by the selector.
     lowered = html.lower()
-    if "<details" not in lowered and 'aria-expanded="false"' not in lowered:
+    if "<details" not in lowered and "aria-expanded" not in lowered:
         return False
 
     from bs4 import BeautifulSoup
