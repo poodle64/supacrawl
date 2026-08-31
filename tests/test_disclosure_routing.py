@@ -110,6 +110,54 @@ class TestFastPathIsPreserved:
 
         assert detect_collapsed_disclosures(html) is False
 
+    def test_link_list_details_is_not_gated(self) -> None:
+        """A table of contents is navigation that carries no nav markup.
+
+        Real case: peps.python.org gates its TOC behind a closed <details> in
+        <main> with no class, role or <nav> ancestor. Opening it adds a link
+        list the page already yields — not worth a browser render.
+        """
+        links = "".join(f'<li><a href="#s{i}">Section {i}</a></li>' for i in range(12))
+        html = _page(f"<details><summary>Table of Contents</summary><ul>{links}</ul></details>")
+
+        assert detect_collapsed_disclosures(html) is False
+
+    def test_prose_details_with_a_few_links_is_still_gated(self) -> None:
+        """The link-list exclusion must not swallow real content that cites sources."""
+        html = _page(
+            "<details><summary>Fee schedule</summary>"
+            "<p>Band A is charged at $412 per quarter, reviewed each June under the "
+            "rating strategy, with concessions applied automatically to eligible "
+            'ratepayers. See <a href="/a">the schedule</a>, <a href="/b">concessions</a> '
+            'and <a href="/c">appeals</a> for detail.</p></details>'
+        )
+
+        assert detect_collapsed_disclosures(html) is True
+
+    def test_short_link_list_is_still_gated(self) -> None:
+        """Two links are not a menu; the minimum guards against over-eager exclusion."""
+        html = _page('<details><summary>More</summary><a href="/a">A</a><a href="/b">B</a></details>')
+
+        assert detect_collapsed_disclosures(html) is True
+
+    def test_combobox_input_is_not_gated(self) -> None:
+        """Real case: GitHub's file-search box is an ARIA combobox, not a disclosure.
+
+        The expander would click it and reveal nothing — suggestions appear on
+        typing — so escalating for one is pure cost.
+        """
+        html = _page('<input aria-expanded="false" aria-controls="file-results-list">')
+
+        assert detect_collapsed_disclosures(html) is False
+
+    def test_select_and_textarea_are_not_gated(self) -> None:
+        html = _page(
+            '<select aria-expanded="false" aria-controls="opts"><option>a</option></select>'
+            '<textarea aria-expanded="false" aria-controls="hint"></textarea>'
+        )
+
+        assert detect_collapsed_disclosures(html) is False
+
     @pytest.mark.parametrize("html", ["", "<html><body></body></html>", "not html at all"])
     def test_degenerate_input_is_not_gated(self, html: str) -> None:
         assert detect_collapsed_disclosures(html) is False

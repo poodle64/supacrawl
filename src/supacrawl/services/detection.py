@@ -357,6 +357,39 @@ def _is_nav_chrome(element: Any) -> bool:
     return False
 
 
+_FORM_CONTROL_TAGS = frozenset({"input", "select", "textarea"})
+
+# A disclosure whose text is almost entirely link text is a table of contents or
+# a menu — navigation that simply carries no nav tag, role or class to say so.
+# Opening it adds a link list the page's own markup already yields, so it is not
+# worth a browser render. Measured against peps.python.org, whose closed
+# "Table of Contents" <details> sits in <main> with no class at all: 0.98.
+_LINK_LIST_TEXT_RATIO = 0.9
+_LINK_LIST_MIN_LINKS = 3
+
+
+def _is_link_list(element: Any) -> bool:
+    """True when a disclosure's hidden content is essentially a list of links.
+
+    A <summary> is the always-visible label, never part of what opening the
+    element reveals, so it is excluded from both sides of the ratio — counting
+    it would let a long label disguise a short menu as content.
+    """
+    links = element.find_all("a")
+    if len(links) < _LINK_LIST_MIN_LINKS:
+        return False
+    summary = element.find("summary")
+    summary_text = summary.get_text(" ", strip=True) if summary else ""
+    text = element.get_text(" ", strip=True)
+    revealed = len(text) - len(summary_text)
+    if revealed <= 0:
+        return False
+    link_text = " ".join(
+        a.get_text(" ", strip=True) for a in links if summary is None or a.find_parent("summary") is None
+    )
+    return len(link_text) / revealed >= _LINK_LIST_TEXT_RATIO
+
+
 def detect_collapsed_disclosures(html: str) -> bool:
     """True when the HTML hides content behind collapsed disclosure regions.
 
@@ -397,7 +430,7 @@ def detect_collapsed_disclosures(html: str) -> bool:
     # 1. Closed <details> — the expander opens these by setting `open`.
     #    The selector is the expander's own, character for character.
     for details in soup.select("details:not([open])"):
-        if not _is_nav_chrome(details):
+        if not _is_nav_chrome(details) and not _is_link_list(details):
             return True
 
     # 2. Collapsed ARIA disclosure controls. `aria-controls` is the spec signal
@@ -408,6 +441,11 @@ def detect_collapsed_disclosures(html: str) -> bool:
             continue
         # <summary> and anything inside a <details> is already covered above.
         if control.name == "summary" or control.find_parent("details") is not None:
+            continue
+        # A form control carrying aria-expanded is the ARIA *combobox* pattern —
+        # a search box whose suggestions appear as you type. The expander clicks
+        # it and reveals nothing, so escalating for one is pure cost.
+        if control.name in _FORM_CONTROL_TAGS:
             continue
         if _attr_str(control, "type").lower() in ("submit", "reset"):
             continue
