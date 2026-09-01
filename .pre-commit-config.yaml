@@ -22,27 +22,27 @@ repos:
     hooks:
       - id: check-pii
         name: '🔒 security · Detect PII (names, mobiles, personal emails)'
-        entry: python3 .claude/hooks/master/precommit/pii.py
+        entry: household-precommit-pii
         language: system
         types: [text]
 
       - id: check-handoff-tracks-work
         name: '📋 governance · Handoff outstanding work is tracked'
-        entry: python3 .claude/hooks/master/precommit/handoff-tracking.py
+        entry: household-precommit-handoff-tracking
         language: system
         files: '^docs/development/handoffs/.*\.md$'
         pass_filenames: true
 
       - id: check-handoff-status-chain
         name: '🔗 governance · Handoff status chain is honest'
-        entry: python3 .claude/hooks/master/precommit/handoff-status.py
+        entry: household-precommit-handoff-status
         language: system
         files: '^docs/development/handoffs/.*\.md$'
         pass_filenames: true
 
       - id: check-handoff-retention
         name: '📚 governance · A new handoff prunes its folder'
-        entry: python3 .claude/hooks/master/precommit/handoff-retention.py
+        entry: household-precommit-handoff-retention
         language: system
         files: '^docs/development/handoffs/.*\.md$'
         pass_filenames: true
