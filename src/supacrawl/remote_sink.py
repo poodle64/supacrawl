@@ -54,6 +54,20 @@ _STATUS_HINTS: dict[int, str] = {
 }
 
 
+def _describe_error(status_code: int, body: str) -> str:
+    """One line describing a failed push, fit for a terminal.
+
+    The body is only worth quoting when it is Loki's own error text. A gateway
+    in front of Loki answers 401/403 with an HTML page, and a slice of that is
+    four lines of markup cut off mid-tag in the operator's stderr on every
+    command — noise that says nothing the status code has not already said.
+    """
+    condensed = " ".join(body.split())
+    if not condensed or condensed.startswith("<"):
+        return f"HTTP {status_code}"
+    return f"HTTP {status_code}: {condensed[:120]}"
+
+
 class RemoteSink(Protocol):
     """A best-effort shipper of telemetry events to an external store."""
 
@@ -270,9 +284,8 @@ class LokiSink:
         payload = self._build_payload(events)
         try:
             resp = self._post(payload)
-            # Loki's error body is safe to log (it does not echo credentials).
             if resp.status_code >= 400:
-                self._note_failure(f"HTTP {resp.status_code}: {resp.text[:120]}")
+                self._note_failure(_describe_error(resp.status_code, resp.text))
             else:
                 self._note_success()
         except Exception as exc:  # noqa: BLE001 — fail-open: telemetry must never break a scrape

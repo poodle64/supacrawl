@@ -667,3 +667,21 @@ def test_job_label_defaults_to_supacrawl_and_is_configurable() -> None:
     assert default_payload["streams"][0]["stream"]["job"] == "supacrawl"
     custom_payload = LokiSink("https://h/loki/api/v1/push", job="my-scraper")._build_payload(events)
     assert custom_payload["streams"][0]["stream"]["job"] == "my-scraper"
+
+
+def test_a_gateway_html_error_page_is_not_quoted_into_stderr(caplog: pytest.LogCaptureFixture) -> None:
+    """A 401 in front of Loki is an HTML page, not a Loki error.
+
+    Quoting a slice of it puts four lines of markup, cut off mid-tag, into the
+    operator's stderr on every command — and says nothing the status code has
+    not already said.
+    """
+    from supacrawl.remote_sink import _describe_error
+
+    html = "<html>\n<head><title>401 Authorization Required</title></head>\n<body>\n<center><h1>401</h1>"
+    assert _describe_error(401, html) == "HTTP 401"
+    assert _describe_error(503, "   \n  ") == "HTTP 503"
+    # Loki's own plain-text error still earns its place: it names the fix.
+    assert _describe_error(400, "entry out of order for stream") == "HTTP 400: entry out of order for stream"
+    # Whatever the body, the detail is a single line.
+    assert "\n" not in _describe_error(500, "line one\nline two")
