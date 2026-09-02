@@ -52,6 +52,11 @@ class TestEngineAvailability:
         assert verdict["installed"] is True
         assert verdict["available"] is False
         assert verdict["reason"] == ENGINE_REASON_BROWSER_NOT_INSTALLED
+        # The remedy must be the fetch, not the pip install already run — the
+        # hint is what a blocked caller is told to do next.
+        assert verdict["install"] == "patchright install chromium"
+        monkeypatch.setattr(browser_mod, "_camoufox_browser_installed", lambda: False)
+        assert engine_availability("camoufox")["install"] == "camoufox fetch"
 
     def test_a_fully_present_engine_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(browser_mod, "_package_installed", lambda pkg: True)

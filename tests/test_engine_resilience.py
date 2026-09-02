@@ -169,8 +169,6 @@ class TestEscalationAvailabilityGating:
         # import checks) → the platform rung is skipped and nothing else is
         # installed, so the ladder yields None rather than a camoufox rung.
         monkeypatch.setattr(scrape_mod, "engine_availability", lambda engine: {"available": False})
-        monkeypatch.setattr(scrape_mod, "_is_camoufox_available", lambda: False)
-        monkeypatch.setattr(scrape_mod, "_is_patchright_available", lambda: False)
         rung = scrape_mod._next_escalation(
             engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=False, platform=_Platform()
         )
@@ -180,8 +178,6 @@ class TestEscalationAvailabilityGating:
         from supacrawl.services import scrape as scrape_mod
 
         monkeypatch.setattr(scrape_mod, "engine_availability", lambda engine: {"available": True})
-        monkeypatch.setattr(scrape_mod, "_is_camoufox_available", lambda: True)
-        monkeypatch.setattr(scrape_mod, "_is_patchright_available", lambda: True)
         rung = scrape_mod._next_escalation(
             engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=False, platform=_Platform()
         )
@@ -211,12 +207,88 @@ class TestEscalationAvailabilityGating:
         assert scrape_mod._engine_available("playwright") is True
 
         # And the platform short-circuit therefore skips the binary-missing engine.
-        monkeypatch.setattr(scrape_mod, "_is_camoufox_available", lambda: False)
-        monkeypatch.setattr(scrape_mod, "_is_patchright_available", lambda: False)
         rung = scrape_mod._next_escalation(
             engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=False, platform=_Platform()
         )
         assert rung is None
+
+    def test_generic_ladder_skips_a_binary_missing_engine(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The generic ladder — not only the platform short-circuit — must use the gate.
+
+        Measured on a real machine: camoufox was pip-installed but ``camoufox
+        fetch`` had never been run, so the import-only check reported it
+        available. Two blocked pages each spent ~50s escalating into a rung that
+        could never launch, and returned a raw FileNotFoundError traceback.
+        """
+        from supacrawl.services import browser as browser_mod
+        from supacrawl.services import scrape as scrape_mod
+
+        # Both packages import fine; neither browser binary is fetched.
+        monkeypatch.setattr(browser_mod, "_package_installed", lambda pkg: True)
+        monkeypatch.setattr(browser_mod, "_chromium_browser_installed", lambda: False)
+        monkeypatch.setattr(browser_mod, "_camoufox_browser_installed", lambda: False)
+
+        # playwright exhausted -> nothing stronger can launch, so the ladder ends.
+        assert (
+            scrape_mod._next_escalation(
+                engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=False, platform=None
+            )
+            is None
+        )
+        # Already on stealth Chromium -> the camoufox rung is skipped too.
+        assert (
+            scrape_mod._next_escalation(
+                engine="playwright", stealth=True, prefs=None, pinned=False, http2_error=False, platform=None
+            )
+            is None
+        )
+        # And the HTTP/2 TLS fallback, which also jumps straight to camoufox.
+        assert (
+            scrape_mod._next_escalation(
+                engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=True, platform=None
+            )
+            is None
+        )
+
+    def test_generic_ladder_still_climbs_when_binaries_are_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The gate must not become a blanket refusal: a fetched engine is still chosen."""
+        from supacrawl.services import browser as browser_mod
+        from supacrawl.services import scrape as scrape_mod
+
+        monkeypatch.setattr(browser_mod, "_package_installed", lambda pkg: True)
+        monkeypatch.setattr(browser_mod, "_chromium_browser_installed", lambda: True)
+        monkeypatch.setattr(browser_mod, "_camoufox_browser_installed", lambda: True)
+
+        first = scrape_mod._next_escalation(
+            engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=False, platform=None
+        )
+        assert first is not None and first.label == "patchright (stealth)"
+        second = scrape_mod._next_escalation(
+            engine="playwright", stealth=True, prefs=None, pinned=False, http2_error=False, platform=None
+        )
+        assert second is not None and second.engine == "camoufox"
+
+    def test_a_fetched_engine_is_still_offered_when_only_the_other_is_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Patchright fetched, camoufox not: the ladder climbs one rung and stops."""
+        from supacrawl.services import browser as browser_mod
+        from supacrawl.services import scrape as scrape_mod
+
+        monkeypatch.setattr(browser_mod, "_package_installed", lambda pkg: True)
+        monkeypatch.setattr(browser_mod, "_chromium_browser_installed", lambda: True)
+        monkeypatch.setattr(browser_mod, "_camoufox_browser_installed", lambda: False)
+
+        first = scrape_mod._next_escalation(
+            engine="playwright", stealth=False, prefs=None, pinned=False, http2_error=False, platform=None
+        )
+        assert first is not None and first.label == "patchright (stealth)"
+        assert (
+            scrape_mod._next_escalation(
+                engine="playwright", stealth=True, prefs=None, pinned=False, http2_error=False, platform=None
+            )
+            is None
+        )
 
 
 # ---------------------------------------------------------------------------

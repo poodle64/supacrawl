@@ -67,7 +67,7 @@ _SECTION_SPLIT_TAGS = frozenset({"h2", "h3", "section", "article"})
 
 
 # ---------------------------------------------------------------------------
-# Availability guards (mirrors _is_patchright_available in scrape.py)
+# Availability guards
 # ---------------------------------------------------------------------------
 
 

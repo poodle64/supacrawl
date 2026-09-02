@@ -155,16 +155,6 @@ _THIN_MAIN_FLOOR = 50
 _THIN_FALLBACK_RATIO = 3
 
 
-def _is_patchright_available() -> bool:
-    """Check if patchright is installed for stealth mode."""
-    try:
-        import patchright  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
 def _looks_like_bot_block(status_code: int, html: str, markdown: str | None) -> bool:
     """Detect if a response looks like bot detection or blocking.
 
@@ -277,16 +267,6 @@ def _quality_error(quality: QualityAssessment) -> str | None:
     return message
 
 
-def _is_camoufox_available() -> bool:
-    """Check if camoufox is installed for Tier 3 anti-detection."""
-    try:
-        import camoufox  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
 def _engine_available(engine: str | None) -> bool:
     """Whether an engine can actually be used for an escalation choice (#143).
 
@@ -309,6 +289,19 @@ def _engine_available(engine: str | None) -> bool:
     if engine in ("patchright", "camoufox"):
         return bool(engine_availability(engine)["available"])
     return False
+
+
+def _engine_remedy_clause(engine: str) -> str:
+    """The next step for an engine that cannot launch, or "" when it can.
+
+    Reuses :func:`engine_availability`'s own remedy so a hint never contradicts
+    what ``supacrawl diagnose`` reports: a missing package is answered with pip,
+    a package whose browser binary was never fetched with the fetch command.
+    """
+    state = engine_availability(engine)
+    if state["available"]:
+        return ""
+    return f" To enable {engine}: {state['install']}."
 
 
 def _resolve_engine_stealth(engine: str | None, stealth: bool) -> tuple[str, bool]:
@@ -355,22 +348,26 @@ def _stealth_hint(*, bot_suspected: bool = False) -> str:
             "switching engines is unlikely to help for a pure network or timeout error.]"
         )
 
-    if _is_patchright_available():
+    # Suggest only engines that can actually launch. An engine whose package is
+    # installed but whose browser binary was never fetched needs the fetch
+    # command, not a pip install it has already run.
+    if _engine_available("patchright"):
         hint = (
             " [HINT: Basic anti-bot evasion is already active. "
             "For enhanced stealth, use --stealth flag or --engine patchright."
         )
-        if _is_camoufox_available():
+        if _engine_available("camoufox"):
             hint += " For Akamai/advanced protection, use --engine camoufox."
+        else:
+            hint += _engine_remedy_clause("camoufox")
         hint += "]"
         return hint
-    elif _is_camoufox_available():
+    elif _engine_available("camoufox"):
         return " [HINT: Basic anti-bot evasion is active. For Akamai/advanced protection, use --engine camoufox]"
     else:
         return (
-            " [HINT: Basic anti-bot evasion is active but site may need enhanced stealth. "
-            "Install with: pip install supacrawl[stealth] (Cloudflare) "
-            "or pip install supacrawl[camoufox] (Akamai)]"
+            " [HINT: Basic anti-bot evasion is active but site may need enhanced stealth."
+            f"{_engine_remedy_clause('patchright')}{_engine_remedy_clause('camoufox')}]"
         )
 
 
@@ -584,8 +581,11 @@ def _next_escalation(
     Returns:
         The next :class:`_Rung`, or None when nothing stronger is installed/left.
     """
-    camoufox = _is_camoufox_available()
-    patchright = _is_patchright_available()
+    # The binary-aware gate, not the import-only check: a package that is
+    # installed but whose browser binary was never fetched cannot launch, so
+    # choosing it spends an escalation rung on a guaranteed failure (#143/#144).
+    camoufox = _engine_available("camoufox")
+    patchright = _engine_available("patchright")
 
     # HTTP/2 TLS rejection: jump to Camoufox (Firefox stack), then HTTP/1.1.
     if http2_error and camoufox:
@@ -1655,8 +1655,11 @@ class ScrapeService:
         correlation_id = generate_correlation_id()
         # An availability-aware remediation: point at the stealth extras when no
         # stronger engine is installed, otherwise suggest a longer wait.
-        if not _is_patchright_available() and not _is_camoufox_available():
-            remediation = "Install supacrawl[stealth] to enable a stealth retry, or increase wait_for."
+        if not _engine_available("patchright") and not _engine_available("camoufox"):
+            remediation = (
+                "No stealth engine can launch, so a stealth retry is unavailable; increase wait_for."
+                f"{_engine_remedy_clause('patchright')}"
+            )
         else:
             remediation = "Try a larger wait_for or a stronger engine."
         result.success = False

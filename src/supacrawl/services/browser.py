@@ -377,7 +377,17 @@ _ENGINE_PACKAGE = {
     "camoufox": "camoufox",
 }
 
-# An actionable install hint per engine, surfaced when it is unavailable.
+# The command that fetches an engine's browser binary once its package is present.
+# Split from the install hint because the two failures need different remedies: a
+# missing package needs pip, a missing binary needs only the fetch — and telling
+# someone to pip-install what they already have reads as the tool being broken.
+_ENGINE_FETCH_HINT = {
+    "playwright": "playwright install chromium",
+    "patchright": "patchright install chromium",
+    "camoufox": "camoufox fetch",
+}
+
+# An actionable install hint per engine, surfaced when its package is absent.
 _ENGINE_INSTALL_HINT = {
     "playwright": "playwright is a base dependency; run: playwright install chromium",
     "patchright": "pip install supacrawl[stealth]; then: patchright install chromium",
@@ -468,7 +478,7 @@ def engine_availability(engine: str) -> dict[str, Any]:
             "installed": True,
             "available": False,
             "reason": ENGINE_REASON_BROWSER_NOT_INSTALLED,
-            "install": _ENGINE_INSTALL_HINT[engine],
+            "install": _ENGINE_FETCH_HINT[engine],
         }
     return {"installed": True, "available": True, "reason": None}
 

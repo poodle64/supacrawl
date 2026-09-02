@@ -44,14 +44,27 @@ def _meta() -> PageMetadata:
     )
 
 
+def _patch_engine_availability(monkeypatch: pytest.MonkeyPatch, *, patchright: bool, camoufox: bool) -> None:
+    """Pin every engine-availability surface the escalation code consults.
+
+    The ladder reads the binary-aware gate, so patching only the import checks
+    left it reading the developer's own machine: the suite passed or failed on
+    whether ``camoufox fetch`` had ever been run there.
+    """
+    usable = {"playwright": True, "patchright": patchright, "camoufox": camoufox}
+    monkeypatch.setattr(
+        "supacrawl.services.scrape._engine_available",
+        lambda engine: usable.get(engine or "playwright", False),
+    )
+
+
 def _patch_ladder(monkeypatch: pytest.MonkeyPatch, respond, *, patchright=True, camoufox=True) -> list:
     """Patch the scrape module's BrowserManager + engine availability.
 
     ``respond(engine, stealth)`` returns ``(html, status_code)`` for an attempt.
     Returns a list that records each constructed fake browser (for counting).
     """
-    monkeypatch.setattr("supacrawl.services.scrape._is_patchright_available", lambda: patchright)
-    monkeypatch.setattr("supacrawl.services.scrape._is_camoufox_available", lambda: camoufox)
+    _patch_engine_availability(monkeypatch, patchright=patchright, camoufox=camoufox)
     created: list = []
 
     class FakeBrowser:
@@ -293,8 +306,7 @@ def _patch_faithful_browser(monkeypatch: pytest.MonkeyPatch) -> list:
     counted. The real BrowserManager's resolution is the crux of #139: a fake that
     stores the raw kwargs would hide the very bug this exercises.
     """
-    monkeypatch.setattr("supacrawl.services.scrape._is_patchright_available", lambda: True)
-    monkeypatch.setattr("supacrawl.services.scrape._is_camoufox_available", lambda: True)
+    _patch_engine_availability(monkeypatch, patchright=True, camoufox=True)
     created: list = []
 
     class FaithfulBrowser:

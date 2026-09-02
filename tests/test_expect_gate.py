@@ -160,8 +160,11 @@ class TestBrowserPathExpectGate:
     async def test_browser_path_fails_first_class_without_patchright(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # No stronger engine installed -> honest, first-class failure (not a skeleton),
         # with a remediation that points at the stealth extras.
-        monkeypatch.setattr("supacrawl.services.scrape._is_patchright_available", lambda: False)
-        monkeypatch.setattr("supacrawl.services.scrape._is_camoufox_available", lambda: False)
+        monkeypatch.setattr("supacrawl.services.scrape._engine_available", lambda engine: engine == "playwright")
+        monkeypatch.setattr(
+            "supacrawl.services.scrape._engine_remedy_clause",
+            lambda engine: " To enable patchright: pip install supacrawl[stealth]; then: patchright install chromium.",
+        )
         service = ScrapeService(browser=_mock_browser(PRICE_HTML))
         result = await service.scrape("https://x.example", formats=["markdown"], http_first=False, expect=".absent-xyz")
         assert result.success is False
@@ -170,3 +173,25 @@ class TestBrowserPathExpectGate:
         # The message must reflect what was actually tried (no false "stealth retry" claim).
         assert "supacrawl[stealth]" in result.error
         assert "correlation_id=" in result.error
+
+    async def test_remediation_names_the_fetch_when_the_package_is_already_installed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An installed engine whose browser binary was never fetched needs the fetch, not pip.
+
+        Measured against a real machine: camoufox was pip-installed but never
+        fetched, and every blocked page came back advising the pip install the
+        user had already run.
+        """
+        from supacrawl.services import browser as browser_mod
+
+        monkeypatch.setattr(browser_mod, "_package_installed", lambda pkg: True)
+        monkeypatch.setattr(browser_mod, "_chromium_browser_installed", lambda: False)
+        monkeypatch.setattr(browser_mod, "_camoufox_browser_installed", lambda: False)
+
+        service = ScrapeService(browser=_mock_browser(PRICE_HTML))
+        result = await service.scrape("https://x.example", formats=["markdown"], http_first=False, expect=".absent-xyz")
+        assert result.success is False
+        assert result.error is not None
+        assert "patchright install chromium" in result.error
+        assert "pip install" not in result.error
