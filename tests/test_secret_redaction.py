@@ -17,9 +17,18 @@ from typing import Any, cast
 
 import pytest
 
-from supacrawl.mcp.tools import SUPACRAWL_SECRET_KEYS, mask_secrets
-from supacrawl.mcp.tools.health import supacrawl_health
-from supacrawl.services.registry import SupacrawlServices
+# The MCP layer is an optional extra, and importing it without fastmcp raises at
+# COLLECTION time — before any marker can deselect the module — so a marker alone
+# does not save a run that lacks the extra. This is what turned CI red from
+# 2026-08-31: the public CI job cannot resolve the private mcp-common, and this
+# file was the one MCP-importing module with neither guard.
+pytest.importorskip("fastmcp", reason="supacrawl[mcp] extras not installed")
+
+from supacrawl.mcp.tools import SUPACRAWL_SECRET_KEYS, mask_secrets  # noqa: E402
+from supacrawl.mcp.tools.health import supacrawl_health  # noqa: E402
+from supacrawl.services.registry import SupacrawlServices  # noqa: E402
+
+pytestmark = pytest.mark.mcp
 
 _SECRET = "sk-live-do-not-leak-0123456789"
 
