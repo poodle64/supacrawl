@@ -451,3 +451,121 @@ async def test_a_scrape_through_a_shared_engine_recovers_after_the_engine_dies()
             assert shared.relaunches == 1
     finally:
         server.shutdown()
+
+
+class TestBoundedTeardown:
+    """A graceful close must never hold the caller after the content is in hand.
+
+    Chromium's own close stalls on a page with live connections and is released
+    only by an internal 30s timeout. Measured end to end on this repo, same
+    three URLs alternating, back to back: 33.4s mean unbounded vs 12.5s bounded,
+    with byte-identical markdown in both arms.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_stalled_close_does_not_hold_the_caller(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        stopped: list[str] = []
+
+        class _HangingBrowser:
+            async def close(self) -> None:
+                await asyncio.sleep(30)
+
+        class _Playwright:
+            async def stop(self) -> None:
+                stopped.append("driver")
+
+        monkeypatch.setenv("SUPACRAWL_BROWSER_CLOSE_TIMEOUT", "0.2")
+        manager = BrowserManager()
+        manager._browser = _HangingBrowser()  # type: ignore[assignment]
+        manager._playwright = _Playwright()  # type: ignore[assignment]
+
+        started = time.monotonic()
+        await manager.stop()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 5, f"stop() waited {elapsed:.1f}s on a stalled close"
+        # The driver stop is what actually reaps the browser process, so it must
+        # still run once the graceful close is abandoned.
+        assert stopped == ["driver"]
+        assert manager._browser is None
+        assert manager._playwright is None
+
+    @pytest.mark.asyncio
+    async def test_a_prompt_close_is_still_awaited_gracefully(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The bound is a cap on a hang, not a blanket kill."""
+        closed: list[str] = []
+
+        class _PromptBrowser:
+            async def close(self) -> None:
+                closed.append("browser")
+
+        class _Playwright:
+            async def stop(self) -> None:
+                closed.append("driver")
+
+        monkeypatch.setenv("SUPACRAWL_BROWSER_CLOSE_TIMEOUT", "5")
+        manager = BrowserManager()
+        manager._browser = _PromptBrowser()  # type: ignore[assignment]
+        manager._playwright = _Playwright()  # type: ignore[assignment]
+        await manager.stop()
+        assert closed == ["browser", "driver"]
+
+    @pytest.mark.asyncio
+    async def test_a_close_that_raises_still_reaps_the_driver(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        stopped: list[str] = []
+
+        class _AngryBrowser:
+            async def close(self) -> None:
+                raise RuntimeError("Target page, context or browser has been closed")
+
+        class _Playwright:
+            async def stop(self) -> None:
+                stopped.append("driver")
+
+        manager = BrowserManager()
+        manager._browser = _AngryBrowser()  # type: ignore[assignment]
+        manager._playwright = _Playwright()  # type: ignore[assignment]
+        await manager.stop()
+        assert stopped == ["driver"]
+
+    @pytest.mark.asyncio
+    async def test_camoufox_teardown_is_not_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Camoufox must run its teardown to completion, however slow it is.
+
+        ``AsyncCamoufox.__aexit__`` closes the browser and only THEN stops
+        playwright, and that second step is what reaps the Firefox and driver
+        processes. Abandoning it partway leaks them — the opposite of the
+        Chromium path, where stopping the driver is a separate call that reaps
+        on its own. Bounding this branch is the tempting symmetry to avoid.
+        """
+        steps: list[str] = []
+
+        class _CamoufoxCM:
+            async def __aexit__(self, *_: object) -> None:
+                await asyncio.sleep(0.4)  # the graceful close, slower than the bound
+                steps.append("reaped")  # what super().__aexit__ does
+
+        monkeypatch.setenv("SUPACRAWL_BROWSER_CLOSE_TIMEOUT", "0.05")
+        manager = BrowserManager(engine="camoufox")
+        manager._camoufox_cm = _CamoufoxCM()  # type: ignore[assignment]
+        manager._browser = object()  # type: ignore[assignment]
+
+        await manager.stop()
+
+        assert steps == ["reaped"], "camoufox teardown was cut short, leaking its browser process"
+        assert manager._browser is None
+        assert not hasattr(manager, "_camoufox_cm")
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [(None, 3.0), ("0.5", 0.5), ("0", 0.0), ("-1", 0.0), ("not-a-number", 3.0)],
+    )
+    def test_the_bound_is_read_from_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: float
+    ) -> None:
+        from supacrawl.services.browser import _close_timeout_s
+
+        monkeypatch.delenv("SUPACRAWL_BROWSER_CLOSE_TIMEOUT", raising=False)
+        if raw is not None:
+            monkeypatch.setenv("SUPACRAWL_BROWSER_CLOSE_TIMEOUT", raw)
+        assert _close_timeout_s() == expected

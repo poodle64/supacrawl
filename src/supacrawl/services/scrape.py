@@ -1658,7 +1658,7 @@ class ScrapeService:
         if not _engine_available("patchright") and not _engine_available("camoufox"):
             remediation = (
                 "No stealth engine can launch, so a stealth retry is unavailable; increase wait_for."
-                f"{_engine_remedy_clause('patchright')}"
+                f"{_engine_remedy_clause('patchright')}{_engine_remedy_clause('camoufox')}"
             )
         else:
             remediation = "Try a larger wait_for or a stronger engine."

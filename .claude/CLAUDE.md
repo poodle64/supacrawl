@@ -17,7 +17,8 @@ Zero-infrastructure CLI web scraper with LLM extraction, for developers working 
 ## Running it
 
 - Setup needs **all extras**: `uv sync --all-extras` (direnv runs it on `cd`) then `playwright install chromium`. A bare `uv sync` silently omits the `stealth`/`captcha`/`camoufox`/`pdf-ocr` extras and scraping breaks at runtime.
-- Quality gate before done: `ruff check src/ && mypy src/` and `pytest -q -m "not e2e"` (drop the marker to include live-network E2E). See README and `docs/development/testing.md`.
+- Extras install PACKAGES, not browser binaries. `patchright install chromium` and `camoufox fetch` are separate and neither is implied by `uv sync --all-extras`, so a machine set up by the line above has the escalation ladder's upper rungs pip-installed and unusable. The ladder degrades honestly (it skips what cannot launch), but that machine's anti-bot reach stops at playwright — run both fetches to get the tiers the README promises.
+- Quality gate before done: `ruff check src/ && mypy src/` and `pytest -q -m "not e2e and not stealth_smoke"` (drop `not e2e` to include live-network E2E). The `stealth_smoke` exclusion matches CI: those tests assert every engine's browser binary is fetched, so without the two commands above they fail on setup state rather than on your change — a false red that teaches agents to ignore the suite. Run them with `pytest -m stealth_smoke` once fetched. See README and `docs/development/testing.md`.
 - Config and env-var reference (the `SUPACRAWL_*` catalogue and provider keys): `docs/configuration.md`. LLM selection is `SUPACRAWL_LLM_PROVIDER` / `SUPACRAWL_LLM_MODEL` / `OLLAMA_HOST` (see `src/supacrawl/llm/config.py`).
 
 ## Pitfalls

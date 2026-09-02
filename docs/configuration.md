@@ -44,6 +44,7 @@ Every setting is a standing default; a per-request flag or API argument still ov
 | browser | `wait_until` | `SUPACRAWL_WAIT_UNTIL` | `domcontentloaded` | `domcontentloaded` / `load` / `networkidle`. |
 | browser | `user_agent` | `SUPACRAWL_USER_AGENT` | _(engine default)_ | Override the User-Agent string. |
 | browser | _(env only)_ | `SUPACRAWL_DISABLE_DEV_SHM` | _(auto: on in a container)_ | Pass `--disable-dev-shm-usage` to Chromium so it uses disk instead of the container's small `/dev/shm`, avoiding crashes on heavy pages. Auto-detected inside a container; set `1`/`0` to force on/off. Chromium engines only (playwright/patchright); Camoufox is Firefox. |
+| browser | _(env only)_ | `SUPACRAWL_BROWSER_CLOSE_TIMEOUT` | `3` | Seconds to allow a graceful browser close before the driver reaps the process instead. Teardown happens after the content is already extracted, and Chromium's own close regularly stalls on a page with live connections until an internal 30s timeout releases it — pure dead time on the caller's clock. Raise it for a politer close; `0` reaps immediately. |
 | locale | `locale` | `SUPACRAWL_LOCALE` | `en-US` | Maps to Accept-Language. |
 | locale | `timezone` | `SUPACRAWL_TIMEZONE` | `UTC` | e.g. `Australia/Brisbane`. |
 | anti_bot | `engine` | `SUPACRAWL_ENGINE` | _(auto)_ | `playwright` / `patchright` / `camoufox`. Leave unset to auto-escalate. |

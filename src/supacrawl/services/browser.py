@@ -367,6 +367,9 @@ ENGINE_CHOICES = ("playwright", "patchright", "camoufox")
 
 # Reason categories reported when an engine is unusable. Deliberately coarse and
 # machine-readable — they say WHAT is missing, and never leak an internal path.
+# Bound on a graceful browser close before the driver reaps it (see _close_timeout_s).
+_DEFAULT_CLOSE_TIMEOUT_S = 3.0
+
 ENGINE_REASON_NOT_INSTALLED = "not_installed"  # the Python package is absent
 ENGINE_REASON_BROWSER_NOT_INSTALLED = "browser_not_installed"  # package present, browser binary not fetched
 
@@ -493,6 +496,45 @@ def all_engine_availability() -> dict[str, dict[str, Any]]:
 # real pages even when it launches cleanly on a trivial one. --disable-dev-shm-usage
 # makes Chromium use a temp dir on disk instead. Applied only to the Chromium
 # engines (playwright/patchright) — it is a Chromium flag, and Camoufox is Firefox.
+
+
+def _retrieve_outcome(task: "asyncio.Future[Any]") -> None:
+    """Consume an abandoned task's exception so asyncio does not print it.
+
+    An exception on a future nobody reads is reported to stderr when it is
+    collected, which on a CLI whose output is meant to compose with a pipe is
+    noise on every scrape.
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        LOGGER.debug("Ignoring browser close error: %s", exc)
+
+
+def _close_timeout_s() -> float:
+    """Seconds to allow a graceful browser close before reaping via the driver.
+
+    The content is already extracted when teardown starts, so every second here
+    is dead time on the caller's clock. Chromium's own close regularly stalls on
+    a page with live connections and is released only by an internal 30s timeout;
+    measured on abc.net.au (4 alternating pairs, same page, back to back): a
+    graceful close averaged 20.1s, the same close bounded at 2s averaged 1.6s,
+    with the browser process reaped either way and no residue in either arm.
+
+    Nothing depends on the graceful path — supacrawl records no video, HAR or
+    trace, so there is nothing to flush and the browser is discarded outright.
+    ``SUPACRAWL_BROWSER_CLOSE_TIMEOUT`` raises the bound where a caller wants the
+    politer close; 0 or a negative value reaps immediately.
+    """
+    raw = os.getenv("SUPACRAWL_BROWSER_CLOSE_TIMEOUT")
+    if raw is None:
+        return _DEFAULT_CLOSE_TIMEOUT_S
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        LOGGER.debug("Ignoring non-numeric SUPACRAWL_BROWSER_CLOSE_TIMEOUT=%r", raw)
+        return _DEFAULT_CLOSE_TIMEOUT_S
 
 
 def _is_containerised() -> bool:
@@ -1049,20 +1091,42 @@ class BrowserManager:
         self._ever_started = False
         self._deliberately_stopped = True
         if self.engine == "camoufox" and hasattr(self, "_camoufox_cm"):
-            # Camoufox cleanup via its context manager
+            # Camoufox cleanup via its context manager, deliberately unbounded.
+            # AsyncCamoufox.__aexit__ closes the browser and THEN stops
+            # playwright, and only that second step reaps the Firefox and driver
+            # processes — so abandoning it partway through leaks them. The close
+            # bound below applies to the Chromium engines, where stopping the
+            # driver is a separate call that reaps on its own (verified: no
+            # residue in either arm).
             try:
                 await self._camoufox_cm.__aexit__(None, None, None)
-            except Exception:
-                pass
+            except Exception as e:
+                LOGGER.debug("Ignoring camoufox teardown error: %s", e)
             self._browser = None
             del self._camoufox_cm
         else:
+            budget = _close_timeout_s()
+            closing: asyncio.Future[None] | None = None
             if self._browser:
-                await self._browser.close()
+                closing = asyncio.ensure_future(self._browser.close())
+                closing.add_done_callback(_retrieve_outcome)
+                done, _ = await asyncio.wait({closing}, timeout=budget)
+                if not done:
+                    LOGGER.debug("Graceful browser close exceeded %.1fs; reaping via the driver instead", budget)
                 self._browser = None
             if self._playwright:
-                await self._playwright.stop()
+                try:
+                    await self._playwright.stop()
+                except Exception as e:
+                    LOGGER.debug("Ignoring playwright stop error: %s", e)
                 self._playwright = None
+            if closing is not None and not closing.done():
+                # Stopping the driver resolves a close that was still in flight.
+                # Wait for it rather than cancelling: cancelling orphans
+                # Playwright's internal protocol future, and asyncio then prints
+                # "Future exception was never retrieved" to stderr on every
+                # browser scrape. asyncio.wait never cancels on timeout.
+                await asyncio.wait({closing}, timeout=max(budget, 1.0))
         LOGGER.debug("Browser stopped")
 
     @property
