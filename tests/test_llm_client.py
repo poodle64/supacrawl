@@ -335,7 +335,7 @@ class TestLLMClientAnthropic:
 class TestLLMClientReasoningReplies:
     """A reasoning model's reply must not read as an empty answer.
 
-    `local/deep` became a reasoning model on 29/08/2026: the Anthropic
+    `mimir/deep` became a reasoning model on 29/08/2026: the Anthropic
     surface started returning `[thinking, text]` and the OpenAI surface a
     string with a leading `<think>` preamble. Reading `content[0].text`
     yielded "" with no exception raised — six days of silent failure in a
@@ -347,7 +347,7 @@ class TestLLMClientReasoningReplies:
         """Create OpenAI config."""
         return LLMConfig(
             provider="openai",
-            model="local/deep",
+            model="mimir/deep",
             base_url="http://gateway.local",
             api_key="sk-test",
         )
@@ -357,7 +357,7 @@ class TestLLMClientReasoningReplies:
         """Create Anthropic config."""
         return LLMConfig(
             provider="anthropic",
-            model="local/deep",
+            model="mimir/deep",
             base_url="http://gateway.local",
             api_key="sk-ant-test",
         )
@@ -468,7 +468,7 @@ class TestLLMClientReasoningReplies:
     @pytest.mark.asyncio
     async def test_ollama_think_preamble_is_stripped(self) -> None:
         """Ollama returns the preamble inline in message.content."""
-        config = LLMConfig(provider="ollama", model="local/deep", base_url="http://localhost:11434")
+        config = LLMConfig(provider="ollama", model="mimir/deep", base_url="http://localhost:11434")
         client = LLMClient(config)
 
         mock_message = MagicMock()
