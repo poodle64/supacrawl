@@ -29,6 +29,12 @@ repos:
         language: system
         types: [text]
 
+      - id: check-history
+        name: 'governance - A file states what is, not what was'
+        entry: household-precommit-history
+        language: system
+        types: [text]
+
       - id: check-handoff-tracks-work
         name: '📋 governance · Handoff outstanding work is tracked'
         entry: household-precommit-handoff-tracking
