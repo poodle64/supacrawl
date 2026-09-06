@@ -11,7 +11,7 @@ Conventions for the scraping services in `src/supacrawl/services/` (`scrape`, `c
 
 - **Must** drive Playwright only through `BrowserManager` (used as an async context manager) — never instantiate or manage a Playwright browser directly. Share one browser context across page fetches within a run.
 - **Must** convert HTML→Markdown through `MarkdownConverter`, and return Pydantic result models (`ScrapeResult`, `CrawlEvent`, `MapResult`).
-- **Must** wrap Playwright/browser failures in `ProviderError` with a correlation ID (see `70-error-handling.md`) — never surface a raw Playwright error.
+- **Must** wrap Playwright/browser failures in `ProviderError` with a correlation ID (see `error-handling.md`) — never surface a raw Playwright error.
 - **Must** read runtime config from the `SUPACRAWL_*` environment (`docs/configuration.md`), not hardcoded values; accept constructor overrides for dependency injection in tests.
 
 ## Anti-bot escalation (hard-won)

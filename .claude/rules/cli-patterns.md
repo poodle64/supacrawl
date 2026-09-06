@@ -16,7 +16,7 @@ Click command conventions for `src/supacrawl/cli/`. Generic Click usage (groups,
 
 ## Error presentation
 
-The CLI is where `SupacrawlError` surfaces to a human; error _raising_ and the exception hierarchy are `70-error-handling.md`'s.
+The CLI is where `SupacrawlError` surfaces to a human; error _raising_ and the exception hierarchy are `error-handling.md`'s.
 
 - **Must** catch `SupacrawlError`, print a friendly message with its `correlation_id` to stderr, and `raise SystemExit(1)` — never leak a stack trace to the user.
 

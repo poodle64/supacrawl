@@ -29,4 +29,4 @@ except PlaywrightError as e:
                         context={"url": url, "error": str(e)}) from e
 ```
 
-CLI presentation of these errors (friendly message, exit code) is `20-cli-patterns.md`'s.
+CLI presentation of these errors (friendly message, exit code) is `cli-patterns.md`'s.
