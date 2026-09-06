@@ -9,11 +9,39 @@ name: Security
 # private one, and the attempt dies at startup validation with zero jobs.
 # Do NOT move it onto the self-hosted runner: this repo takes fork pull requests.
 
+# Weekly, and on a dependency change: CVEs arrive with time, not with commits,
+# and pre-commit already runs gitleaks on every commit. Measured 06/09/2026:
+# on every push this was 3-5 runner jobs per commit across 22 repos, a third
+# of the fleet's runs.
 on:
+  schedule:
+    - cron: '0 18 * * 0' # Monday 04:00 AEST
   push:
     branches: [main]
+    paths:
+      - '**/pyproject.toml'
+      - '**/uv.lock'
+      - '**/package.json'
+      - '**/pnpm-lock.yaml'
+      - '**/Cargo.lock'
+      - '**/go.sum'
+      - '**/Dockerfile*'
+      - '.github/workflows/security.yaml'
   pull_request:
+    paths:
+      - '**/pyproject.toml'
+      - '**/uv.lock'
+      - '**/package.json'
+      - '**/pnpm-lock.yaml'
+      - '**/Cargo.lock'
+      - '**/go.sum'
+      - '**/Dockerfile*'
+      - '.github/workflows/security.yaml'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
