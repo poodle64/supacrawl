@@ -215,7 +215,7 @@ jobs:
     # `camoufox fetch` especially, which the main job does not run. ubuntu-latest
     # for the same reason as `test`: Playwright's `--with-deps` needs apt+sudo the
     # NixOS atlas runner does not have (supacrawl#147).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # by-exception (2026-09-07): Playwright --with-deps needs apt and sudo the NixOS runner lacks (#147)
     env:
       UV_FROZEN: '1'
     steps:
