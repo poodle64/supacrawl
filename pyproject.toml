@@ -36,8 +36,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/poodle64/supacrawl"
-Repository = "https://github.com/poodle64/supacrawl"
+Homepage = "https://github.com/radar-hooves/supacrawl"
+Repository = "https://github.com/radar-hooves/supacrawl"
 
 [dependency-groups]
 # Local-path override for mcp-common, api-common, and redactyl-core, kept as

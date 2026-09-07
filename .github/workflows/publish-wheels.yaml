@@ -16,7 +16,7 @@ name: Publish wheels
 # (master-project#275).
 #
 # INLINED, NOT a thin caller of master-project's publish-wheels.yaml reusable, for
-# one hard reason: supacrawl is a PUBLIC repo and poodle64/master-project is
+# one hard reason: supacrawl is a PUBLIC repo and radar-hooves/master-project is
 # PRIVATE. GitHub blocks a public repo from resolving a reusable workflow (or a
 # referenced action) in a private one — the call dies at startup validation with
 # zero jobs. The sibling libraries (redactyl, ragify, core-memory — all private)
@@ -29,7 +29,7 @@ name: Publish wheels
 # action (in place of master-project's setup-uv composite) and, as a single-package
 # repo, a plain `uv build --wheel` in place of the reusable's workspace
 # `--all-packages`. Keep the rest aligned with
-# poodle64/master-project/.github/workflows/publish-wheels.yaml.
+# radar-hooves/master-project/.github/workflows/publish-wheels.yaml.
 #
 # The credential is NOT a GitHub secret. The devpi upload password is read from a
 # file on the atlas runner host (/var/lib/devpi-ci/upload_password, mode 0400,
@@ -55,7 +55,7 @@ name: Publish wheels
 # that called `ragify 2026.8.4` a regression against a deployed `2026.8.26.27`.
 # RUN_OFFSET and the `Refuse a non-CalVer wheel version` step below mirror the
 # reusable's; keep all three aligned with
-# poodle64/master-project/.github/workflows/publish-wheels.yaml.
+# radar-hooves/master-project/.github/workflows/publish-wheels.yaml.
 
 on:
   push:
@@ -254,8 +254,8 @@ jobs:
 
       - name: Notify failure (ntfy infra)
         # ntfy-failure inlined: supacrawl is a public repo; GitHub blocks public
-        # repos from referencing actions in private repos (poodle64/master-project).
-        # Logic mirrors poodle64/master-project/.github/actions/ntfy-failure@main.
+        # repos from referencing actions in private repos (radar-hooves/master-project).
+        # Logic mirrors radar-hooves/master-project/.github/actions/ntfy-failure@main.
         if: failure() && github.event_name != 'pull_request'
         shell: bash
         env:

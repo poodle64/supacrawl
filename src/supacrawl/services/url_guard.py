@@ -63,7 +63,7 @@ accepts untrusted URLs (a multi-user app letting users add their own
 sources) needs the stricter posture and can set
 ``SUPACRAWL_BLOCK_PRIVATE_NETWORKS=1`` to refuse internal targets outright.
 This mirrors ragify's ``RAGIFY_BLOCK_PRIVATE_NETWORKS`` switch (see
-poodle64/ragify's ``url_guard.py``) so the two libraries agree on the same
+radar-hooves/ragify's ``url_guard.py``) so the two libraries agree on the same
 policy shape. The guard is a policy layer, not a network firewall; operators
 who need guaranteed SSRF containment should also use network egress
 controls.

@@ -44,8 +44,8 @@ jobs:
         run: uv run ruff format --check src/ tests/
 
       # ntfy-failure inlined: supacrawl is a public repo; GitHub blocks public
-      # repos from referencing actions in private repos (poodle64/master-project).
-      # Logic mirrors poodle64/master-project/.github/actions/ntfy-failure@main.
+      # repos from referencing actions in private repos (radar-hooves/master-project).
+      # Logic mirrors radar-hooves/master-project/.github/actions/ntfy-failure@main.
       - name: Notify failure (ntfy infra)
         if: failure() && github.event_name != 'pull_request'
         shell: bash
