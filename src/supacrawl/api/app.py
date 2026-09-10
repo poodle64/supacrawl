@@ -45,18 +45,25 @@ def create_app() -> FastAPI:
     Configures this process's telemetry (the household contract): one
     ``api_common.telemetry.configure()`` call, before anything else logs,
     owning the log format, the OTLP bootstrap, and nothing else in the
-    process configuring logging of its own.
+    process configuring logging of its own. A plain PyPI install carries no
+    api-common (it is the ``telemetry`` extra) and skips both calls.
     """
-    from api_common.telemetry import configure, instrument_app
+    try:
+        from api_common.telemetry import configure, instrument_app
+    except ImportError:
+        configure = None  # type: ignore[assignment]
+        instrument_app = None  # type: ignore[assignment]
 
-    configure(service_name="supacrawl", service_version=version("supacrawl"))
+    if configure is not None:
+        configure(service_name="supacrawl", service_version=version("supacrawl"))
 
     app = FastAPI(
         title="Supacrawl API",
         description="Firecrawl v2-compatible REST API for supacrawl.",
         lifespan=_lifespan,
     )
-    instrument_app(app)
+    if instrument_app is not None:
+        instrument_app(app)
 
     # --- CORS ----------------------------------------------------------
     app.add_middleware(

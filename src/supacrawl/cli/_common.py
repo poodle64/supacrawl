@@ -46,13 +46,18 @@ _load_env_file()
 def configure_logging() -> None:
     """Configure this process's telemetry, once. Call at CLI startup.
 
-    The household contract (platform/telemetry.md): one
+    Inside the household (``supacrawl[telemetry]``) the one
     ``api_common.telemetry.configure()`` call owns the log format, the
-    redaction floor, and the OTLP bootstrap; ``format="auto"`` is text on a
-    terminal and JSON the moment output is piped or captured. Nothing else in
-    this process configures logging.
+    redaction floor and the OTLP bootstrap; ``format="auto"`` is text on a
+    terminal and JSON the moment output is piped or captured. A plain PyPI
+    install carries no api-common and gets the standard library's own
+    defaults. Nothing else in this process configures logging.
     """
-    from api_common.telemetry import configure
+    try:
+        from api_common.telemetry import configure
+    except ImportError:
+        logging.basicConfig(level=logging.INFO)
+        return
 
     configure(service_name="supacrawl", service_version=version("supacrawl"), format="auto")
 

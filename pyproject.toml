@@ -28,10 +28,8 @@ dependencies = [
   # under the explicit godswood index below a [tool.uv.sources] pin only
   # reaches a declared dependency — a transitive-only name resolves against
   # PyPI and is not found. Declaring it here makes its index pin apply
-  # (mirrors radar-hooves/cadmus's backend/pyproject.toml). See the
-  # [tool.uv.sources] comment below for why api-common itself stays on the
-  # editable path rather than the same index pin.
-  "api-common[telemetry]>=2026.9.3",
+  # (mirrors radar-hooves/cadmus's backend/pyproject.toml); api-common, the
+  # telemetry extra, takes the same index pin.
   "redactyl-core>=2026.7.0",
   "beautifulsoup4>=4.14.3",
   "click>=8.3.1",
@@ -81,6 +79,13 @@ dev = [
 ]
 
 [project.optional-dependencies]
+telemetry = [
+  # The household telemetry contract (platform/telemetry.md): the one
+  # api_common.telemetry.configure() call. api-common is private-index only,
+  # so it is an extra: `supacrawl[telemetry]` inside the household, and a plain
+  # PyPI install leaves logging to the standard library.
+  "api-common[telemetry]>=2026.9.3",
+]
 stealth = [
   "patchright>=1.40.0",  # Keep >=1.40.0 for NixOS — see #79, #104
 ]
@@ -265,36 +270,11 @@ explicit = true
 # group-scoped path override is silently inert once a package is also an
 # ungrouped dependency (measured on radar-hooves/cadmus).
 #
-# api-common stays on the editable path, UNGROUPED, even though it too is now
-# a base dependency: mcp-servers' own workspace root pins it to this same
-# sibling path unconditionally (its "RETAINED PATH OVERRIDE", api-clients
-# issue #744), and any consumer that also depends on mcp-common — this repo,
-# via the mcp-common-dev group — inherits that pin regardless of what is
-# declared here. Measured 2026-09-10: an index pin here does not override it
-# (plain or as the `[{group=...}, {index=...}]` two-entry form) — `uv lock`
-# resolves `source = editable` for api-common either way, because the whole
-# lock is one graph and mcp-common's inherited pin reaches it independent of
-# which groups a given `uv sync` later activates. Declaring the same path
-# here, rather than fighting an inherited override this repo does not
-# control, is what keeps THIS declaration honest about what the lock actually
-# contains.
-#
-# KNOWN GAP this leaves open: `.github/workflows/ci.yaml`'s `uv sync
-# --frozen --no-group mcp-dev` installs from this same lock entry, so every CI
-# job now needs the `../api-clients` sibling on disk to install api-common — a
-# sibling checkout CI does not have and, per rules-library/core/
-# ci-workflow-standard.md ("never a host-path checkout"), must not add. Making
-# api-common a base dependency (required for the telemetry contract's
-# configure() call at every entry point) is what exposes this; it is not
-# reachable from inside this repo alone — it needs either mcp-servers' own
-# retained override moved to the index (api-clients issue #744's own
-# "revisit if index credentials become ambient" condition — met on the atlas
-# runner per the comment above, unconfirmed on the ubuntu-latest `test`/
-# `stealth-smoke` runners) or CI given index credentials directly. Tracked in
-# the task report; unresolved as of this change.
+# api-common (the telemetry extra) resolves from the index too: mcp-servers'
+# own root pins it there for every consumer, so nothing here inherits a path.
 [tool.uv.sources]
 mcp-common = { path = "../mcp-servers/mcp-common", editable = true, group = "mcp-common-dev" }
-api-common = { path = "../api-clients/api-common", editable = true }
+api-common = { index = "godswood" }
 redactyl-core = { index = "godswood" }
 
 [tool.hatch.build.targets.sdist]

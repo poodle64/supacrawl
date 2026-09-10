@@ -150,12 +150,15 @@ wheels = [
 
 [[package]]
 name = "api-common"
-version = "2026.9.3"
-source = { editable = "../api-clients/api-common" }
+version = "2026.9.293"
+source = { registry = "https://pypi.godswood.au/poodle64/prod/+simple/" }
 dependencies = [
     { name = "httpx", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "pydantic", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "redactyl-core", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
+wheels = [
+    { url = "https://pypi.godswood.au/poodle64/prod/+f/aab/1cf924b8b3622/api_common-2026.9.293-py3-none-any.whl", hash = "sha256:aab1cf924b8b3622a58b8c20bf0cb1923e5f992276fe8ae59fca27add93b0960" },
 ]
 
 [package.optional-dependencies]
@@ -168,25 +171,6 @@ telemetry = [
     { name = "opentelemetry-instrumentation-sqlalchemy", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "opentelemetry-sdk", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "asyncssh", marker = "extra == 'ssh'", specifier = ">=2.14.0" },
-    { name = "curl-cffi", marker = "extra == 'curl-http'", specifier = ">=0.10.0" },
-    { name = "curl-cffi", marker = "extra == 'curl-websocket'", specifier = ">=0.10.0" },
-    { name = "httpx", specifier = ">=0.28.0" },
-    { name = "opentelemetry-api", marker = "extra == 'telemetry'", specifier = ">=1.20.0" },
-    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'telemetry'", specifier = ">=1.44.0" },
-    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'telemetry'", specifier = ">=0.65b0" },
-    { name = "opentelemetry-instrumentation-httpx", marker = "extra == 'telemetry'", specifier = ">=0.65b0" },
-    { name = "opentelemetry-instrumentation-logging", marker = "extra == 'telemetry'", specifier = ">=0.65b0" },
-    { name = "opentelemetry-instrumentation-sqlalchemy", marker = "extra == 'telemetry'", specifier = ">=0.65b0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'telemetry'", specifier = ">=1.20.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "redactyl-core", index = "https://pypi.godswood.au/poodle64/prod/+simple/" },
-    { name = "websockets", marker = "extra == 'websocket'", specifier = ">=12.0" },
-]
-provides-extras = ["telemetry", "websocket", "ssh", "curl-websocket", "curl-http"]
 
 [[package]]
 name = "apify-fingerprint-datapoints"
@@ -1255,13 +1239,13 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "api-common", editable = "../api-clients/api-common" },
+    { name = "api-common", index = "https://pypi.godswood.au/poodle64/prod/+simple/" },
     { name = "asyncssh", marker = "extra == 'docker'", specifier = ">=2.21.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "fastmcp", specifier = "==4.0.1" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "httpx2", specifier = ">=2.12.0" },
-    { name = "portcullis-client", editable = "../api-clients/clients/portcullis" },
+    { name = "portcullis-client", index = "https://pypi.godswood.au/poodle64/prod/+simple/" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "pyrage", specifier = ">=1.3.0" },
@@ -1793,8 +1777,8 @@ wheels = [
 
 [[package]]
 name = "portcullis-client"
-version = "2026.6.8"
-source = { editable = "../api-clients/clients/portcullis" }
+version = "2026.9.293"
+source = { registry = "https://pypi.godswood.au/poodle64/prod/+simple/" }
 dependencies = [
     { name = "api-common", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "httpx", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -1802,14 +1786,8 @@ dependencies = [
     { name = "python-dateutil", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "typing-extensions", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "api-common", editable = "../api-clients/api-common" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "python-dateutil", specifier = ">=2.9.0.post0" },
-    { name = "typing-extensions", specifier = ">=4.15.0" },
+wheels = [
+    { url = "https://pypi.godswood.au/poodle64/prod/+f/b8f/68a4bb9b92833/portcullis_client-2026.9.293-py3-none-any.whl", hash = "sha256:b8f68a4bb9b92833d7444c2c78624c2f8626c89a01cb8886343ffa6123346673" },
 ]
 
 [[package]]
@@ -2459,7 +2437,6 @@ version = "2026.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
-    { name = "api-common", extra = ["telemetry"], marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "beautifulsoup4", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "click", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "httpx", extra = ["brotli"], marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -2505,6 +2482,9 @@ readability = [
 stealth = [
     { name = "patchright", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
+telemetry = [
+    { name = "api-common", extra = ["telemetry"], marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2531,7 +2511,7 @@ requires-dist = [
     { name = "2captcha-python", marker = "extra == 'captcha'", specifier = ">=2.0.3" },
     { name = "aiofiles", specifier = ">=25.1.0" },
     { name = "anyio", marker = "extra == 'mcp'", specifier = ">=4.12.1" },
-    { name = "api-common", extras = ["telemetry"], editable = "../api-clients/api-common" },
+    { name = "api-common", extras = ["telemetry"], marker = "extra == 'telemetry'", specifier = ">=2026.9.3", index = "https://pypi.godswood.au/poodle64/prod/+simple/" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "camoufox", extras = ["geoip"], marker = "extra == 'camoufox'", specifier = ">=0.4.11" },
     { name = "click", specifier = ">=8.3.1" },
@@ -2559,7 +2539,7 @@ requires-dist = [
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.34.0" },
 ]
-provides-extras = ["stealth", "camoufox", "captcha", "pdf-ocr", "api", "readability", "mcp"]
+provides-extras = ["telemetry", "stealth", "camoufox", "captcha", "pdf-ocr", "api", "readability", "mcp"]
 
 [package.metadata.requires-dev]
 dev = [
