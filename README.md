@@ -110,12 +110,6 @@ The MCP server can take its SearXNG HTTP Basic credential from a [Portcullis](ht
 
 This is opt-in and MCP-only. Leave `SEARXNG_PORTCULLIS_CREDENTIAL` unset (the default) and nothing changes: the credential resolves from `SEARXNG_USERNAME` / `SEARXNG_PASSWORD` exactly as before, and the CLI and REST API are unaffected either way. When it is set and the broker cannot produce a usable credential, the server starts in a degraded state and search fails loudly rather than quietly handing the query to a different engine.
 
-### Fetching the Loki push token from a secrets broker
-
-The MCP server can take the bearer token that authenticates its remote-telemetry pushes from the same [Portcullis](https://github.com/radar-hooves/portcullis) broker instead of the environment. `SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL` names the catalogue entry carrying the token (a `value`-purpose static credential), fetched in-process at startup — so the bearer never has to exist as an environment variable, a rendered config value, or a file on the host. It defaults to `loki-push`; set it to another name, or to empty to disable the broker path and fall back to `SUPACRAWL_METRICS_TOKEN`.
-
-This is MCP-only and on by default for the MCP server. The CLI and REST API do not read the broker; for them `SUPACRAWL_METRICS_TOKEN` is still the only source. When the broker cannot produce a token — the vault re-locks within ~15–35 minutes of an unlock (`portcullis#178`), the broker is down, or the consumer is out of scope — the server **degrades**, not fails: remote telemetry is disabled with a `WARNING`, the server keeps serving scrapes and searches, and the local `events.jsonl` is unaffected. There is deliberately no env fallback on a vend failure, because that env token is the stale path the broker replaced — falling back to it would reintroduce the silent 401s. A missing telemetry token must never refuse to start or fail a scrape, because telemetry is best-effort, not load-bearing (unlike the SearXNG credential, which fails closed).
-
 ### Available Tools
 
 | Tool                 | Description                                         |
@@ -200,7 +194,7 @@ supacrawl metrics prune --keep-days 90
 
 Disable with `SUPACRAWL_METRICS=0`; log full URLs/queries with `SUPACRAWL_METRICS_FULL_URL=1`. The log is the data seam a separate dashboard would consume — the CLI emits, a GUI reads.
 
-**Ship to a central dashboard.** Point supacrawl at any [Grafana Loki](https://grafana.com/oss/loki/) — local, on a Docker network, or an external managed one (incl. Grafana Cloud): `supacrawl config set metrics_remote_url <url>`, then `supacrawl metrics test-remote` to confirm it works. Already-recorded events backfill with `supacrawl metrics replay-remote`. Auth mirrors the Promtail/Alloy client (none, bearer token, HTTP basic auth, or an `X-Scope-OrgID` tenant header). Events ship best-effort and fail-open — a slow or down endpoint never delays or fails a scrape — batched, with low-cardinality labels (`{job="supacrawl"}`) and all detail in the JSON line for LogQL `| json`. Where Loki lives is your business; nothing is hardcoded. See [the remote-store section in the configuration guide](docs/configuration.md#shipping-telemetry-to-a-remote-store-grafana--loki).
+**Ship to a central collector.** Each event is also emitted as a structured log record on a named logger, using the standard `OTEL_EXPORTER_OTLP_*` environment variables: set `OTEL_EXPORTER_OTLP_ENDPOINT` and it ships over OTLP; leave it unset and the record stays on stdout/stderr as JSON. See [the telemetry section in the configuration guide](docs/configuration.md#telemetry-over-otlp).
 
 ### Troubleshooting
 
@@ -336,7 +330,6 @@ If the primary provider hits a rate limit or quota, the next provider in the cha
 | `SEARXNG_USERNAME` | - | HTTP Basic username, only needed when the SearXNG instance sits behind a Basic-auth gate. Optional, paired with `SEARXNG_PASSWORD` |
 | `SEARXNG_PASSWORD` | - | HTTP Basic password. Optional, paired with `SEARXNG_USERNAME` |
 | `SEARXNG_PORTCULLIS_CREDENTIAL` | - | **MCP server only.** Catalogue name of a Portcullis credential carrying the `username`/`password` pair, fetched in-process at startup so it never has to be an environment variable. Unset means no fetch — see [Fetching the SearXNG credential from a secrets broker](#fetching-the-searxng-credential-from-a-secrets-broker) |
-| `SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL` | `loki-push` | **MCP server only.** Catalogue name of a Portcullis credential carrying the Loki push bearer token, fetched in-process at startup so it never has to be an environment variable. Empty means no fetch — the token resolves from `SUPACRAWL_METRICS_TOKEN` as before. A broker gap degrades (no remote metrics, server keeps serving), never fails closed — see [Fetching the Loki push token from a secrets broker](#fetching-the-loki-push-token-from-a-secrets-broker) |
 | `SUPACRAWL_SEARCH_PROVIDERS` | `brave` | Comma-separated provider chain with fallback order (e.g., `brave,tavily,serper`) |
 | `SUPACRAWL_SEARCH_RATE_LIMIT` | - | Override default rate limit (requests/second). Provider defaults: Brave 1/s, DuckDuckGo 0.5/s |
 
@@ -431,19 +424,19 @@ Supacrawl does one thing well: get clean markdown from the web.
 
 ## Comparison
 
-|  | Supacrawl | crawl4ai | Firecrawl (self-hosted) | Firecrawl (cloud) |
-| --- | --- | --- | --- | --- |
-| **Infrastructure** | `pip install` | `pip install` | Docker + PostgreSQL + Redis | Hosted API |
-| **MCP Server** | Built-in (`[mcp]` extra) | Not included | Not included | Yes |
-| **Web Search** | Built-in (6 providers with fallback) | Not included | Via SearXNG | Yes |
-| **LLM Providers** | Ollama, OpenAI, Anthropic | Any via LiteLLM | OpenAI (Ollama experimental) | OpenAI |
-| **Intelligent Crawling** | Yes (agent command) | Yes (adaptive crawling) | No | Yes (/agent) |
-| **Stealth/Anti-bot** | Yes (3-tier: Patchright + Camoufox) | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
-| **PDF Parsing** | Yes (text + OCR) | No | No | No |
-| **CAPTCHA Solving** | Yes (2Captcha) | Optional (CapSolver) | No | No |
-| **Caching** | Local files | Built-in | PostgreSQL | Managed |
-| **Licence** | MIT | Apache-2.0 | AGPL-3.0 | AGPL-3.0 |
-| **Cost** | Free | Free | Free | Pay-per-use |
+|                          | Supacrawl                            | crawl4ai                 | Firecrawl (self-hosted)        | Firecrawl (cloud) |
+| ------------------------ | ------------------------------------ | ------------------------ | ------------------------------ | ----------------- |
+| **Infrastructure**       | `pip install`                        | `pip install`            | Docker + PostgreSQL + Redis    | Hosted API        |
+| **MCP Server**           | Built-in (`[mcp]` extra)             | Not included             | Not included                   | Yes               |
+| **Web Search**           | Built-in (6 providers with fallback) | Not included             | Via SearXNG                    | Yes               |
+| **LLM Providers**        | Ollama, OpenAI, Anthropic            | Any via LiteLLM          | OpenAI (Ollama experimental)   | OpenAI            |
+| **Intelligent Crawling** | Yes (agent command)                  | Yes (adaptive crawling)  | No                             | Yes (/agent)      |
+| **Stealth/Anti-bot**     | Yes (3-tier: Patchright + Camoufox)  | Yes (undetected browser) | No (Fire-engine is cloud-only) | Yes (Fire-engine) |
+| **PDF Parsing**          | Yes (text + OCR)                     | No                       | No                             | No                |
+| **CAPTCHA Solving**      | Yes (2Captcha)                       | Optional (CapSolver)     | No                             | No                |
+| **Caching**              | Local files                          | Built-in                 | PostgreSQL                     | Managed           |
+| **Licence**              | MIT                                  | Apache-2.0               | AGPL-3.0                       | AGPL-3.0          |
+| **Cost**                 | Free                                 | Free                     | Free                           | Pay-per-use       |
 
 **Supacrawl** is minimal and focused. **crawl4ai** is a feature-rich framework with adaptive crawling and chunking. **Firecrawl** is an API server for applications needing a scraping backend.
 

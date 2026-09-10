@@ -31,7 +31,7 @@ supacrawl config path                # where the store lives
 
 ## Runtime adoption status
 
-The settings schema, the store, and the `config` CLI are complete. Runtime consumption is being adopted incrementally: the **`strategy_memory`, `metrics`, `metrics_full_url`, and `metrics_remote_url`** settings are read from the resolved config (store + environment) on every CLI and MCP run today. The remaining knobs (browser, anti-bot, search, locale, cache) are exposed in the schema and persisted in the store for a control-plane GUI; their adoption into each command's option resolution is rolling out. Until then, set those via their environment variables or per-command flags.
+The settings schema, the store, and the `config` CLI are complete. Runtime consumption is being adopted incrementally: the **`strategy_memory`, `metrics`, and `metrics_full_url`** settings are read from the resolved config (store + environment) on every CLI and MCP run today. The remaining knobs (browser, anti-bot, search, locale, cache) are exposed in the schema and persisted in the store for a control-plane GUI; their adoption into each command's option resolution is rolling out. Until then, set those via their environment variables or per-command flags.
 
 ## Settings
 
@@ -61,10 +61,6 @@ Every setting is a standing default; a per-request flag or API argument still ov
 | memory | `strategy_memory` | `SUPACRAWL_STRATEGY_MEMORY` | `true` | Per-domain strategy learning. |
 | telemetry | `metrics` | `SUPACRAWL_METRICS` | `true` | Record one quality/usage event per scrape/search. |
 | telemetry | `metrics_full_url` | `SUPACRAWL_METRICS_FULL_URL` | `false` | Log full URLs, not just the domain. Off for privacy. |
-| telemetry | `metrics_remote_url` | `SUPACRAWL_METRICS_REMOTE_URL` | _(none)_ | Also ship each event to a remote log store (Loki push URL). See below. |
-| telemetry | `metrics_remote_username` | `SUPACRAWL_METRICS_REMOTE_USERNAME` | _(none)_ | HTTP basic-auth username for the remote endpoint (Grafana Cloud: the numeric user ID). |
-| telemetry | `metrics_remote_tenant` | `SUPACRAWL_METRICS_REMOTE_TENANT` | _(none)_ | `X-Scope-OrgID` for multi-tenant Loki. Leave unset for single-tenant or Grafana Cloud. |
-| telemetry | `metrics_job` | `SUPACRAWL_METRICS_JOB` | `supacrawl` | The Loki stream `job` label for shipped events (queried as `{job=...}`). Change it to fit your labelling or distinguish instances; your dashboard filters on the same value. |
 | cache | `cache_dir` | `SUPACRAWL_CACHE_DIR` | _(default location)_ | Where cached content lives. |
 
 ## Secrets
@@ -75,7 +71,7 @@ Credentials are **environment-only**. They are never written to the store and ne
 supacrawl config secrets   # presence only, never the value
 ```
 
-Honoured: `CAPTCHA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `EXA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `SUPACRAWL_PROXY` (a proxy URL can carry credentials), `SUPACRAWL_METRICS_TOKEN` (bearer token for the remote log endpoint — or, for the MCP server, vended from the broker via `SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL`; see [Shipping telemetry to a remote store](#shipping-telemetry-to-a-remote-store-grafana--loki)), and `SUPACRAWL_METRICS_PASSWORD` (HTTP basic-auth password for the remote log endpoint — for Grafana Cloud, the Access Policy API token).
+Honoured: `CAPTCHA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `SERPAPI_API_KEY`, `EXA_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `SUPACRAWL_PROXY` (a proxy URL can carry credentials).
 
 `SEARXNG_URL` is a clean instance URL with no credentials embedded (e.g. `https://searxng.example.invalid`); when the instance sits behind an HTTP Basic-auth gate, pair it with `SEARXNG_USERNAME` and `SEARXNG_PASSWORD`, whose presence is reported alongside the keys above. `SEARXNG_URL` itself is ordinary configuration rather than a credential, so it is not listed there. Embedding a credential directly in `SEARXNG_URL` (`https://user:pass@host`) still works as a deprecated fallback, but turns the whole URL into a secret, so prefer the discrete username/password pair.
 
@@ -85,38 +81,19 @@ When a self-hosted SearXNG's own engines go down under load, every query comes b
 
 A quieter failure exists: SearXNG's upstream engines get CAPTCHA-walled and return _nothing_ while SearXNG itself answers HTTP 200 with an empty set and names no unresponsive engine — indistinguishable, on a single query, from a genuine no-match. supacrawl handles it without ever turning a real no-match into an error: an empty answer from one provider lets the chain try the next **configured** provider (never an unconfigured public engine unless `PUBLIC_FALLBACK` is on), an unbroken run of empty answers degrades that provider's health (`consecutive_empty` climbs; a query with matches clears it), and — once a full window of caller searches has come back empty in a row — every search response carries `all_recent_empty: true`. That last flag is what lets a caller tell "no matches" from "the backend has stopped answering" off the response itself, without polling `supacrawl_health`. An all-configured-providers-empty result stays `success: true` with `data: []`: a query with nothing to find is a real outcome, not a failure.
 
-## Shipping telemetry to a remote store (Grafana / Loki)
+## Telemetry over OTLP
 
-supacrawl always writes telemetry to the local `events.jsonl` (the durable record). It can **also** ship each event to any Grafana [Loki](https://grafana.com/oss/loki/) — local, on the Docker network, or an external managed one — so a central dashboard can see quality and usage across runs. This is opt-in: set the push URL and whatever auth that endpoint needs, then verify it.
+supacrawl always writes telemetry to the local `events.jsonl` (the durable record). Each event is **also** emitted as one structured log record on the `supacrawl.telemetry` logger, so a standard log/trace collector can pick it up without supacrawl pushing to any log store's own API or holding a credential for one.
+
+Every entry point (the CLI, `supacrawl serve`, and `supacrawl-mcp`) configures its logging once at startup from the standard OpenTelemetry environment:
 
 ```bash
-supacrawl config set metrics_remote_url https://loki.example.com/loki/api/v1/push
-supacrawl metrics test-remote                 # confirm it works before relying on it
-supacrawl metrics replay-remote               # optional: backfill events recorded before now
+OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example.invalid   # ship over OTLP
 ```
 
-**Authentication — point at any Loki.** supacrawl mirrors the Grafana Alloy / Promtail client convention, so the same tool reaches an unauthenticated LAN Loki, a bearer-gated proxy, a multi-tenant Loki, or Grafana Cloud:
+Set it and log records (this telemetry included) ship to that collector. Leave it unset and records go to stdout (stderr for `supacrawl-mcp`, whose stdout is the stdio protocol channel) as JSON lines carrying `timestamp`, `level`, `service_name`, `service_version`, `message`, `logger`, and the event's own fields (`domain`, `verdict`, `score`, `latency_ms`, ...) — filter on `message` (`scrape` or `search`) or any field.
 
-| Target                    | What to set                                                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Local / LAN Loki, no auth | just `metrics_remote_url`                                                                                                                 |
-| Bearer-gated endpoint     | `metrics_remote_url` + `SUPACRAWL_METRICS_TOKEN`                                                                                          |
-| HTTP basic auth           | `metrics_remote_url` + `metrics_remote_username` + `SUPACRAWL_METRICS_PASSWORD`                                                           |
-| Grafana Cloud Loki        | the `logs-prod-*.grafana.net` push URL + `metrics_remote_username` (numeric user ID) + `SUPACRAWL_METRICS_PASSWORD` (Access Policy token) |
-| Self-hosted multi-tenant  | add `metrics_remote_tenant` (sent as the `X-Scope-OrgID` header)                                                                          |
-
-Basic auth takes precedence over a bearer token when both are set. The password is environment-only (never written to the store); the username and tenant are plain config.
-
-**Vend the bearer from a secrets broker (MCP server only).** The MCP server can fetch the Loki push token from a [Portcullis](https://github.com/radar-hooves/portcullis) secrets broker in-process at startup, so it never has to be an environment variable on the host. `SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL` names the catalogue entry carrying the token (a `value`-purpose static credential); it defaults to `loki-push`, set it to empty to disable the broker path and fall back to `SUPACRAWL_METRICS_TOKEN`. The broker address and machine identity come from the usual `PORTCULLIS_URL` / `SIGNET_*` variables. The CLI and REST API do not read the broker; for them the env var is still the only source. When the broker cannot produce a token — the vault re-locks within ~15–35 minutes of an unlock (`portcullis#178`), the broker is down, or the consumer is out of scope — the server degrades: remote telemetry is disabled with a `WARNING`, the server keeps serving, and the local `events.jsonl` is unaffected. There is no env fallback on a vend failure — that env token is the stale path the broker replaced, and falling back to it would reintroduce the silent 401s. This is the deliberate counterpart to the SearXNG broker path, with one difference: a missing SearXNG credential fails search closed (it must not hand the query to an unconfigured engine), but a missing telemetry token fails open (telemetry is best-effort, not load-bearing).
-
-How it behaves:
-
-- **Loki push API.** The URL points straight at `/loki/api/v1/push`. Events are grouped into one stream per kind under the low-cardinality labels `{job="supacrawl", kind="scrape|search"}` (the `job` value is set by `metrics_job` / `SUPACRAWL_METRICS_JOB`, default `supacrawl`); everything else (domain, verdict, score, latency) travels in the JSON line, queried with LogQL `| json`. (The shipper sits behind a small `RemoteSink` interface, so an OTLP backend can be added later without changing how you configure it.)
-- **Best-effort, fail-open.** A push has a short timeout and never raises — if the endpoint is slow or down, the event is dropped and the local JSONL is unaffected. A scrape never hangs or fails because of telemetry. Because failures are silent by design, run `supacrawl metrics test-remote` after configuring an endpoint: it sends one diagnostic event and reports the real HTTP status (so a 401 or a wrong path surfaces immediately instead of being swallowed).
-- **Batched.** Events are buffered and shipped in batches (and once more at process exit), not one HTTP call per scrape.
-- **Privacy carries over.** Only what the local log contains is shipped — domain-only unless you opt into `metrics_full_url`. Keep it domain-only if you scrape sensitive sites.
-
-The Grafana-side panels (score trend, verdict mix, escalation rate, per-domain) are all LogQL queries over `{job="supacrawl"} | json`; supacrawl ships the data, the dashboard derives the views.
+Privacy carries over from the local sink: only what `events.jsonl` contains is logged — domain-only unless you opt into `metrics_full_url`.
 
 ## The settings schema (for a GUI)
 
@@ -148,7 +125,7 @@ The `x-ui` keys are `group`, `order`, `widget`, `help`, and an optional `visible
 supacrawl is the control plane; a UI is a separate plane that plugs into it — the engine ships no front-end of its own, the way a coordination server (e.g. Headscale) exposes an API and CLI while its web UIs live in separate projects. The seam has two halves:
 
 - **Settings** — the typed config store, the `x-ui` schema, and the `config` CLI. A UI renders the schema, reads/writes values through the store, and checks credential presence via `config secrets`.
-- **Telemetry** — the local `events.jsonl` (read with `MetricsReader` / `metrics summary`) and, when configured, the remote Loki a Grafana-style UI reads directly.
+- **Telemetry** — the local `events.jsonl` (read with `MetricsReader` / `metrics summary`) and, over OTLP, whatever collector `OTEL_EXPORTER_OTLP_ENDPOINT` names (see [Telemetry over OTLP](#telemetry-over-otlp)).
 
 When `supacrawl serve` is running, the settings and telemetry state are also exposed read-only over HTTP, so a front-end can plug in without shelling out to the CLI:
 
@@ -158,4 +135,4 @@ When `supacrawl serve` is running, the settings and telemetry state are also exp
 | `GET /supacrawl/config`                 | effective non-secret values plus a secret **presence** map (never values) |
 | `GET /supacrawl/metrics/summary?days=N` | the telemetry rollup, without parsing the raw JSONL                       |
 
-Writes still go through the store, and credentials stay environment-only, so these read endpoints never expose a secret. For live dashboards a UI reads Loki directly; for a local control panel it reads these endpoints. Either way supacrawl provides the seam and stays UI-agnostic.
+Writes still go through the store, and credentials stay environment-only, so these read endpoints never expose a secret. For live dashboards a UI reads the OTLP collector directly; for a local control panel it reads these endpoints. Either way supacrawl provides the seam and stays UI-agnostic.

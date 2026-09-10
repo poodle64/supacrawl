@@ -590,11 +590,11 @@ supacrawl scrape https://spa.example.com --actions actions.json
 
 Supacrawl uses a three-tier engine system for anti-bot protection:
 
-| Tier | Engine | Install | Use Case |
-| --- | --- | --- | --- |
-| 1 | Playwright (default) | Included | Basic stealth scripts, always active |
-| 2 | Patchright | `pip install supacrawl[stealth]` | Cloudflare, general anti-bot |
-| 3 | Camoufox | `pip install supacrawl[camoufox]` | Akamai Bot Manager, advanced TLS fingerprinting |
+| Tier | Engine               | Install                           | Use Case                                        |
+| ---- | -------------------- | --------------------------------- | ----------------------------------------------- |
+| 1    | Playwright (default) | Included                          | Basic stealth scripts, always active            |
+| 2    | Patchright           | `pip install supacrawl[stealth]`  | Cloudflare, general anti-bot                    |
+| 3    | Camoufox             | `pip install supacrawl[camoufox]` | Akamai Bot Manager, advanced TLS fingerprinting |
 
 Select the engine explicitly or let supacrawl auto-detect:
 
@@ -759,7 +759,6 @@ supacrawl scrape https://example.com --language en-AU --timezone Australia/Sydne
 - `SEARXNG_PASSWORD` - HTTP Basic password for a Basic-auth-gated SearXNG instance (optional, paired with `SEARXNG_USERNAME`)
 - Embedding credentials directly in `SEARXNG_URL` (`https://user:pass@host`) still works as a deprecated fallback, but is discouraged: it turns the whole URL into a secret. Prefer `SEARXNG_USERNAME` / `SEARXNG_PASSWORD`, which win when both are set
 - `SEARXNG_PORTCULLIS_CREDENTIAL` - **MCP server only.** Catalogue name of a Portcullis credential carrying the `username`/`password` pair, fetched from the broker at server startup so it never has to be an environment variable. The CLI does not read the broker; when this is set, `supacrawl config secrets` says so rather than reporting the absent env pair as a misconfiguration
-- `SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL` - **MCP server only, default `loki-push`.** Catalogue name of a Portcullis credential carrying the Loki push bearer token, fetched from the broker at server startup so it never has to be an environment variable. A broker gap degrades (no remote metrics, server keeps serving) rather than failing closed — telemetry is best-effort. The CLI does not read the broker; for it `SUPACRAWL_METRICS_TOKEN` is still the only source
 
 ### Browser Configuration
 
