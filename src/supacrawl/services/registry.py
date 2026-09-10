@@ -132,8 +132,6 @@ async def create_supacrawl_services(
     *,
     searxng_username: str | None = None,
     searxng_password: str | None = None,
-    metrics_token: str | None = None,
-    metrics_token_vended: bool = False,
 ) -> SupacrawlServices:
     """
     Factory function to create and initialise all supacrawl services.
@@ -143,13 +141,6 @@ async def create_supacrawl_services(
             (the MCP server vends it from Portcullis). None leaves the provider
             to read SEARXNG_USERNAME / the deprecated SEARXNG_URL userinfo.
         searxng_password: The matching password, same precedence.
-        metrics_token: Loki push bearer resolved by the caller (the MCP server
-            vends it from Portcullis). Only consulted when *metrics_token_vended*
-            is True; otherwise the sink reads SUPACRAWL_METRICS_TOKEN as before.
-        metrics_token_vended: True when the broker path is active — the caller
-            vended (or attempted to vend) the token in-process, so it is
-            authoritative and there is no env fallback. False (the default,
-            for the CLI and REST API) leaves the sink on the env path.
 
     Returns:
         Initialised SupacrawlServices wrapper
@@ -221,7 +212,7 @@ async def create_supacrawl_services(
     from supacrawl.services.strategy_memory import StrategyStore
     from supacrawl.telemetry import MetricsSink
 
-    telemetry = MetricsSink.default(metrics_token=metrics_token, metrics_token_vended=metrics_token_vended)
+    telemetry = MetricsSink.default()
     cache_dir = Path(config.cache_dir).expanduser() if config.cache_dir else None
 
     scrape_service = ScrapeService(
