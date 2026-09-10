@@ -22,6 +22,17 @@ classifiers = [
 ]
 dependencies = [
   "aiofiles>=25.1.0",
+  # The household telemetry contract (platform/telemetry.md): the one
+  # api_common.telemetry.configure() call every entry point makes at process
+  # start. redactyl-core arrives transitively (api-common depends on it), but
+  # under the explicit godswood index below a [tool.uv.sources] pin only
+  # reaches a declared dependency — a transitive-only name resolves against
+  # PyPI and is not found. Declaring it here makes its index pin apply
+  # (mirrors radar-hooves/cadmus's backend/pyproject.toml). See the
+  # [tool.uv.sources] comment below for why api-common itself stays on the
+  # editable path rather than the same index pin.
+  "api-common[telemetry]>=2026.9.3",
+  "redactyl-core>=2026.7.0",
   "beautifulsoup4>=4.14.3",
   "click>=8.3.1",
   "httpx[brotli]>=0.28.1",
@@ -40,20 +51,16 @@ Homepage = "https://github.com/radar-hooves/supacrawl"
 Repository = "https://github.com/radar-hooves/supacrawl"
 
 [dependency-groups]
-# Local-path override for mcp-common, api-common, and redactyl-core, kept as
-# its own group so their uv.sources entries below can be group-scoped (PEP
-# 735). A group-scoped source is local-only config that a consumer resolving
-# `supacrawl[mcp]` as a path dependency never sees, avoiding uv "conflicting
-# URLs" resolution errors in consuming workspaces (see ragify#179 for the
-# failure this prevents). uv requires a group-scoped source's package to be
-# listed directly in the group it is scoped to, so api-common and
-# redactyl-core (both pulled in transitively via mcp-common, since
-# api_common.logging now imports redactyl_core at module load) are listed
-# here explicitly even though nothing in this file depends on them directly.
+# Local-path override for mcp-common, kept as its own group so its
+# uv.sources entry below can be group-scoped (PEP 735). A group-scoped source
+# is local-only config that a consumer resolving `supacrawl[mcp]` as a path
+# dependency never sees, avoiding uv "conflicting URLs" resolution errors in
+# consuming workspaces (see ragify#179 for the failure this prevents).
+# api-common and redactyl-core are base dependencies now (see
+# [tool.uv.sources] below for each one's source), so neither needs a group
+# entry of its own.
 mcp-common-dev = [
   "mcp-common",
-  "api-common",
-  "redactyl-core",
 ]
 # MCP surface deps, separated from dev so CI (no sibling checkouts) can
 # exclude exactly this slice and still lint/type/test everything else.
@@ -209,21 +216,14 @@ module = "mcp_common.*"
 ignore_missing_imports = true
 
 # api-common ships its own py.typed marker and resolves fine at runtime (it is
-# a genuine editable-path sibling, see [tool.uv.sources]), but two separate
-# reasons still land it here: (1) it is absent on CI along with the rest of
-# the mcp-dev group, and (2) even where it IS installed, mypy cannot
-# statically follow Hatchling's PEP 660 finder-based editable-install .pth
-# (unlike mcp-common's plain directory-path .pth, which mypy resolves without
-# issue) — a known mypy/Hatchling gap, not a real missing-stub problem.
+# a genuine editable-path sibling, see [tool.uv.sources]) but is present in
+# every environment including CI (it is a base dependency now, unlike the
+# mcp-surface deps above) — the sole reason it needs an override is that mypy
+# cannot statically follow Hatchling's PEP 660 finder-based editable-install
+# .pth (unlike mcp-common's plain directory-path .pth, which mypy resolves
+# without issue) — a known mypy/Hatchling gap, not a real missing-stub problem.
 [[tool.mypy.overrides]]
 module = "api_common.*"
-ignore_missing_imports = true
-
-# redactyl-core hits the same Hatchling PEP 660 mypy gap as api-common above
-# (same build backend, same editable-path sibling shape) — it is the
-# redaction floor api_common.logging now imports at module load.
-[[tool.mypy.overrides]]
-module = "redactyl_core.*"
 ignore_missing_imports = true
 
 # pydantic-settings is declared only in the `mcp` extra here (unlike
@@ -245,21 +245,57 @@ environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
 # extra groups it finds already installed.
 default-groups = ["dev"]
 
-# Sibling repos installed editable from disk for local/dev resolution; the
-# path source overrides the PyPI requirement for that distribution. mcp-common
-# and api-common are not published to an index, so the MCP extra resolves them
-# from the sibling checkouts (the household no-vendoring pattern — same as
-# ragify/redactyl/milton). mcp-common lives INSIDE the mcp-servers repo, so its
-# source is scoped to the mcp-common-dev group (see the group comment above).
-# api-common enters the graph only transitively via mcp-common (mcp-common
-# declares it as a runtime dependency); its source is scoped to the same group
-# for the same reason — an ungrouped source is local-only config a consumer
-# resolving supacrawl[mcp] as a path dependency would still see, hitting uv's
-# "conflicting URLs" resolution error (see ragify#179).
+# Household private package index (devpi). explicit = true → only the
+# packages pinned to it below resolve here; everything else stays on PyPI.
+# On the atlas CI runner uv authenticates ambiently via the vended devpi-read
+# netrc (NETRC), a dev machine via ~/.netrc — no per-repo GitHub secret.
+# Mirrors radar-hooves/cadmus's backend/pyproject.toml.
+[[tool.uv.index]]
+name = "godswood"
+url = "https://pypi.godswood.au/poodle64/prod/+simple/"
+explicit = true
+
+# mcp-common lives INSIDE the mcp-servers repo and is not published to an
+# index, so the MCP extra resolves it from the sibling checkout (the
+# household no-vendoring pattern — same as ragify/redactyl/milton); its
+# source stays scoped to the mcp-common-dev group (see the group comment
+# above). redactyl-core is a base dependency now too (the telemetry
+# contract's configure() call is needed at every entry point, not only the
+# mcp extra), pinned to the index so its floor here is reachable — a
+# group-scoped path override is silently inert once a package is also an
+# ungrouped dependency (measured on radar-hooves/cadmus).
+#
+# api-common stays on the editable path, UNGROUPED, even though it too is now
+# a base dependency: mcp-servers' own workspace root pins it to this same
+# sibling path unconditionally (its "RETAINED PATH OVERRIDE", api-clients
+# issue #744), and any consumer that also depends on mcp-common — this repo,
+# via the mcp-common-dev group — inherits that pin regardless of what is
+# declared here. Measured 2026-09-10: an index pin here does not override it
+# (plain or as the `[{group=...}, {index=...}]` two-entry form) — `uv lock`
+# resolves `source = editable` for api-common either way, because the whole
+# lock is one graph and mcp-common's inherited pin reaches it independent of
+# which groups a given `uv sync` later activates. Declaring the same path
+# here, rather than fighting an inherited override this repo does not
+# control, is what keeps THIS declaration honest about what the lock actually
+# contains.
+#
+# KNOWN GAP this leaves open: `.github/workflows/ci.yaml`'s `uv sync
+# --frozen --no-group mcp-dev` installs from this same lock entry, so every CI
+# job now needs the `../api-clients` sibling on disk to install api-common — a
+# sibling checkout CI does not have and, per rules-library/core/
+# ci-workflow-standard.md ("never a host-path checkout"), must not add. Making
+# api-common a base dependency (required for the telemetry contract's
+# configure() call at every entry point) is what exposes this; it is not
+# reachable from inside this repo alone — it needs either mcp-servers' own
+# retained override moved to the index (api-clients issue #744's own
+# "revisit if index credentials become ambient" condition — met on the atlas
+# runner per the comment above, unconfirmed on the ubuntu-latest `test`/
+# `stealth-smoke` runners) or CI given index credentials directly. Tracked in
+# the task report; unresolved as of this change.
 [tool.uv.sources]
 mcp-common = { path = "../mcp-servers/mcp-common", editable = true, group = "mcp-common-dev" }
-api-common = { path = "../api-clients/api-common", editable = true, group = "mcp-common-dev" }
-redactyl-core = { path = "../redactyl/redactyl-core", editable = true, group = "mcp-common-dev" }
+api-common = { path = "../api-clients/api-common", editable = true }
+redactyl-core = { index = "godswood" }
 
 [tool.hatch.build.targets.sdist]
 exclude = [
