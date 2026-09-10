@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -40,12 +41,22 @@ def create_app() -> FastAPI:
     - CORS middleware (all origins)
     - Global exception handler mapping errors to ``ErrorResponse``
     - 422 -> 400 remapping for validation errors
+
+    Configures this process's telemetry (the household contract): one
+    ``api_common.telemetry.configure()`` call, before anything else logs,
+    owning the log format, the OTLP bootstrap, and nothing else in the
+    process configuring logging of its own.
     """
+    from api_common.telemetry import configure, instrument_app
+
+    configure(service_name="supacrawl", service_version=version("supacrawl"))
+
     app = FastAPI(
         title="Supacrawl API",
         description="Firecrawl v2-compatible REST API for supacrawl.",
         lifespan=_lifespan,
     )
+    instrument_app(app)
 
     # --- CORS ----------------------------------------------------------
     app.add_middleware(

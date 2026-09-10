@@ -6,11 +6,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import click
-from rich.console import Console
-from rich.logging import RichHandler
 
-console = Console(stderr=True)
-_configured = False
 LOGGER = logging.getLogger(__name__)
 
 
@@ -47,32 +43,18 @@ def _load_env_file(env_path: Path | None = None) -> None:
 _load_env_file()
 
 
-def configure_logging(*, verbose: bool = False) -> None:
-    """Configure logging with Rich handler. Call once at startup."""
-    global _configured
-    if _configured:
-        return
+def configure_logging() -> None:
+    """Configure this process's telemetry, once. Call at CLI startup.
 
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[
-            RichHandler(
-                console=console,
-                rich_tracebacks=True,
-                tracebacks_show_locals=verbose,
-            )
-        ],
-        force=True,
-    )
+    The household contract (platform/telemetry.md): one
+    ``api_common.telemetry.configure()`` call owns the log format, the
+    redaction floor, and the OTLP bootstrap; ``format="auto"`` is text on a
+    terminal and JSON the moment output is piped or captured. Nothing else in
+    this process configures logging.
+    """
+    from api_common.telemetry import configure
 
-    # Suppress noisy third-party loggers
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
-
-    _configured = True
+    configure(service_name="supacrawl", service_version=version("supacrawl"), format="auto")
 
 
 def parse_header_string(raw: str) -> tuple[str, str]:
@@ -139,3 +121,4 @@ def app() -> None:
     Provides commands for scraping, crawling, mapping, searching,
     extracting data, and autonomous web agents.
     """
+    configure_logging()
