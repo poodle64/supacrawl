@@ -39,12 +39,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _ENV_PREFIX = "SUPACRAWL_"
 _DEFAULT_CONFIG_PATH = Path("~/.supacrawl/config.toml")
-# Per-operator secrets file loaded as a fallback when the env var is absent.
-# The eventual home for this secret is the Portcullis broker (the household is
-# migrating credentials off flat env files), but this dotenv fallback removes
-# the silent-failure mode in non-interactive launch contexts (e.g. the VSCodium
-# Claude Code extension) without moving the secret now.
-_METRICS_ENV_FILE = Path("~/.supacrawl/metrics.env")
 
 
 def _ui(
@@ -276,58 +270,6 @@ class SupacrawlConfig(BaseModel):
             help="Log full URLs and search queries instead of just the registrable domain. Off by default for privacy.",
         ),
     )
-    metrics_remote_url: str | None = Field(
-        default=None,
-        title="Remote log endpoint",
-        json_schema_extra=_ui(
-            group="telemetry",
-            order=30,
-            widget="url",
-            visible_when={"metrics": True},
-            help="Also ship each event to this log store (a Grafana Loki push URL, "
-            "e.g. https://host/loki/api/v1/push). Best-effort; the local log is unaffected. "
-            "Set the auth token via the SUPACRAWL_METRICS_TOKEN environment variable.",
-        ),
-    )
-    metrics_remote_username: str | None = Field(
-        default=None,
-        title="Remote log username",
-        json_schema_extra=_ui(
-            group="telemetry",
-            order=40,
-            widget="text",
-            visible_when={"metrics": True},
-            help="HTTP basic-auth username for the remote log endpoint. "
-            "For Grafana Cloud this is the numeric Loki/Logs user (instance) ID. "
-            "Set the corresponding password via SUPACRAWL_METRICS_PASSWORD.",
-        ),
-    )
-    metrics_remote_tenant: str | None = Field(
-        default=None,
-        title="Remote log tenant",
-        json_schema_extra=_ui(
-            group="telemetry",
-            order=50,
-            widget="text",
-            visible_when={"metrics": True},
-            help="Sets the X-Scope-OrgID header for self-hosted multi-tenant Loki. "
-            "Leave unset for single-tenant deployments or Grafana Cloud.",
-        ),
-    )
-    metrics_job: str = Field(
-        default="supacrawl",
-        title="Remote log job label",
-        json_schema_extra=_ui(
-            group="telemetry",
-            order=60,
-            widget="text",
-            visible_when={"metrics": True},
-            help="The Loki stream label 'job' applied to shipped events (queried as "
-            "{job=...}). Defaults to 'supacrawl'; change it to fit your Loki labelling "
-            "or to distinguish multiple instances. A dashboard must filter on the same value.",
-        ),
-    )
-
     # --- Cache -----------------------------------------------------------
     cache_dir: str | None = Field(
         default=None,
@@ -339,42 +281,6 @@ class SupacrawlConfig(BaseModel):
             help="Directory for cached scraped content. Leave blank to use the default location.",
         ),
     )
-
-
-def _read_dotenv_file(path: Path) -> dict[str, str]:
-    """Parse a KEY=VALUE dotenv file into a dict, silently ignoring errors.
-
-    Follows the minimal subset of dotenv conventions present in the household
-    secrets files: ``KEY=VALUE`` lines, ``#``-comment lines, blank lines.
-    Values are stripped of leading/trailing whitespace and optional surrounding
-    quotes (single or double). The file is optional; a missing or unreadable
-    file returns an empty dict so callers never fail on absence.
-
-    Args:
-        path: Path to the dotenv file (``~`` is expanded).
-
-    Returns:
-        A dict mapping variable names to their string values.
-    """
-    expanded = path.expanduser()
-    if not expanded.exists():
-        return {}
-    result: dict[str, str] = {}
-    try:
-        for line in expanded.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, raw_val = line.partition("=")
-            key = key.strip()
-            val = raw_val.strip()
-            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
-                val = val[1:-1]
-            if key:
-                result[key] = val
-    except OSError as exc:
-        logging.getLogger(__name__).debug("Could not read %s: %s", expanded, exc)
-    return result
 
 
 # The credential names supacrawl honours, mapped to their environment variable.
@@ -391,8 +297,6 @@ _SECRET_ENV: dict[str, str] = {
     "openai_api_key": "OPENAI_API_KEY",
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "proxy": "SUPACRAWL_PROXY",
-    "metrics_token": "SUPACRAWL_METRICS_TOKEN",
-    "metrics_password": "SUPACRAWL_METRICS_PASSWORD",
 }
 
 
@@ -417,30 +321,11 @@ class SupacrawlSecrets(BaseModel):
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
     proxy: str | None = None
-    metrics_token: str | None = None
-    metrics_password: str | None = None
 
     @classmethod
-    def from_env(cls, *, dotenv_file: Path | None = _METRICS_ENV_FILE) -> "SupacrawlSecrets":
-        """Build from the environment, falling back to a dotenv file for absent vars.
-
-        Precedence (highest to lowest):
-          1. Process environment (``os.environ``) — always wins.
-          2. ``dotenv_file`` (``~/.supacrawl/metrics.env`` by default) — used only
-             when the variable is absent from the process env.  Absent file = silent
-             no-op; the server starts cleanly whether or not the file exists.
-
-        This fallback exists because the VSCodium Claude Code extension launches MCP
-        servers without inheriting the interactive-shell environment that sources
-        ``metrics.env``, causing telemetry pushes to be silently rejected by the
-        bearer gate.  Reading the file directly removes that dependency.
-
-        Args:
-            dotenv_file: Path to the dotenv fallback file. ``None`` disables file
-                loading (useful in tests that want pure-env isolation).
-        """
-        file_vals: dict[str, str] = _read_dotenv_file(dotenv_file) if dotenv_file is not None else {}
-        return cls(**{field: os.environ.get(env) or file_vals.get(env) or None for field, env in _SECRET_ENV.items()})
+    def from_env(cls) -> "SupacrawlSecrets":
+        """Build from the process environment."""
+        return cls(**{field: os.environ.get(env) or None for field, env in _SECRET_ENV.items()})
 
     def configured(self) -> dict[str, bool]:
         """Report which secrets are set, by name, without exposing any value.

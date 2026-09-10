@@ -181,24 +181,12 @@ def test_set_config_value_rejects_out_of_range(tmp_path: Path) -> None:
 def test_secrets_configured_reports_presence_not_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRAVE_API_KEY", "super-secret-value")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    secrets = SupacrawlSecrets.from_env(dotenv_file=None)
+    secrets = SupacrawlSecrets.from_env()
     configured = secrets.configured()
     assert configured["brave_api_key"] is True
     assert configured["tavily_api_key"] is False
     # The presence map must never carry the value itself.
     assert "super-secret-value" not in str(configured)
-
-
-@pytest.mark.unit
-def test_metrics_password_reported_in_secrets_presence(monkeypatch: pytest.MonkeyPatch) -> None:
-    """metrics_password presence is reported by configured(); its value never leaks."""
-    monkeypatch.setenv("SUPACRAWL_METRICS_PASSWORD", "hunter2")
-    monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
-    secrets = SupacrawlSecrets.from_env(dotenv_file=None)
-    configured = secrets.configured()
-    assert configured["metrics_password"] is True
-    assert configured["metrics_token"] is False
-    assert "hunter2" not in str(configured)
 
 
 @pytest.mark.unit
@@ -210,7 +198,7 @@ def test_searxng_credentials_reported_in_secrets_presence(monkeypatch: pytest.Mo
     """
     monkeypatch.setenv("SEARXNG_USERNAME", "searxng-user-placeholder")
     monkeypatch.delenv("SEARXNG_PASSWORD", raising=False)
-    secrets = SupacrawlSecrets.from_env(dotenv_file=None)
+    secrets = SupacrawlSecrets.from_env()
     configured = secrets.configured()
     assert configured["searxng_username"] is True
     assert configured["searxng_password"] is False
@@ -265,153 +253,3 @@ def test_config_secrets_says_nothing_about_the_broker_when_unconfigured(monkeypa
     assert result.exit_code == 0
     assert "searxng_portcullis_credential" not in result.output
     assert "broker" not in result.output
-
-
-@pytest.mark.unit
-def test_brokered_metrics_credential_is_not_a_secret_field() -> None:
-    """The catalogue NAME is an identifier, not a credential — never listed as a secret.
-
-    Listing it among the secrets would say a value is present when none is — the
-    token never leaves the broker.
-    """
-    assert "metrics_portcullis_credential" not in SupacrawlSecrets.model_fields
-
-
-@pytest.mark.unit
-def test_config_secrets_explains_the_brokered_metrics_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A broker-configured operator must not be sent after a missing metrics token.
-
-    With the MCP server fetching the Loki push token from the broker,
-    ``SUPACRAWL_METRICS_TOKEN`` is absent on purpose; a bare "-" against it reads
-    as a misconfiguration and sends the operator after the wrong problem.
-    """
-    from click.testing import CliRunner
-
-    from supacrawl.cli.config import config_secrets
-
-    monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
-    monkeypatch.setenv("SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL", "loki-push-credential-name-placeholder")
-
-    result = CliRunner().invoke(config_secrets, [])
-
-    assert result.exit_code == 0
-    assert "loki-push-credential-name-placeholder" in result.output
-    assert "Loki push token" in result.output
-    assert "expected to be unset" in result.output
-
-
-@pytest.mark.unit
-def test_config_secrets_says_nothing_about_metrics_broker_when_unconfigured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When the metrics broker name is not in the env, nothing is said about it.
-
-    The MCP server's own ``loki-push`` default lives in SupacrawlSettings, which
-    this CLI command does not read; the env override is the only signal here, so
-    its absence means the report stays quiet (mirroring the SearXNG behaviour).
-    """
-    from click.testing import CliRunner
-
-    from supacrawl.cli.config import config_secrets
-
-    monkeypatch.delenv("SUPACRAWL_METRICS_PORTCULLIS_CREDENTIAL", raising=False)
-
-    result = CliRunner().invoke(config_secrets, [])
-
-    assert result.exit_code == 0
-    assert "metrics_portcullis_credential" not in result.output
-    assert "Loki push token" not in result.output
-
-
-# ---------------------------------------------------------------------------
-# New telemetry config fields
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_metrics_remote_username_in_config_schema() -> None:
-    """metrics_remote_username must appear in the GUI schema with x-ui metadata."""
-    schema = config_schema()
-    assert "metrics_remote_username" in schema["properties"]
-    ui = schema["properties"]["metrics_remote_username"]["x-ui"]
-    assert ui["group"] == "telemetry"
-    assert ui["widget"] == "text"
-    assert "help" in ui
-
-
-@pytest.mark.unit
-def test_metrics_remote_tenant_in_config_schema() -> None:
-    """metrics_remote_tenant must appear in the GUI schema with x-ui metadata."""
-    schema = config_schema()
-    assert "metrics_remote_tenant" in schema["properties"]
-    ui = schema["properties"]["metrics_remote_tenant"]["x-ui"]
-    assert ui["group"] == "telemetry"
-    assert ui["widget"] == "text"
-
-
-@pytest.mark.unit
-def test_new_telemetry_fields_not_in_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
-    """metrics_remote_username and metrics_remote_tenant live in config, not secrets."""
-    secret_fields = set(SupacrawlSecrets.model_fields)
-    assert "metrics_remote_username" not in secret_fields
-    assert "metrics_remote_tenant" not in secret_fields
-
-
-# ---------------------------------------------------------------------------
-# Secrets dotenv fallback (metrics.env)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-def test_secrets_dotenv_fallback_loads_token(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """from_env() picks up SUPACRAWL_METRICS_TOKEN from the dotenv file when absent from env."""
-    env_file = tmp_path / "metrics.env"
-    env_file.write_text("SUPACRAWL_METRICS_TOKEN=file-token-value\n", encoding="utf-8")
-    monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
-    secrets = SupacrawlSecrets.from_env(dotenv_file=env_file)
-    assert secrets.configured()["metrics_token"] is True
-
-
-@pytest.mark.unit
-def test_secrets_env_wins_over_dotenv_file(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Process env takes precedence over the dotenv file for the same variable."""
-    env_file = tmp_path / "metrics.env"
-    env_file.write_text("SUPACRAWL_METRICS_TOKEN=file-token-value\n", encoding="utf-8")
-    monkeypatch.setenv("SUPACRAWL_METRICS_TOKEN", "env-token-value")
-    secrets = SupacrawlSecrets.from_env(dotenv_file=env_file)
-    # Both sources are set; env wins — confirmed by presence (value never inspected).
-    assert secrets.configured()["metrics_token"] is True
-    # Verify via the internal value that env won (this is the one safe place to
-    # compare the value: the env var is set by the test, not a real secret).
-    assert secrets.metrics_token == "env-token-value"
-
-
-@pytest.mark.unit
-def test_secrets_absent_dotenv_file_is_no_op(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A missing dotenv file is silently ignored; the server starts cleanly."""
-    absent = tmp_path / "nonexistent.env"
-    monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
-    secrets = SupacrawlSecrets.from_env(dotenv_file=absent)
-    assert secrets.configured()["metrics_token"] is False
-
-
-@pytest.mark.unit
-def test_secrets_dotenv_comment_and_blank_lines_ignored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Comment and blank lines in the dotenv file do not cause parse errors."""
-    env_file = tmp_path / "metrics.env"
-    env_file.write_text(
-        "# This is a comment\n\nSUPACRAWL_METRICS_TOKEN=tok123\n# another comment\n",
-        encoding="utf-8",
-    )
-    monkeypatch.delenv("SUPACRAWL_METRICS_TOKEN", raising=False)
-    secrets = SupacrawlSecrets.from_env(dotenv_file=env_file)
-    assert secrets.configured()["metrics_token"] is True

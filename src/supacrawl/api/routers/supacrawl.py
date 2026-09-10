@@ -81,15 +81,10 @@ async def config_effective(
     value — so a GUI can show "configured" / "not set" indicators safely.
     """
     from supacrawl.config import SupacrawlSecrets, load_config
-    from supacrawl.remote_sink import strip_url_credentials
 
     config = load_config()
     secrets = SupacrawlSecrets.from_env()
     config_dump = config.model_dump(mode="json")
-    # Defence in depth: a user could embed basic-auth credentials in the push URL
-    # (https://user:pass@host/...). Strip them so the API never echoes a secret.
-    if config_dump.get("metrics_remote_url"):
-        config_dump["metrics_remote_url"] = strip_url_credentials(config_dump["metrics_remote_url"])
     return {
         "config": config_dump,
         "secrets": secrets.configured(),

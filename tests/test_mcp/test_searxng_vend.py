@@ -52,18 +52,8 @@ FORBIDDEN_IN_A_GAP_MESSAGE = (
 
 
 def _server(credential_name: str) -> SupacrawlServer:
-    """A server whose only non-default setting is the SearXNG credential name.
-
-    The metrics credential defaults to "loki-push" and shares the
-    ``vend_static_fields`` surface; disable it here so these tests observe the
-    SearXNG vend in isolation, exactly as they did before the metrics vend landed.
-    """
-    return SupacrawlServer(
-        settings=SupacrawlSettings(
-            SEARXNG_PORTCULLIS_CREDENTIAL=credential_name,
-            metrics_portcullis_credential="",
-        )
-    )
+    """A server whose only non-default setting is the SearXNG credential name."""
+    return SupacrawlServer(settings=SupacrawlSettings(SEARXNG_PORTCULLIS_CREDENTIAL=credential_name))
 
 
 class TestUnsetCredentialChangesNothing:
@@ -97,11 +87,6 @@ class TestUnsetCredentialChangesNothing:
         assert create.call_args.kwargs == {
             "searxng_username": None,
             "searxng_password": None,
-            # The metrics vend is disabled in this fixture (see _server), so its
-            # kwargs are the no-op defaults — present because create_api_client
-            # forwards them unconditionally, but carrying no credential.
-            "metrics_token": None,
-            "metrics_token_vended": False,
         }
 
 
@@ -121,8 +106,6 @@ class TestVendedCredentialReachesTheServices:
         assert create.call_args.kwargs == {
             "searxng_username": VENDED_USERNAME,
             "searxng_password": VENDED_PASSWORD,
-            "metrics_token": None,
-            "metrics_token_vended": False,
         }
 
     @pytest.mark.asyncio

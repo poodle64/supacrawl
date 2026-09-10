@@ -25,7 +25,6 @@ SUPACRAWL_SECRET_KEYS: frozenset[str] = frozenset(
     {
         "captcha_api_key",
         "mcp_auth_token",
-        "metrics_token",
         "proxy",
         "searxng_password",
     }

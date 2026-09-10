@@ -48,9 +48,8 @@ class TestConfigSchema:
 
     def test_includes_telemetry_fields(self, client: TestClient) -> None:
         props = client.get("/supacrawl/config/schema").json()["properties"]
-        assert "metrics_remote_url" in props
-        assert "metrics_remote_username" in props
-        assert "metrics_remote_tenant" in props
+        assert "metrics" in props
+        assert "metrics_full_url" in props
 
     def test_x_ui_metadata_present(self, client: TestClient) -> None:
         """Every property must carry x-ui metadata (dashboard renders from this)."""
@@ -89,16 +88,16 @@ class TestConfigEffective:
             assert isinstance(val, bool), f"secrets[{key!r}] is {type(val).__name__}, expected bool"
 
     def test_secrets_presence_reflects_env(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Setting SUPACRAWL_METRICS_PASSWORD must flip metrics_password to True."""
-        with patch.dict("os.environ", {"SUPACRAWL_METRICS_PASSWORD": "sekret"}):
+        """Setting BRAVE_API_KEY must flip brave_api_key to True."""
+        with patch.dict("os.environ", {"BRAVE_API_KEY": "sekret"}):
             resp = client.get("/supacrawl/config")
         data = resp.json()
-        assert data["secrets"]["metrics_password"] is True
+        assert data["secrets"]["brave_api_key"] is True
 
     def test_secret_value_never_in_response(self, client: TestClient) -> None:
         """Secret values must not appear anywhere in the serialised response."""
         secret_val = "super-secret-token-xyz"
-        with patch.dict("os.environ", {"SUPACRAWL_METRICS_TOKEN": secret_val}):
+        with patch.dict("os.environ", {"BRAVE_API_KEY": secret_val}):
             resp = client.get("/supacrawl/config")
         assert secret_val not in resp.text
 
@@ -106,7 +105,6 @@ class TestConfigEffective:
         config = client.get("/supacrawl/config").json()["config"]
         assert "timeout" in config
         assert "metrics" in config
-        assert "metrics_remote_url" in config
 
 
 # ---------------------------------------------------------------------------
@@ -153,19 +151,3 @@ class TestMetricsSummary:
         assert data["searches"] == 0
         assert data["success_rate"] is None
         assert data["escalation_rate"] is None
-
-
-class TestConfigCredentialMasking:
-    """Credentials embedded in metrics_remote_url must never reach the response."""
-
-    def test_url_embedded_password_is_stripped(self, client: TestClient) -> None:
-        with patch("supacrawl.config.load_config") as mock_load:
-            mock_load.return_value.model_dump.return_value = {
-                "metrics_remote_url": "https://user:sup3rsecret@loki.example.com/loki/api/v1/push",
-                "metrics": True,
-            }
-            resp = client.get("/supacrawl/config")
-        assert resp.status_code == 200
-        assert "sup3rsecret" not in resp.text
-        # Host preserved so a GUI can still display/edit the endpoint.
-        assert resp.json()["config"]["metrics_remote_url"] == "https://loki.example.com/loki/api/v1/push"
